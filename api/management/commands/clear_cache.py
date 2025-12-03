@@ -68,3 +68,5 @@ class Command(BaseCommand):
             self.stdout.write('Clearing academy caches...')
             clear_academy_caches()
             self.stdout.write(self.style.SUCCESS('✓ Academy caches cleared'))
+
+
