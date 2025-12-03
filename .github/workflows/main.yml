@@ -31,7 +31,7 @@ jobs:
           key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
           port: ${{ secrets.DEV_SSH_PORT }}
           source: "./"
-          target: "/var/www/primeacademy/api"
+          target: "/var/www/backend/api"
           strip_components: 1
           rm: false
 
