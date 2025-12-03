@@ -148,4 +148,5 @@ GitHub.sublime-settings
 
 # Documentation and instruction files #
 *.md
-!README.md
+!README.mdstaticfiles/
+*.tar.gz
