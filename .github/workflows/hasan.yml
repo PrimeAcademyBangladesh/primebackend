@@ -1,0 +1,51 @@
+name: Prime Academy CI — Run tests BY Hasan
+
+on:
+  push:
+    branches:
+      - hasan
+      
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements.txt -r requirements-dep.txt
+
+      - name: Run tests
+        env:
+          PYTHONUNBUFFERED: 1
+        run: |
+          # exit immediately on error, print output unbuffered
+          set -euo pipefail
+
+          # Run Django test suite and stop on first failure to fail fast
+          python manage.py test --verbosity=2 --failfast
+
+      - name: Upload test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: ./test-reports || ./

@@ -1,0 +1,14 @@
+{% extends "emails/base_email.html" %}
+
+{% block content %}
+  <h2>Welcome, {{ first_name }}!</h2>
+  <p>Thanks for signing up. Please confirm your email address by clicking the button below:</p>
+  <p>
+    <a href="{{ verify_url }}" style="display:inline-block; padding:12px 24px; background:#03386A; color:#fff; text-decoration:none; border-radius:6px; font-weight:bold;">
+      Verify My Email
+    </a>
+  </p>
+  <p>Or copy and paste this link in your browser:<br>
+  <code style="word-break: break-all;">{{ verify_url }}</code></p>
+  <p>If you didn’t create this account, you can safely ignore this email.</p>
+{% endblock %}
