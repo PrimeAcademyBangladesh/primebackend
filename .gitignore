@@ -4,6 +4,7 @@
 *.pyc
 __pycache__
 db.sqlite3
+db.sqlite3
 # Ignore everything inside media
 media/**
 # But keep all subfolders
@@ -48,7 +49,7 @@ __pycache__/
 
 # IntelliJ
 out/
-
+new.env
 # JIRA plugin
 atlassian-ide-plugin.xml
 
