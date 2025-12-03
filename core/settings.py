@@ -24,11 +24,7 @@ load_dotenv()
 # --------------------------------------------------------------------------
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "default-insecure-key")
-# SECURITY WARNING: don't run with debug turned on in production!
-if os.getenv("ENVIRONMENT", "development") == "development":
-    DEBUG = True
-else:
-    DEBUG = False
+DEBUG = os.getenv("DEBUG", "False") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
 
 # --------------------------------------------------------------------------
@@ -98,7 +94,7 @@ WSGI_APPLICATION = "core.wsgi.application"
 # DATABASE CONFIGURATION
 # --------------------------------------------------------------------------
 
-if os.getenv("ENVIRONMENT", "development") == "development":
+if DEBUG:
     # Development: SQLite
     DATABASES = {
         "default": {
@@ -253,16 +249,16 @@ SIMPLE_JWT = {
 STATIC_URL = "/static/"
 
 
-if os.getenv("ENVIRONMENT", "development") == "development":
+if DEBUG:
     STATICFILES_DIRS = [BASE_DIR / "core" / "static"]
-    STATIC_ROOT = BASE_DIR / "staticfiles"
+    STATIC_ROOT = BASE_DIR / "staticfiles" 
 else:
-    STATIC_ROOT = "/var/www/backend/api/staticfiles/" 
+    STATIC_ROOT = "/var/www/backend/api/staticfiles/"
 
 
 MEDIA_URL = "/media/"
 
-if os.getenv("ENVIRONMENT", "development") == "development":
+if DEBUG:
     MEDIA_ROOT = BASE_DIR / "media"
 else:
     MEDIA_ROOT = "/var/www/backend/api/media/"
@@ -348,7 +344,7 @@ else:
 # SECURE_CONTENT_TYPE_NOSNIFF = True
 
 
-if os.getenv("ENVIRONMENT", "development") == "development":
+if DEBUG:
     SITE_BASE_URL = "http://127.0.0.1:8000"
 else:
     SITE_BASE_URL = os.getenv("SITE_BASE_API_URL", "http://127.0.0.1:8000")
@@ -359,7 +355,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 
-if os.getenv("ENVIRONMENT", "development") == "development":
+if DEBUG:
     FRONTEND_URL = "http://localhost:5173"
 else:
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://45.85.250.92")
