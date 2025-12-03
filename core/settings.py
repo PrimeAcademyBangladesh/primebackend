@@ -252,12 +252,12 @@ SIMPLE_JWT = {
 # --------------------------------------------------------------------------
 STATIC_URL = "/static/"
 
+
 if os.getenv("ENVIRONMENT", "development") == "development":
     STATICFILES_DIRS = [BASE_DIR / "core" / "static"]
-    STATIC_ROOT = BASE_DIR / "staticfiles"  # For collectstatic in development
+    STATIC_ROOT = BASE_DIR / "staticfiles"
 else:
-    STATIC_ROOT = "/var/www/primeacademy/api/static/"
-
+    STATIC_ROOT = "/var/www/backend/api/staticfiles/" 
 
 
 MEDIA_URL = "/media/"
@@ -265,7 +265,7 @@ MEDIA_URL = "/media/"
 if os.getenv("ENVIRONMENT", "development") == "development":
     MEDIA_ROOT = BASE_DIR / "media"
 else:
-    MEDIA_ROOT = "/var/www/primeacademy/api/media/"
+    MEDIA_ROOT = "/var/www/backend/api/media/"
 
 
 # --------------------------------------------------------------------------
@@ -290,8 +290,6 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "https://prime-academy-bd.vercel.app",
-    "http://prime-academy-bd.vercel.app",
     "http://45.85.250.92",
 ]
 
@@ -364,7 +362,7 @@ AUTHENTICATION_BACKENDS = [
 if os.getenv("ENVIRONMENT", "development") == "development":
     FRONTEND_URL = "http://localhost:5173"
 else:
-    FRONTEND_URL = os.getenv("FRONTEND_URL", "https://prime-academy-bd.vercel.app")
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://45.85.250.92")
 
 # Backend URL for webhooks
 BACKEND_URL = os.getenv("BACKEND_URL", SITE_BASE_URL)
