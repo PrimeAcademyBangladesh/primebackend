@@ -52,7 +52,7 @@ out/
 new.env
 # JIRA plugin
 atlassian-ide-plugin.xml
-
+staticfiles/
 # Python # 
 *.py[cod] 
 *$py.class 
