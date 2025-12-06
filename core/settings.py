@@ -253,7 +253,7 @@ if os.getenv("ENVIRONMENT", "development") == "development":
     STATICFILES_DIRS = [BASE_DIR / "core" / "static"]
     STATIC_ROOT = BASE_DIR / "staticfiles"  # For collectstatic in development
 else:
-    STATIC_ROOT = "/var/www/primeacademy/api/static/"
+    STATIC_ROOT = "/var/www/backend/api/staticfiles"
 
 
 
@@ -262,7 +262,7 @@ MEDIA_URL = "/media/"
 if os.getenv("ENVIRONMENT", "development") == "development":
     MEDIA_ROOT = BASE_DIR / "media"
 else:
-    MEDIA_ROOT = "/var/www/primeacademy/api/media/"
+    MEDIA_ROOT = "/var/www/backend/api/media"
 
 
 # --------------------------------------------------------------------------
