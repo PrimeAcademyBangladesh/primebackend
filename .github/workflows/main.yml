@@ -5,154 +5,37 @@ on:
     branches:
       - main
 
-env:
-  PYTHON_VERSION: '3.11'
-  DEPLOY_PATH: /var/www/backend/api
-
 jobs:
-  # ═══════════════════════════════════════════════════════════
-  # JOB 1: RUN TESTS & QUALITY CHECKS
-  # ═══════════════════════════════════════════════════════════
-  test:
-    name: Run Tests & Quality Checks
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip wheel
-          pip install -r requirements.txt -r requirements-dep.txt
-          pip install pytest pytest-django pytest-cov flake8 pip-audit
-
-      - name: Run linting (flake8)
-        run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-      - name: Run security audit
-        run: |
-          pip-audit --desc --skip-editable || echo "⚠️ Security audit found vulnerabilities (non-blocking)"
-
-      - name: Check Django configuration
-        run: |
-          python manage.py check --deploy --fail-level ERROR
-        env:
-          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-          DEBUG: "False"
-          ALLOWED_HOSTS: "testserver,localhost,127.0.0.1"
-          DATABASE_URL: "sqlite:///db.sqlite3"
-          CORS_ALLOWED_ORIGINS: "http://testserver,http://localhost:5173"
-          CSRF_TRUSTED_ORIGINS: "http://testserver,http://localhost:5173"
-          FRONTEND_URL: "http://testserver"
-          SITE_BASE_URL: "http://testserver:8080"
-          BACKEND_URL: "http://testserver:8080"
-          EMAIL_HOST: "smtp.test.com"
-          EMAIL_HOST_USER: "test@test.com"
-          EMAIL_HOST_PASSWORD: "testpassword"
-          EMAIL_PORT: "587"
-          EMAIL_USE_TLS: "True"
-          DEFAULT_FROM_EMAIL: "noreply@test.com"
-          SSLCOMMERZ_STORE_ID: "test_store_id"
-          SSLCOMMERZ_STORE_PASSWORD: "test_store_password"
-          SSLCOMMERZ_IS_SANDBOX: "True"
-
-      - name: Run tests with coverage
-        run: |
-          pytest --cov=api --cov-report=term-missing --cov-report=xml --cov-fail-under=65
-        env:
-          DJANGO_SETTINGS_MODULE: core.settings
-          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-          DEBUG: "True"
-          ALLOWED_HOSTS: "localhost,127.0.0.1"
-          DATABASE_URL: "sqlite:///db.sqlite3"
-
-      - name: Check migrations
-        run: |
-          python manage.py makemigrations --check --dry-run
-        env:
-          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-          DEBUG: "True"
-          ALLOWED_HOSTS: "localhost,127.0.0.1"
-          DATABASE_URL: "sqlite:///db.sqlite3"
-
-  # ═══════════════════════════════════════════════════════════
-  # JOB 2: BUILD & PREPARE DEPLOYMENT
-  # ═══════════════════════════════════════════════════════════
-  build:
-    name: Build & Prepare
-    runs-on: ubuntu-latest
-    needs: test
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip wheel
-          pip install -r requirements.txt -r requirements-dep.txt
-
-      - name: Compile Python bytecode
-        run: |
-          python -m compileall -q .
-
-      - name: Generate deployment manifest
-        run: |
-          echo "DEPLOY_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
-          echo "COMMIT_SHA=${{ github.sha }}" >> $GITHUB_ENV
-          echo "COMMIT_MSG=$(git log -1 --pretty=%B)" >> $GITHUB_ENV
-
-  # ═══════════════════════════════════════════════════════════
-  # JOB 3: BACKUP & DEPLOY
-  # ═══════════════════════════════════════════════════════════
   deploy:
-    name: Deploy to Production VPS
+    name: Deploy to VPS
     runs-on: ubuntu-latest
-    needs: build
-
     steps:
-      # -----------------------------
-      # ✅ STEP 1: Checkout Code
-      # -----------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # -----------------------------
-      # ✅ STEP 2: Setup Python
-      # -----------------------------
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
+          python-version: '3.11'
 
-      # -----------------------------
-      # ✅ STEP 3: Install Dependencies
-      # -----------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip wheel
           pip install -r requirements.txt -r requirements-dep.txt
 
-      # -----------------------------
-      # ✅ STEP 4: BACKUP DATABASE
-      # -----------------------------
-      - name: 🔐 Backup Database Before Migration
+      - name: Deploy to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: ${{ secrets.DEV_SSH_USER }}
+          key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.DEV_SSH_PORT }}
+          source: "./"
+          target: "/var/www/backend/api"
+          strip_components: 1
+          rm: false
+
+      - name: Restart app on VPS
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.DEV_SSH_HOST }}
@@ -160,152 +43,17 @@ jobs:
           key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
-            mkdir -p /var/www/backend/backups
-            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-            
-            # Use sudo to run pg_dump as postgres user (peer authentication works)
-            sudo -u postgres pg_dump primeacademydb > /var/www/backend/backups/db_backup_${TIMESTAMP}.sql
-            
-            # Keep only last 3 backups (faster cleanup)
-            cd /var/www/backend/backups
-            ls -t db_backup_*.sql | tail -n +4 | xargs -r rm
-            
-            echo "✅ Database backup: db_backup_${TIMESTAMP}.sql"
-
-      # -----------------------------
-      # ✅ STEP 5: DEPLOY CODE USING RSYNC
-      # -----------------------------
-      - name: 📦 Deploy to VPS using rsync
-        uses: burnett01/rsync-deployments@7.0.1
-        with:
-          switches: -avz --delete --exclude="venv" --exclude=".git" --exclude=".env" --exclude="media" --exclude="staticfiles" --exclude="__pycache__" --exclude="*.pyc" --exclude="db.sqlite3"
-          path: ./
-          remote_path: ${{ env.DEPLOY_PATH }}/
-          remote_host: ${{ secrets.DEV_SSH_HOST }}
-          remote_user: ${{ secrets.DEV_SSH_USER }}
-          remote_key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
-
-      # -----------------------------
-      # ✅ STEP 6: INSTALL DEPENDENCIES & MIGRATIONS
-      # -----------------------------
-      - name: 🔧 Install Dependencies & Run Migrations
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USER }}
-          key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
-          port: ${{ secrets.DEV_SSH_PORT }}
-          script: |
-            cd ${{ env.DEPLOY_PATH }}
-
-            # Create venv if it doesn't exist
+            cd /var/www/backend/api
             if [ ! -d "venv" ]; then
               python3 -m venv venv
             fi
-
-            # Activate venv
             source venv/bin/activate
-
-            # Upgrade tools
             pip install --upgrade pip wheel
-
-            # Install dependencies (with caching)
-            pip install -r requirements.txt -r requirements-dep.txt --upgrade
-
-            # Check migrations before running
-            python3 manage.py migrate --check || echo "⚠️ Migration check failed"
-
-            # Run migrations
+            pip install -r requirements.txt -r requirements-dep.txt
             python3 manage.py migrate --noinput
-
-            # Collect static files
-            python3 manage.py collectstatic --noinput --clear
-            
-            echo "✅ Dependencies installed and migrations completed"
-
-      # -----------------------------
-      # ✅ STEP 7: RESTART SERVICE
-      # -----------------------------
-      - name: 🔄 Restart Gunicorn Service
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USER }}
-          key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
-          port: ${{ secrets.DEV_SSH_PORT }}
-          script: |
-            # Reload systemd
+            python3 manage.py collectstatic --noinput
             sudo systemctl daemon-reload
-
-            # Restart Gunicorn service
             sudo systemctl restart primeacademy
+            echo "Gunicorn service restarted successfully"
 
-            # Wait for service to start
-            sleep 5
-
-            echo "✅ Gunicorn service restarted"
-
-      # -----------------------------
-      # ✅ STEP 8: HEALTH CHECKS
-      # -----------------------------
-      - name: 🏥 Run Health Checks
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USER }}
-          key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
-          port: ${{ secrets.DEV_SSH_PORT }}
-          script: |
-            # Wait for service to fully start
-            sleep 10
             
-            # Check if application responds (primary check)
-            HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" http://localhost:8080/api/health/ || echo "000")
-            
-            if [ "$HTTP_CODE" != "200" ]; then
-              echo "❌ Health check failed! HTTP Code: $HTTP_CODE"
-              echo "📋 Checking service status..."
-              systemctl status primeacademy --no-pager || true
-              exit 1
-            fi
-
-            echo "✅ All health checks passed!"
-            echo "✅ HTTP Health Check: $HTTP_CODE"
-            echo "✅ Application is responding correctly"
-
-  # ═══════════════════════════════════════════════════════════
-  # JOB 4: POST-DEPLOY VERIFICATION
-  # ═══════════════════════════════════════════════════════════
-  verify:
-    name: Post-Deploy Verification
-    runs-on: ubuntu-latest
-    needs: deploy
-    
-    steps:
-      - name: 🔍 Verify Deployment
-        run: |
-          # Test external endpoint
-          HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" http://45.85.250.92:8080/api/health/ || echo "000")
-          
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ External health check passed!"
-          else
-            echo "❌ External health check failed! HTTP Code: $HTTP_CODE"
-            exit 1
-          fi
-
-      - name: 📢 Send Success Notification
-        if: success()
-        run: |
-          echo "🎉 Deployment successful!"
-          echo "📦 Commit: ${{ github.sha }}"
-          echo "👤 Author: ${{ github.actor }}"
-          echo "🌐 URL: http://45.85.250.92:8080"
-
-      - name: 📢 Send Failure Notification
-        if: failure()
-        run: |
-          echo "❌ Deployment failed!"
-          echo "📦 Commit: ${{ github.sha }}"
-          echo "👤 Author: ${{ github.actor }}"
-          echo "🔄 Rollback may be required"
