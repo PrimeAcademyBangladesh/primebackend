@@ -25,7 +25,12 @@ load_dotenv()
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "default-insecure-key")
 DEBUG = os.getenv("DEBUG", "False") == "True"
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
+allowed_hosts = os.getenv("ALLOWED_HOSTS", "")
+
+if allowed_hosts:
+    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts.split(",") if host.strip()]
+else:
+    ALLOWED_HOSTS = ["45.85.250.92", "localhost", "127.0.0.1"]
 
 # --------------------------------------------------------------------------
 # APPLICATION DEFINITION
@@ -158,8 +163,8 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.MultiPartParser",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "50000/minute",
-        "user": "1500/hour",
+        "anon": "150000/minute",
+        "user": "15000/hour",
         "login": "535/minute",
         "resend": "13/hour",
         "registration": "30/minute",
@@ -167,14 +172,6 @@ REST_FRAMEWORK = {
         "payment_webhook": "200/hour",
         "payment_verify": "30/minute",
     },  # In production, consider:
-    # "DEFAULT_THROTTLE_RATES": {
-    #     "anon": "50/day",  # Changed from 5/min to 50/day - prevents spam but allows some access
-    #     "user": "5000/day",  # Increased from 1000/day - ~208/hour for active users
-    #     "login": "5/minute",  # Keep - good security
-    #     "resend": "5/hour",  # Slightly increased
-    #     "registration": "20/day",  # Changed from 10/min to 20/day - prevents bulk registration
-    # },
-    # Configuration for drf-spectacular
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
@@ -253,6 +250,7 @@ if DEBUG:
     STATICFILES_DIRS = [BASE_DIR / "core" / "static"]
     STATIC_ROOT = BASE_DIR / "staticfiles" 
 else:
+    STATICFILES_DIRS = ["/var/www/backend/api/core/static/"]
     STATIC_ROOT = "/var/www/backend/api/staticfiles/"
 
 
@@ -287,32 +285,33 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://45.85.250.92",
+    "http://45.85.250.92:8080",
 ]
 
 # Allow credentials for session-based cart (required for guest users)
 CORS_ALLOW_CREDENTIALS = True
 
 # Session and CSRF cookie settings
-# IMPORTANT: Cart merge requires session cookies to work in both:
-# - Development: http://localhost (SameSite=None works with HTTPS only)
-# - Production: https://vercel (cross-origin requires SameSite=None)
-#
-# Solution: Always use None/True for cross-origin support
-# Note: In development, use HTTPS (mkcert) OR same-origin frontend
-SESSION_COOKIE_SAMESITE = 'None'  # Allow cross-origin (localhost → backend, vercel → backend)
-SESSION_COOKIE_SECURE = True  # Required when SameSite=None (use HTTPS in dev)
-SESSION_COOKIE_HTTPONLY = True  # Prevent JavaScript access (security)
+
+SESSION_COOKIE_SAMESITE = 'Lax'  # CHANGED from 'None'
+SESSION_COOKIE_SECURE = False    # CHANGED from True (since using HTTP)
+SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_AGE = 1209600  # 2 weeks
 
-CSRF_COOKIE_SAMESITE = 'None'  # Allow cross-origin
-CSRF_COOKIE_SECURE = True  # Required when SameSite=None
+
+# next time checked
+CSRF_COOKIE_SAMESITE = 'Lax'     # CHANGED from 'None'
+CSRF_COOKIE_SECURE = False       # CHANGED from True
+CSRF_COOKIE_HTTPONLY = False     # Set to False for JS access
+
+
 
 # For local development with HTTP, you have two options:
 # Option 1: Run frontend on same origin (http://localhost:8000)
 # Option 2: Use HTTPS in development (mkcert for local SSL)
 CSRF_TRUSTED_ORIGINS = [
     'http://45.85.250.92',
-    'http://45.85.250.92:8080'
+    'http://45.85.250.92:8080',
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
