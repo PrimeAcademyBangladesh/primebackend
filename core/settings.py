@@ -24,9 +24,13 @@ load_dotenv()
 # --------------------------------------------------------------------------
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "default-insecure-key")
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False") == "True"
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
+allowed_hosts = os.getenv("ALLOWED_HOSTS", "")
+
+if allowed_hosts:
+    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts.split(",") if host.strip()]
+else:
+    ALLOWED_HOSTS = ["45.85.250.92", "localhost", "127.0.0.1"]
 
 # --------------------------------------------------------------------------
 # APPLICATION DEFINITION
@@ -95,7 +99,7 @@ WSGI_APPLICATION = "core.wsgi.application"
 # DATABASE CONFIGURATION
 # --------------------------------------------------------------------------
 
-if os.getenv("ENVIRONMENT", "development") == "development":
+if DEBUG:
     # Development: SQLite
     DATABASES = {
         "default": {
@@ -159,8 +163,8 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.MultiPartParser",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "50000/minute",
-        "user": "1500/hour",
+        "anon": "150000/minute",
+        "user": "15000/hour",
         "login": "535/minute",
         "resend": "13/hour",
         "registration": "30/minute",
@@ -168,14 +172,6 @@ REST_FRAMEWORK = {
         "payment_webhook": "200/hour",
         "payment_verify": "30/minute",
     },  # In production, consider:
-    # "DEFAULT_THROTTLE_RATES": {
-    #     "anon": "50/day",  # Changed from 5/min to 50/day - prevents spam but allows some access
-    #     "user": "5000/day",  # Increased from 1000/day - ~208/hour for active users
-    #     "login": "5/minute",  # Keep - good security
-    #     "resend": "5/hour",  # Slightly increased
-    #     "registration": "20/day",  # Changed from 10/min to 20/day - prevents bulk registration
-    # },
-    # Configuration for drf-spectacular
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
@@ -228,7 +224,7 @@ SPECTACULAR_SETTINGS = {
 
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=2),
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=24),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
@@ -249,20 +245,21 @@ SIMPLE_JWT = {
 # --------------------------------------------------------------------------
 STATIC_URL = "/static/"
 
-if os.getenv("ENVIRONMENT", "development") == "development":
-    STATICFILES_DIRS = [BASE_DIR / "core" / "static"]
-    STATIC_ROOT = BASE_DIR / "staticfiles"  # For collectstatic in development
-else:
-    STATIC_ROOT = "/var/www/primeacademy/api/static/"
 
+if DEBUG:
+    STATICFILES_DIRS = [BASE_DIR / "core" / "static"]
+    STATIC_ROOT = BASE_DIR / "staticfiles" 
+else:
+    STATICFILES_DIRS = ["/var/www/backend/api/core/static/"]
+    STATIC_ROOT = "/var/www/backend/api/staticfiles/"
 
 
 MEDIA_URL = "/media/"
 
-if os.getenv("ENVIRONMENT", "development") == "development":
+if DEBUG:
     MEDIA_ROOT = BASE_DIR / "media"
 else:
-    MEDIA_ROOT = "/var/www/primeacademy/api/media/"
+    MEDIA_ROOT = "/var/www/backend/api/media/"
 
 
 # --------------------------------------------------------------------------
@@ -279,6 +276,12 @@ USE_TZ = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
+CORS_ALLOW_HEADERS = [
+    "content-type",
+    "authorization",
+    "x-csrftoken",
+]
+
 # --------------------------------------------------------------------------
 # CORS & EMAIL
 # --------------------------------------------------------------------------
@@ -287,36 +290,48 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "https://prime-academy-bd.vercel.app",
-    "http://prime-academy-bd.vercel.app",
     "http://45.85.250.92",
+    "http://45.85.250.92:8080",
 ]
 
-# Allow credentials for session-based cart (required for guest users)
+# --------------------------------------------------
+# SESSION & CSRF COOKIES (DEV vs PROD)
+# --------------------------------------------------
+
+if DEBUG:
+    SESSION_COOKIE_SAMESITE = 'None'
+    SESSION_COOKIE_SECURE = False   # HTTP only
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_AGE = 60 * 60 * 24
+
+    CSRF_COOKIE_SAMESITE = 'None'
+    CSRF_COOKIE_SECURE = False
+    CSRF_COOKIE_HTTPONLY = True
+else:
+    SESSION_COOKIE_SAMESITE = 'None'
+    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_AGE = 60 * 60 * 24
+
+    CSRF_COOKIE_SAMESITE = 'None'
+    CSRF_COOKIE_SECURE = True
+    CSRF_COOKIE_HTTPONLY = True
+
+
+# Required for session-based cart & auth cookies
 CORS_ALLOW_CREDENTIALS = True
+SESSION_SAVE_EVERY_REQUEST = True
 
-# Session and CSRF cookie settings
-# IMPORTANT: Cart merge requires session cookies to work in both:
-# - Development: http://localhost (SameSite=None works with HTTPS only)
-# - Production: https://vercel (cross-origin requires SameSite=None)
-#
-# Solution: Always use None/True for cross-origin support
-# Note: In development, use HTTPS (mkcert) OR same-origin frontend
-SESSION_COOKIE_SAMESITE = 'None'  # Allow cross-origin (localhost → backend, vercel → backend)
-SESSION_COOKIE_SECURE = True  # Required when SameSite=None (use HTTPS in dev)
-SESSION_COOKIE_HTTPONLY = True  # Prevent JavaScript access (security)
-SESSION_COOKIE_AGE = 1209600  # 2 weeks
 
-CSRF_COOKIE_SAMESITE = 'None'  # Allow cross-origin
-CSRF_COOKIE_SECURE = True  # Required when SameSite=None
 
 # For local development with HTTP, you have two options:
 # Option 1: Run frontend on same origin (http://localhost:8000)
 # Option 2: Use HTTPS in development (mkcert for local SSL)
 CSRF_TRUSTED_ORIGINS = [
-    "https://prime-academy-bd.vercel.app",
-    "https://prime-api.enghasan.com",
-    'http://45.85.250.92',
+    "http://45.85.250.92",
+    "http://45.85.250.92:8080",
+    "https://45.85.250.92",
+    "https://45.85.250.92:8080",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
@@ -325,16 +340,15 @@ CSRF_TRUSTED_ORIGINS = [
 # Email backend configuration (REQUIRED for mandatory verification)
 # Development: console backend (prints emails to console)
 # Production: configure SMTP via environment variables
-if not DEBUG:
+if DEBUG:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 else:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-    EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+    EMAIL_HOST = os.getenv("EMAIL_HOST")
     EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
     EMAIL_USE_TLS = True
-    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
-    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-    DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@primeacademy.org")
+    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 
 
 # --------------------------------------------------------------------------
@@ -347,8 +361,17 @@ else:
 # SECURE_BROWSER_XSS_FILTER = True
 # SECURE_CONTENT_TYPE_NOSNIFF = True
 
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
 
-if os.getenv("ENVIRONMENT", "development") == "development":
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
+
+if DEBUG:
     SITE_BASE_URL = "http://127.0.0.1:8000"
 else:
     SITE_BASE_URL = os.getenv("SITE_BASE_API_URL", "http://127.0.0.1:8000")
@@ -359,10 +382,10 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 
-if os.getenv("ENVIRONMENT", "development") == "development":
+if DEBUG:
     FRONTEND_URL = "http://localhost:5173"
 else:
-    FRONTEND_URL = os.getenv("FRONTEND_URL", "https://prime-academy-bd.vercel.app")
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://45.85.250.92")
 
 # Backend URL for webhooks
 BACKEND_URL = os.getenv("BACKEND_URL", SITE_BASE_URL)
