@@ -301,7 +301,7 @@ SESSION_COOKIE_AGE = 60 * 60 * 24 # AUto logout aftere 24 hours
 
 # next time checked
 CSRF_COOKIE_SAMESITE = 'None'     # CHANGED from 'None'
-CSRF_COOKIE_SECURE = False       # CHANGED from True
+CSRF_COOKIE_SECURE = True       # CHANGED from True
 CSRF_COOKIE_HTTPONLY = True    # Set to False for JS access
 
 
@@ -320,16 +320,16 @@ CSRF_TRUSTED_ORIGINS = [
 # Email backend configuration (REQUIRED for mandatory verification)
 # Development: console backend (prints emails to console)
 # Production: configure SMTP via environment variables
-if not DEBUG:
+if DEBUG:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 else:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-    EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+    EMAIL_HOST = os.getenv("EMAIL_HOST")
     EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
     EMAIL_USE_TLS = True
-    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
-    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-    DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@primeacademy.org")
+    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+
 
 
 # --------------------------------------------------------------------------
