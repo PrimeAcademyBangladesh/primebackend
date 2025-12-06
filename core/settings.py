@@ -293,14 +293,14 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Session and CSRF cookie settings
 
-SESSION_COOKIE_SAMESITE = 'Lax'  # CHANGED from 'None'
+SESSION_COOKIE_SAMESITE = 'None'  # CHANGED from 'None'
 SESSION_COOKIE_SECURE = False    # CHANGED from True (since using HTTP)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_AGE = 60 * 60 * 24 # AUto logout aftere 24 hours
 
 
 # next time checked
-CSRF_COOKIE_SAMESITE = 'Lax'     # CHANGED from 'None'
+CSRF_COOKIE_SAMESITE = 'None'     # CHANGED from 'None'
 CSRF_COOKIE_SECURE = False       # CHANGED from True
 CSRF_COOKIE_HTTPONLY = True    # Set to False for JS access
 
