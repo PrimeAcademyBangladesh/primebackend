@@ -636,10 +636,7 @@ if DEBUG:
         },
     }
 else:
-    # Create logs directory for production
-    log_dir = BASE_DIR / 'logs'
-    log_dir.mkdir(exist_ok=True)
-    
+    # Production: Use console logging only (systemd captures it via journalctl)
     LOGGING = {
         'version': 1,
         'disable_existing_loggers': False,
@@ -650,12 +647,6 @@ else:
             },
         },
         'handlers': {
-            'file': {
-                'level': 'WARNING',
-                'class': 'logging.FileHandler',
-                'filename': str(log_dir / 'django.log'),
-                'formatter': 'verbose',
-            },
             'console': {
                 'level': 'INFO',
                 'class': 'logging.StreamHandler',
@@ -663,29 +654,19 @@ else:
             },
         },
         'root': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
         },
-    }
-
-# Add file logging only in production (optional)
-if not DEBUG:
-    LOGGING['handlers']['file'] = {
-        'level': 'WARNING',
-        'class': 'logging.FileHandler',
-        'filename': str(BASE_DIR / 'logs' / 'django.log'),
-        'formatter': 'verbose',
-    }
-    LOGGING['root']['handlers'] = ['console', 'file']
-    LOGGING['loggers'] = {
-        'django': {
-            'handlers': ['console', 'file'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'django.security': {
-            'handlers': ['file'],
-            'level': 'WARNING',
-            'propagate': False,
+        'loggers': {
+            'django': {
+                'handlers': ['console'],
+                'level': 'INFO',
+                'propagate': False,
+            },
+            'django.security': {
+                'handlers': ['console'],
+                'level': 'WARNING',
+                'propagate': False,
+            },
         },
     }
