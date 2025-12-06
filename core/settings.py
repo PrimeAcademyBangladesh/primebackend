@@ -304,7 +304,7 @@ CORS_ALLOW_CREDENTIALS = True
 # Note: In development, use HTTPS (mkcert) OR same-origin frontend
 SESSION_COOKIE_SAMESITE = 'None'  # Allow cross-origin (localhost → backend, vercel → backend)
 SESSION_COOKIE_SECURE = True  # Required when SameSite=None (use HTTPS in dev)
-SESSION_COOKIE_HTTPONLY = True  # Prevent JavaScript access (security)
+SESSION_COOKIE_HTTPONLY = False  # Prevent JavaScript access (security)
 SESSION_COOKIE_AGE = 1209600  # 2 weeks
 
 CSRF_COOKIE_SAMESITE = 'None'  # Allow cross-origin
