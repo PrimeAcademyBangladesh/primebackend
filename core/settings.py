@@ -262,7 +262,7 @@ MEDIA_URL = "/media/"
 if os.getenv("ENVIRONMENT", "development") == "development":
     MEDIA_ROOT = BASE_DIR / "media"
 else:
-    MEDIA_ROOT = "/var/www/backend/api/media"
+    MEDIA_ROOT = "/var/www/backend/api/media/"
 
 
 # --------------------------------------------------------------------------
@@ -314,9 +314,9 @@ CSRF_COOKIE_SECURE = True  # Required when SameSite=None
 # Option 1: Run frontend on same origin (http://localhost:8000)
 # Option 2: Use HTTPS in development (mkcert for local SSL)
 CSRF_TRUSTED_ORIGINS = [
-    "https://prime-academy-bd.vercel.app",
-    "https://prime-api.enghasan.com",
-    'http://45.85.250.92',
+    "http://45.85.250.92:8080"
+    "http://45.85.250.92",
+    "https://45.85.250.92",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
