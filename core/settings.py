@@ -259,7 +259,7 @@ MEDIA_URL = "/media/"
 if DEBUG:
     MEDIA_ROOT = BASE_DIR / "media"
 else:
-    MEDIA_ROOT = "/var/www/backend/api/media/"
+    MEDIA_ROOT = "/var/www/backend/api/media"
 
 
 # --------------------------------------------------------------------------
