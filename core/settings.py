@@ -308,7 +308,7 @@ SESSION_COOKIE_HTTPONLY = False  # Prevent JavaScript access (security)
 SESSION_COOKIE_AGE = 1209600  # 2 weeks
 
 CSRF_COOKIE_SAMESITE = 'None'  # Allow cross-origin
-CSRF_COOKIE_SECURE = True  # Required when SameSite=None
+CSRF_COOKIE_SECURE = False  # Required when SameSite=None
 
 # For local development with HTTP, you have two options:
 # Option 1: Run frontend on same origin (http://localhost:8000)
