@@ -220,7 +220,7 @@ jobs:
 
             # Collect static files
             python3 manage.py collectstatic --noinput --clear
-
+            
             echo "✅ Dependencies installed and migrations completed"
 
       # -----------------------------
@@ -256,8 +256,11 @@ jobs:
           key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
+            # Wait for service to fully start
+            sleep 10
+            
             # Check if application responds (primary check)
-            HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" http://localhost:8000/api/health/ || echo "000")
+            HTTP_CODE=$(curl -o /dev/null -s -w "%{http_code}" http://localhost:8080/api/health/ || echo "000")
             
             if [ "$HTTP_CODE" != "200" ]; then
               echo "❌ Health check failed! HTTP Code: $HTTP_CODE"
