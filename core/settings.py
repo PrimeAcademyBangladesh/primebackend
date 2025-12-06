@@ -314,7 +314,8 @@ CSRF_COOKIE_SECURE = True  # Required when SameSite=None
 # Option 1: Run frontend on same origin (http://localhost:8000)
 # Option 2: Use HTTPS in development (mkcert for local SSL)
 CSRF_TRUSTED_ORIGINS = [
-    "http://45.85.250.92:8080"
+    "http://45.85.250.92:8080",
+    "https://45.85.250.92:8080",
     "http://45.85.250.92",
     "https://45.85.250.92",
     "http://localhost:5173",
