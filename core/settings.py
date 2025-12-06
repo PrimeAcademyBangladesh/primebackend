@@ -2,14 +2,6 @@
 
 This file centralizes environment-driven configuration used by manage
 commands, tests, and the running application.
-
-SECURITY CHECKLIST:
-- All sensitive data in environment variables
-- CSRF protection properly configured
-- Session security hardened
-- HTTPS enforced in production
-- Proper CORS configuration
-- Rate limiting enabled
 """
 
 import os
@@ -31,26 +23,14 @@ load_dotenv()
 # CORE SECURITY & DEBUG SETTINGS
 # --------------------------------------------------------------------------
 
-# CRITICAL: No fallback in production - must be set in environment
-if os.getenv("DJANGO_SECRET_KEY"):
-    SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
-else:
-    if os.getenv("DEBUG", "False") == "True":
-        SECRET_KEY = "dev-secret-key-change-in-production"
-    else:
-        raise ValueError("DJANGO_SECRET_KEY must be set in production!")
-
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "default-insecure-key")
 DEBUG = os.getenv("DEBUG", "False") == "True"
-
-# Always use environment variable for ALLOWED_HOSTS
 allowed_hosts = os.getenv("ALLOWED_HOSTS", "")
+
 if allowed_hosts:
     ALLOWED_HOSTS = [host.strip() for host in allowed_hosts.split(",") if host.strip()]
 else:
-    if DEBUG:
-        ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
-    else:
-        raise ValueError("ALLOWED_HOSTS must be set in production!")
+    ALLOWED_HOSTS = ["45.85.250.92", "localhost", "127.0.0.1"]
 
 # --------------------------------------------------------------------------
 # APPLICATION DEFINITION
@@ -66,9 +46,10 @@ SYSTEM_APPS = [
     "api.apps.ApiConfig",
 ]
 
+
 THIRD_PARTY_APPS = [
     "rest_framework",
-    "django_ckeditor_5",
+    'django_ckeditor_5',
     "rest_framework.authtoken",
     "rest_framework_simplejwt.token_blacklist",
     "django_filters",
@@ -105,12 +86,14 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "django.template.context_processors.request",
             ],
         },
     },
 ]
 
 WSGI_APPLICATION = "core.wsgi.application"
+
 
 # --------------------------------------------------------------------------
 # DATABASE CONFIGURATION
@@ -126,15 +109,14 @@ if DEBUG:
     }
 else:
     # Production: PostgreSQL
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise ValueError("DATABASE_URL must be set in production!")
-    DATABASES = {"default": dj_database_url.config(default=database_url)}
+    DATABASES = {"default": dj_database_url.config(default=os.getenv("DATABASE_URL"))}
+
 
 # --------------------------------------------------------------------------
 # AUTHENTICATION & CUSTOM USER MODEL
 # --------------------------------------------------------------------------
 
+# Set your Custom User Model
 AUTH_USER_MODEL = "api.CustomUser"
 
 # Password validation
@@ -144,9 +126,6 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-        "OPTIONS": {
-            "min_length": 8,  # Enforce minimum 8 characters
-        },
     },
     {
         "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
@@ -156,13 +135,10 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-AUTHENTICATION_BACKENDS = [
-    "django.contrib.auth.backends.ModelBackend",
-]
+# --------------------------------------------------------------------------
+# DRF & JWT CONFIGURATION (Manual Auth)
+# --------------------------------------------------------------------------
 
-# --------------------------------------------------------------------------
-# DRF & JWT CONFIGURATION
-# --------------------------------------------------------------------------
 
 REST_FRAMEWORK = {
     "DEFAULT_FILTER_BACKENDS": [
@@ -170,11 +146,13 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
+    # Use JWT for authentication by default
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "EXCEPTION_HANDLER": "api.utils.response_utils.custom_exception_handler",
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    # Temporarily disabled for testing
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -184,21 +162,22 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.FormParser",
         "rest_framework.parsers.MultiPartParser",
     ],
-    # Realistic throttle rates for production
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "100/hour",           # Anonymous users: 100 requests/hour
-        "user": "1000/hour",          # Authenticated users: 1000 requests/hour
-        "login": "5/minute",          # Login attempts: 5/minute
-        "resend": "3/hour",           # Email resend: 3/hour
-        "registration": "3/hour",     # Registration: 3/hour
+        "anon": "150000/minute",
+        "user": "15000/hour",
+        "login": "535/minute",
+        "resend": "13/hour",
+        "registration": "30/minute",
+        # Payment-specific throttle scopes
         "payment_webhook": "200/hour",
         "payment_verify": "30/minute",
-    },
+    },  # In production, consider:
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
-# drf-spectacular settings
+# Settings for drf-spectacular
 SPECTACULAR_SETTINGS = {
+    # Basic API info
     "TITLE": "Prime Academy Backend API",
     "DESCRIPTION": (
         "Official REST API for Prime Academy services. "
@@ -206,12 +185,16 @@ SPECTACULAR_SETTINGS = {
         "and other backend services."
     ),
     "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
-    "COMPONENT_SPLIT_REQUEST": True,
+    # Security & schema visibility
+    "SERVE_INCLUDE_SCHEMA": False,  # Hide raw schema in production
+    # 'SERVE_PUBLIC': False,          # Prevent public access to docs
+    "COMPONENT_SPLIT_REQUEST": True,  # Separate request/response schemas
     "DEFAULT_GENERATOR_CLASS": "drf_spectacular.generators.SchemaGenerator",
+    # Authentication: JWT only
     "AUTHENTICATION_WHITELIST": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
+    # Global security scheme for Swagger UI "Authorize"
     "SECURITY": [{"bearerAuth": []}],
     "COMPONENTS": {
         "securitySchemes": {
@@ -221,6 +204,7 @@ SPECTACULAR_SETTINGS = {
                 "bearerFormat": "JWT",
             }
         },
+        # Optional: reusable query parameters
         "parameters": {
             "page": OpenApiParameter(
                 name="page",
@@ -238,9 +222,9 @@ SPECTACULAR_SETTINGS = {
     },
 }
 
-# JWT Configuration
+
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),  # Reduced from 24 hours
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=2),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
@@ -252,25 +236,31 @@ SIMPLE_JWT = {
     "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
+    # Use your custom serializer to include 'role' in the response
     "TOKEN_OBTAIN_SERIALIZER": "api.serializers.serializers_auth.CustomTokenObtainPairSerializer",
 }
 
 # --------------------------------------------------------------------------
 # STATIC & MEDIA FILES
 # --------------------------------------------------------------------------
-
 STATIC_URL = "/static/"
-MEDIA_URL = "/media/"
+
 
 if DEBUG:
     STATICFILES_DIRS = [BASE_DIR / "core" / "static"]
-    STATIC_ROOT = BASE_DIR / "staticfiles"
+    STATIC_ROOT = BASE_DIR / "staticfiles" 
+else:
+    STATICFILES_DIRS = ["/var/www/backend/api/core/static/"]
+    STATIC_ROOT = "/var/www/backend/api/staticfiles/"
+
+
+MEDIA_URL = "/media/"
+
+if DEBUG:
     MEDIA_ROOT = BASE_DIR / "media"
 else:
-    # Use environment variables for production paths
-    STATICFILES_DIRS = [os.getenv("STATIC_FILES_DIR", "/var/www/backend/api/core/static/")]
-    STATIC_ROOT = os.getenv("STATIC_ROOT", "/var/www/backend/api/staticfiles/")
-    MEDIA_ROOT = os.getenv("MEDIA_ROOT", "/var/www/backend/api/media/")
+    MEDIA_ROOT = "/var/www/backend/api/media/"
+
 
 # --------------------------------------------------------------------------
 # INTERNATIONALIZATION
@@ -281,174 +271,112 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
+
+# Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+
 # --------------------------------------------------------------------------
-# CORS CONFIGURATION
+# CORS & EMAIL
 # --------------------------------------------------------------------------
 
-# CORS headers
-CORS_ALLOW_HEADERS = [
-    "content-type",
-    "authorization",
-    "x-csrftoken",
-    "x-requested-with",
+# CORS settings (if your API is accessed by a frontend)
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://45.85.250.92",
+    "http://45.85.250.92:8080",
 ]
 
-# CORS allowed origins
-cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
-if cors_origins:
-    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(",") if origin.strip()]
-else:
-    if DEBUG:
-        CORS_ALLOWED_ORIGINS = [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-        ]
-    else:
-        # Must be set in production
-        raise ValueError("CORS_ALLOWED_ORIGINS must be set in production!")
-
+# Allow credentials for session-based cart (required for guest users)
 CORS_ALLOW_CREDENTIALS = True
 
-# --------------------------------------------------------------------------
-# SESSION & CSRF CONFIGURATION
-# --------------------------------------------------------------------------
+# Session and CSRF cookie settings
 
-if DEBUG:
-    # Development settings (different ports = different origins)
-    SESSION_COOKIE_SAMESITE = 'None'  # Required for cross-origin
-    SESSION_COOKIE_SECURE = False     # HTTP allowed in dev
-    SESSION_COOKIE_HTTPONLY = True    # ✅ ALWAYS True - protects session
-    SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 7 days
-    SESSION_COOKIE_NAME = 'sessionid'
-    
-    CSRF_COOKIE_SAMESITE = 'None'     # Required for cross-origin
-    CSRF_COOKIE_SECURE = False        # HTTP allowed in dev
-    CSRF_COOKIE_HTTPONLY = False      # ✅ False - React needs to read it
-    CSRF_COOKIE_NAME = 'csrftoken'
-else:
-    # Production settings
-    SESSION_COOKIE_SAMESITE = 'Lax'   # More secure (use 'None' only if needed)
-    SESSION_COOKIE_SECURE = True      # HTTPS only
-    SESSION_COOKIE_HTTPONLY = True    # ✅ ALWAYS True - protects session
-    SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 7 days
-    SESSION_COOKIE_NAME = 'sessionid'
-    SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN", None)
-    
-    CSRF_COOKIE_SAMESITE = 'Lax'      # More secure (use 'None' only if needed)
-    CSRF_COOKIE_SECURE = True         # HTTPS only
-    CSRF_COOKIE_HTTPONLY = False      # ✅ False - React needs to read it
-    CSRF_COOKIE_NAME = 'csrftoken'
-    CSRF_COOKIE_DOMAIN = os.getenv("CSRF_COOKIE_DOMAIN", None)
+SESSION_COOKIE_SAMESITE = 'Lax'  # CHANGED from 'None'
+SESSION_COOKIE_SECURE = False    # CHANGED from True (since using HTTP)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_AGE = 60 * 60 * 24 # AUto logout aftere 24 hours
 
-# Session configuration
-SESSION_SAVE_EVERY_REQUEST = True
-SESSION_ENGINE = "django.contrib.sessions.backends.db"  # Database-backed sessions
 
-# CSRF Trusted Origins
-csrf_origins = os.getenv("CSRF_TRUSTED_ORIGINS", "")
-if csrf_origins:
-    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins.split(",") if origin.strip()]
-else:
-    if DEBUG:
-        CSRF_TRUSTED_ORIGINS = [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:8000",
-            "http://127.0.0.1:8000",
-        ]
-    else:
-        # Must be set in production
-        CSRF_TRUSTED_ORIGINS = []
+# next time checked
+CSRF_COOKIE_SAMESITE = 'Lax'     # CHANGED from 'None'
+CSRF_COOKIE_SECURE = False       # CHANGED from True
+CSRF_COOKIE_HTTPONLY = True    # Set to False for JS access
 
-# --------------------------------------------------------------------------
-# EMAIL CONFIGURATION
-# --------------------------------------------------------------------------
 
-if DEBUG:
+
+# For local development with HTTP, you have two options:
+# Option 1: Run frontend on same origin (http://localhost:8000)
+# Option 2: Use HTTPS in development (mkcert for local SSL)
+CSRF_TRUSTED_ORIGINS = [
+    'http://45.85.250.92',
+    'http://45.85.250.92:8080',
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+
+# Email backend configuration (REQUIRED for mandatory verification)
+# Development: console backend (prints emails to console)
+# Production: configure SMTP via environment variables
+if not DEBUG:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-    DEFAULT_FROM_EMAIL = "noreply@primeacademy.local"
 else:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-    EMAIL_HOST = os.getenv("EMAIL_HOST")
+    EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
     EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
-    EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
-    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
-    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
-    DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@primeacademy.com")
-    
-    # Validate email settings in production
-    if not all([EMAIL_HOST, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD]):
-        raise ValueError("Email settings must be configured in production!")
+    EMAIL_USE_TLS = True
+    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+    DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@primeacademy.org")
+
 
 # --------------------------------------------------------------------------
-# SECURITY SETTINGS
+# SECURITY (Uncomment and configure for Production)
 # --------------------------------------------------------------------------
 
-if not DEBUG:
-    # HTTPS/SSL
-    SECURE_SSL_REDIRECT = True
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-    
-    # HSTS (HTTP Strict Transport Security)
-    SECURE_HSTS_SECONDS = 31536000  # 1 year
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    
-    # Cookie security
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    
-    # Browser security
-    SECURE_BROWSER_XSS_FILTER = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
-    X_FRAME_OPTIONS = 'DENY'
-    
-    # Referrer policy
-    SECURE_REFERRER_POLICY = 'same-origin'
-else:
-    # Development settings
-    X_FRAME_OPTIONS = 'SAMEORIGIN'
+# SECURE_SSL_REDIRECT = True
+# SESSION_COOKIE_SECURE = True
+# CSRF_COOKIE_SECURE = True
+# SECURE_BROWSER_XSS_FILTER = True
+# SECURE_CONTENT_TYPE_NOSNIFF = True
 
-# --------------------------------------------------------------------------
-# URL CONFIGURATION
-# --------------------------------------------------------------------------
 
 if DEBUG:
-    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-    SITE_BASE_URL = os.getenv("SITE_BASE_API_URL", "http://127.0.0.1:8000") # NEVEr CHNAGE THIS `SITE_BASE_API_URL` it will break the site
-    BACKEND_URL = SITE_BASE_URL
+    SITE_BASE_URL = "http://127.0.0.1:8000"
 else:
-    FRONTEND_URL = os.getenv("FRONTEND_URL")
-    SITE_BASE_URL = os.getenv("SITE_BASE_URL")
-    BACKEND_URL = os.getenv("BACKEND_URL", SITE_BASE_URL)
-    
-    if not all([FRONTEND_URL, SITE_BASE_URL]):
-        raise ValueError("FRONTEND_URL and SITE_BASE_URL must be set in production!")
+    SITE_BASE_URL = os.getenv("SITE_BASE_API_URL", "http://127.0.0.1:8000")
 
-# --------------------------------------------------------------------------
-# PAYMENT GATEWAY CONFIGURATION
-# --------------------------------------------------------------------------
 
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+
+if DEBUG:
+    FRONTEND_URL = "http://localhost:5173"
+else:
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://45.85.250.92")
+
+# Backend URL for webhooks
+BACKEND_URL = os.getenv("BACKEND_URL", SITE_BASE_URL)
+
+# SSLCommerz Payment Gateway Configuration
 SSLCOMMERZ_STORE_ID = os.getenv("SSLCOMMERZ_STORE_ID", "")
 SSLCOMMERZ_STORE_PASSWORD = os.getenv("SSLCOMMERZ_STORE_PASSWORD", "")
 SSLCOMMERZ_IS_SANDBOX = os.getenv("SSLCOMMERZ_IS_SANDBOX", "True") == "True"
+
+# Payment token TTL (seconds) used for signed verify tokens
 PAYMENT_TOKEN_TTL = int(os.getenv("PAYMENT_TOKEN_TTL", 900))  # 15 minutes
 
-if not DEBUG and not all([SSLCOMMERZ_STORE_ID, SSLCOMMERZ_STORE_PASSWORD]):
-    # Warning: Payment gateway not configured
-    import warnings
-    warnings.warn("SSLCommerz payment gateway credentials not configured!")
 
-# --------------------------------------------------------------------------
-# SEO CONFIGURATION
-# --------------------------------------------------------------------------
+# Required to Update during production
 
 SEO_CONFIG = {
-    "SITE_NAME": os.getenv("SITE_NAME", "Prime Academy"),
+    "SITE_NAME": "Prime Academy",
     "ORGANIZATION_LOGO_URL": f"{FRONTEND_URL}/static/images/logo.png",
-    "DEFAULT_TWITTER_SITE": os.getenv("TWITTER_HANDLE", "@PrimeAcademy"),
+    "DEFAULT_TWITTER_SITE": "@PrimeAcademy",
     "ORGANIZATION_SOCIAL_PROFILES": [
         "https://www.facebook.com/primeacademy",
         "https://www.twitter.com/primeacademy",
@@ -456,9 +384,12 @@ SEO_CONFIG = {
     ],
 }
 
-# --------------------------------------------------------------------------
-# CKEDITOR CONFIGURATION
-# --------------------------------------------------------------------------
+
+
+
+# CKEDITOR ===========================
+
+# settings.py
 
 CUSTOM_COLOR_PALETTE = [
     {"color": "#053867", "label": "Primary"},
@@ -480,7 +411,7 @@ CKEDITOR_5_CONFIGS = {
             'heading', '|',
             'bold', 'italic', 'link', 'bulletedList', 'numberedList', 'blockQuote', '|',
             'fontSize', 'fontFamily', 'fontColor', 'fontBackgroundColor', '|',
-            'insertTable', 'imageUpload', 'mediaEmbed', '|',
+            'insertTable', 'imageUpload', 'mediaEmbed', '|',  # 👈 imageUpload here
             'outdent', 'indent', '|',
             'undo', 'redo'
         ],
@@ -493,7 +424,13 @@ CKEDITOR_5_CONFIGS = {
                 'imageStyle:alignCenter',
                 'imageStyle:alignRight'
             ],
-            'styles': ['full', 'alignLeft', 'alignCenter', 'alignRight'],
+            'styles': [
+                'full',
+                'alignLeft',
+                'alignCenter',
+                'alignRight'
+            ],
+            # 👇 Upload configuration for custom API
             'upload': {
                 'types': ['jpeg', 'jpg', 'png', 'gif', 'webp']
             }
@@ -533,33 +470,51 @@ CKEDITOR_5_CONFIGS = {
         'fontSize': {
             'options': [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
         },
-        'fontColor': {'colors': CUSTOM_COLOR_PALETTE},
-        'fontBackgroundColor': {'colors': CUSTOM_COLOR_PALETTE}
+        'fontColor': {
+            'colors': CUSTOM_COLOR_PALETTE
+        },
+        'fontBackgroundColor': {
+            'colors': CUSTOM_COLOR_PALETTE
+        }
     },
     'extends': {
-        'height': 500,
+        'height': 500, 
         'blockToolbar': [
-            'paragraph', 'heading1', 'heading2', 'heading3', '|',
-            'bulletedList', 'numberedList', '|', 'blockQuote',
+            'paragraph', 'heading1', 'heading2', 'heading3',
+            '|',
+            'bulletedList', 'numberedList',
+            '|',
+            'blockQuote',
         ],
         'toolbar': [
-            'heading', '|', 'outdent', 'indent', '|',
+            'heading', '|', 'outdent', 'indent', '|', 
             'bold', 'italic', 'link', 'underline', 'strikethrough',
-            'code', 'subscript', 'superscript', 'highlight', '|',
-            'codeBlock', 'sourceEditing', 'insertImage',
-            'bulletedList', 'numberedList', 'todoList', '|',
-            'blockQuote', 'imageUpload', '|',
-            'fontSize', 'fontFamily', 'fontColor', 'fontBackgroundColor',
+            'code', 'subscript', 'superscript', 'highlight', '|', 
+            'codeBlock', 'sourceEditing', 'insertImage',  # 👈 Or imageUpload
+            'bulletedList', 'numberedList', 'todoList', '|',  
+            'blockQuote', 'imageUpload', '|',  # 👈 imageUpload here
+            'fontSize', 'fontFamily', 'fontColor', 'fontBackgroundColor', 
             'mediaEmbed', 'removeFormat', 'insertTable',
         ],
         'image': {
             'toolbar': [
-                'imageTextAlternative', '|',
-                'imageStyle:alignLeft', 'imageStyle:alignRight',
-                'imageStyle:alignCenter', 'imageStyle:side', '|'
+                'imageTextAlternative', '|', 
+                'imageStyle:alignLeft',
+                'imageStyle:alignRight', 
+                'imageStyle:alignCenter', 
+                'imageStyle:side', '|'
             ],
-            'styles': ['full', 'side', 'alignLeft', 'alignRight', 'alignCenter'],
-            'upload': {'types': ['jpeg', 'jpg', 'png', 'gif', 'webp']}
+            'styles': [
+                'full',
+                'side',
+                'alignLeft',
+                'alignRight',
+                'alignCenter',
+            ],
+            # 👇 Upload configuration for custom API
+            'upload': {
+                'types': ['jpeg', 'jpg', 'png', 'gif', 'webp']
+            }
         },
         'table': {
             'contentToolbar': [
@@ -600,73 +555,26 @@ CKEDITOR_5_CONFIGS = {
                 'Verdana, Geneva, sans-serif'
             ]
         },
-        'fontSize': {'options': [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]},
-        'fontColor': {'colors': CUSTOM_COLOR_PALETTE},
-        'fontBackgroundColor': {'colors': CUSTOM_COLOR_PALETTE}
+        'fontSize': { 
+            'options': [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
+        },
+        'fontColor': { 
+            'colors': CUSTOM_COLOR_PALETTE
+        },
+        'fontBackgroundColor': {
+            'colors': CUSTOM_COLOR_PALETTE
+        }
     },
 }
 
-# CKEditor file upload
+# 👇 CRITICAL: Connect to your custom upload API
 CKEDITOR_5_FILE_UPLOAD_URL = "/api/ckeditor/upload/"
+
+# File upload settings
 CKEDITOR_5_ALLOW_ALL_FILE_TYPES = False
 CKEDITOR_5_UPLOAD_FILE_TYPES = ["jpeg", "jpg", "png", "gif", "webp", "heic", "heif"]
 CKEDITOR_5_FILE_UPLOAD_PERMISSION = "staff"
 
-# File size limits
+# File size limits (optional)
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
-
-# --------------------------------------------------------------------------
-# LOGGING CONFIGURATION
-# --------------------------------------------------------------------------
-
-# Simple logging - only console in development
-if DEBUG:
-    LOGGING = {
-        'version': 1,
-        'disable_existing_loggers': False,
-        'handlers': {
-            'console': {
-                'class': 'logging.StreamHandler',
-            },
-        },
-        'root': {
-            'handlers': ['console'],
-            'level': 'INFO',
-        },
-    }
-else:
-    # Production: Use console logging only (systemd captures it via journalctl)
-    LOGGING = {
-        'version': 1,
-        'disable_existing_loggers': False,
-        'formatters': {
-            'verbose': {
-                'format': '{levelname} {asctime} {module} {message}',
-                'style': '{',
-            },
-        },
-        'handlers': {
-            'console': {
-                'level': 'INFO',
-                'class': 'logging.StreamHandler',
-                'formatter': 'verbose',
-            },
-        },
-        'root': {
-            'handlers': ['console'],
-            'level': 'INFO',
-        },
-        'loggers': {
-            'django': {
-                'handlers': ['console'],
-                'level': 'INFO',
-                'propagate': False,
-            },
-            'django.security': {
-                'handlers': ['console'],
-                'level': 'WARNING',
-                'propagate': False,
-            },
-        },
-    }
