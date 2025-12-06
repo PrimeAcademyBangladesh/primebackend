@@ -296,30 +296,22 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # Session and CSRF cookie settings
-# IMPORTANT: Cart merge requires session cookies to work in both:
-# - Development: http://localhost (SameSite=None works with HTTPS only)
-# - Production: https://vercel (cross-origin requires SameSite=None)
-#
-# Solution: Always use None/True for cross-origin support
-# Note: In development, use HTTPS (mkcert) OR same-origin frontend
-SESSION_COOKIE_SAMESITE = 'None'  # Allow cross-origin (localhost → backend, vercel → backend)
-SESSION_COOKIE_SECURE = False  # Required when SameSite=None (use HTTPS in dev)
-SESSION_COOKIE_HTTPONLY = False  # Prevent JavaScript access (security)
-SESSION_COOKIE_AGE = 1209600  # 2 weeks
+SESSION_COOKIE_SAMESITE = 'Lax'    # Changed from 'None'
+SESSION_COOKIE_SECURE = False      # Required for HTTP
+SESSION_COOKIE_HTTPONLY = True     # Recommended True for security (False if JS needs access)
+SESSION_COOKIE_AGE = 1209600
 
-CSRF_COOKIE_SAMESITE = 'None'  # Allow cross-origin
-CSRF_COOKIE_SECURE = False  # Required when SameSite=None
+CSRF_COOKIE_SAMESITE = 'Lax'       # Changed from 'None'
+CSRF_COOKIE_SECURE = False         # Required for HTTP
 CSRF_COOKIE_NAME = 'csrftoken'
-# For local development with HTTP, you have two options:
-# Option 1: Run frontend on same origin (http://localhost:8000)
-# Option 2: Use HTTPS in development (mkcert for local SSL)
+
+
 CSRF_TRUSTED_ORIGINS = [
-    "http://45.85.250.92:8080",
     "http://45.85.250.92",
+    "http://45.85.250.92:8080",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-
 
 # Email backend configuration (REQUIRED for mandatory verification)
 # Development: console backend (prints emails to console)
