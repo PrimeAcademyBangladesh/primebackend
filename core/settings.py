@@ -677,5 +677,15 @@ if not DEBUG:
         'formatter': 'verbose',
     }
     LOGGING['root']['handlers'] = ['console', 'file']
-    LOGGING['loggers']['django']['handlers'] = ['console', 'file']
-    LOGGING['loggers']['django.security']['handlers'] = ['file']
+    LOGGING['loggers'] = {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    }
