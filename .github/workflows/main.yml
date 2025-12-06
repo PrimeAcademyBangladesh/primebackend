@@ -162,7 +162,9 @@ jobs:
           script: |
             mkdir -p /var/www/backend/backups
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-            pg_dump -U primeacademy primeacademydb > /var/www/backend/backups/db_backup_${TIMESTAMP}.sql
+            
+            # Use sudo to run pg_dump as postgres user (peer authentication works)
+            sudo -u postgres pg_dump primeacademydb > /var/www/backend/backups/db_backup_${TIMESTAMP}.sql
             
             # Keep only last 3 backups (faster cleanup)
             cd /var/www/backend/backups
@@ -233,10 +235,10 @@ jobs:
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
             # Reload systemd
-            systemctl daemon-reload
+            sudo systemctl daemon-reload
 
             # Restart Gunicorn service
-            systemctl restart primeacademy
+            sudo systemctl restart primeacademy
 
             # Wait for service to start
             sleep 5
@@ -255,9 +257,9 @@ jobs:
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
             # Check systemd service status
-            if ! systemctl is-active --quiet primeacademy; then
+            if ! sudo systemctl is-active --quiet primeacademy; then
               echo "❌ Service is not running!"
-              systemctl status primeacademy
+              sudo systemctl status primeacademy
               exit 1
             fi
 
@@ -272,7 +274,7 @@ jobs:
             fi
 
             # Check for errors in logs
-            ERROR_COUNT=$(journalctl -u primeacademy -n 100 --no-pager | grep -i "error" | wc -l)
+            ERROR_COUNT=$(sudo journalctl -u primeacademy -n 100 --no-pager | grep -i "error" | wc -l)
             if [ "$ERROR_COUNT" -gt 5 ]; then
               echo "⚠️ Warning: Found $ERROR_COUNT errors in recent logs"
             fi
