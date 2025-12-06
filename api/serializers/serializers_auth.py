@@ -230,11 +230,16 @@ class ProfileSerializer(serializers.ModelSerializer):
 
         Uses the serializer context 'request' to build an absolute URI if present.
         """
-        request = self.context.get("request")
         if obj.image:
+            from django.conf import settings
+            url = obj.image.url
+            site_base = getattr(settings, "SITE_BASE_URL", None)
+            if site_base:
+                return site_base.rstrip("/") + url
+            request = self.context.get("request")
             if request:
-                return request.build_absolute_uri(obj.image.url)
-            return obj.image.url
+                return request.build_absolute_uri(url)
+            return url
         return None
     
     def to_representation(self, instance):

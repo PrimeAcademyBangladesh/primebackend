@@ -344,9 +344,9 @@ else:
 
 
 if DEBUG:
-    SITE_BASE_URL = "http://127.0.0.1:8000"
+    SITE_BASE_API_URL = "http://127.0.0.1:8000"
 else:
-    SITE_BASE_URL = os.getenv("SITE_BASE_API_URL", "http://127.0.0.1:8000")
+    SITE_BASE_API_URL = os.getenv("SITE_BASE_API_URL", "http://127.0.0.1:8000")
 
 
 AUTHENTICATION_BACKENDS = [
@@ -360,7 +360,7 @@ else:
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://45.85.250.92")
 
 # Backend URL for webhooks
-BACKEND_URL = os.getenv("BACKEND_URL", SITE_BASE_URL)
+BACKEND_URL = os.getenv("BACKEND_URL", SITE_BASE_API_URL)
 
 # SSLCommerz Payment Gateway Configuration
 SSLCOMMERZ_STORE_ID = os.getenv("SSLCOMMERZ_STORE_ID", "")

@@ -75,10 +75,17 @@ class FooterSerializer(serializers.ModelSerializer):
     # Read helpers
     # ---------------------------
     def get_logo_url(self, obj) -> Optional[str]:
-        request = self.context.get("request")
-        if obj.logo and request:
-            return request.build_absolute_uri(obj.logo.url)
-        return obj.logo.url if obj.logo else None
+        if obj.logo:
+            from django.conf import settings
+            url = obj.logo.url
+            site_base = getattr(settings, "SITE_BASE_URL", None)
+            if site_base:
+                return site_base.rstrip("/") + url
+            request = self.context.get("request")
+            if request:
+                return request.build_absolute_uri(url)
+            return url
+        return None
 
     def get_copyright_year(self, obj) -> int:
         from datetime import date
