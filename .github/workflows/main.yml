@@ -150,9 +150,9 @@ jobs:
           pip install -r requirements.txt -r requirements-dep.txt
 
       # -----------------------------
-      # ✅ STEP 4: BACKUP DATABASE & CODE
+      # ✅ STEP 4: BACKUP DATABASE
       # -----------------------------
-      - name: 🔐 Backup Database & Current Code
+      - name: 🔐 Backup Database Before Migration
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.DEV_SSH_HOST }}
@@ -160,25 +160,15 @@ jobs:
           key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
-            # Create backup directory
             mkdir -p /var/www/backend/backups
-            
-            # Backup database
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
             pg_dump -U primeacademy primeacademydb > /var/www/backend/backups/db_backup_${TIMESTAMP}.sql
             
-            # Backup current code (if exists)
-            if [ -d "${{ env.DEPLOY_PATH }}" ]; then
-              tar -czf /var/www/backend/backups/code_backup_${TIMESTAMP}.tar.gz \
-                -C /var/www/backend api --exclude=venv --exclude=media --exclude=staticfiles
-            fi
-            
-            # Keep only last 5 backups
+            # Keep only last 3 backups (faster cleanup)
             cd /var/www/backend/backups
-            ls -t db_backup_*.sql | tail -n +6 | xargs -r rm
-            ls -t code_backup_*.tar.gz | tail -n +6 | xargs -r rm
+            ls -t db_backup_*.sql | tail -n +4 | xargs -r rm
             
-            echo "✅ Backup completed: db_backup_${TIMESTAMP}.sql"
+            echo "✅ Database backup: db_backup_${TIMESTAMP}.sql"
 
       # -----------------------------
       # ✅ STEP 5: DEPLOY CODE USING RSYNC
