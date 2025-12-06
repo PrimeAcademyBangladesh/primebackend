@@ -309,7 +309,7 @@ SESSION_COOKIE_AGE = 1209600  # 2 weeks
 
 CSRF_COOKIE_SAMESITE = 'None'  # Allow cross-origin
 CSRF_COOKIE_SECURE = False  # Required when SameSite=None
-
+CSRF_COOKIE_NAME = 'csrftoken'
 # For local development with HTTP, you have two options:
 # Option 1: Run frontend on same origin (http://localhost:8000)
 # Option 2: Use HTTPS in development (mkcert for local SSL)
@@ -361,7 +361,7 @@ AUTHENTICATION_BACKENDS = [
 if os.getenv("ENVIRONMENT", "development") == "development":
     FRONTEND_URL = "http://localhost:5173"
 else:
-    FRONTEND_URL = os.getenv("FRONTEND_URL", "https://prime-academy-bd.vercel.app")
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 
 # Backend URL for webhooks
 BACKEND_URL = os.getenv("BACKEND_URL", SITE_BASE_URL)
