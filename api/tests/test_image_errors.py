@@ -2,22 +2,14 @@
 Test script to demonstrate improved image upload error messages
 """
 
-import os
-import sys
-
-import django
-
-# Setup Django
-sys.path.append('/Users/PrimeAcademy/Backend')
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
-django.setup()
-
+import pytest
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from api.models.models_auth import CustomUser, Profile
 
 
+@pytest.mark.django_db
 def test_image_error_messages():
     print("🧪 TESTING IMPROVED IMAGE UPLOAD ERROR MESSAGES")
     print("=" * 60)

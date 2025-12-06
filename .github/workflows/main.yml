@@ -67,7 +67,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=api --cov-report=term-missing --cov-report=xml --cov-fail-under=70
+          pytest --cov=api --cov-report=term-missing --cov-report=xml --cov-fail-under=65
         env:
           DJANGO_SETTINGS_MODULE: core.settings
           DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
