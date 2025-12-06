@@ -223,6 +223,9 @@ jobs:
             # Check migrations before running
             python3 manage.py migrate --check || echo "⚠️ Migration check failed"
 
+            # Fix JWT token blacklist migration issue (delete old tokens to avoid migration error)
+            python3 manage.py shell -c "from rest_framework_simplejwt.token_blacklist.models import OutstandingToken; OutstandingToken.objects.all().delete()" || echo "No tokens to clean"
+
             # Run migrations
             python3 manage.py migrate --noinput
 
