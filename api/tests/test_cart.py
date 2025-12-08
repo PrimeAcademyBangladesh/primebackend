@@ -112,14 +112,40 @@ class CartModelTestCase(TestCase):
         self.assertEqual(cart.get_item_count(), 0)
     
     def test_cart_item_unique_constraint(self):
-        """Test that same course cannot be added twice"""
-        cart = Cart.objects.create(user=self.user)
-        CartItem.objects.create(cart=cart, course=self.course)
-        
-        # Try to add same course again - should raise error
+        """Test that same course+batch cannot be added twice, but different batches can"""
+        from api.models.models_course import CourseBatch
+        from datetime import date, timedelta
         from django.db import IntegrityError
+        
+        # Create batches for the course
+        batch1 = CourseBatch.objects.create(
+            course=self.course,
+            batch_number=1,
+            batch_name="Batch 1",
+            start_date=date.today() + timedelta(days=30),
+            end_date=date.today() + timedelta(days=120),
+            max_students=30
+        )
+        batch2 = CourseBatch.objects.create(
+            course=self.course,
+            batch_number=2,
+            batch_name="Batch 2",
+            start_date=date.today() + timedelta(days=150),
+            end_date=date.today() + timedelta(days=240),
+            max_students=30
+        )
+        
+        cart = Cart.objects.create(user=self.user)
+        
+        # Add course with batch1 - should work
+        CartItem.objects.create(cart=cart, course=self.course, batch=batch1)
+        
+        # Add same course with batch2 - should work (different batch)
+        CartItem.objects.create(cart=cart, course=self.course, batch=batch2)
+        
+        # Try to add same course+batch1 again - should raise error
         with self.assertRaises(IntegrityError):
-            CartItem.objects.create(cart=cart, course=self.course)
+            CartItem.objects.create(cart=cart, course=self.course, batch=batch1)
     
     def test_cart_string_representation(self):
         """Test cart __str__ method"""
