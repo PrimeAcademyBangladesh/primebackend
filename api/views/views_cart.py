@@ -171,24 +171,34 @@ def add_to_cart(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     course_id = serializer.validated_data['course_id']
+    batch_id = serializer.validated_data.get('batch_id')
     course = get_object_or_404(Course, id=course_id, is_active=True)
-    # Prevent adding to cart if the authenticated user is already enrolled
+    
+    batch = None
+    if batch_id:
+        from api.models.models_course import CourseBatch
+        batch = get_object_or_404(CourseBatch, id=batch_id, is_active=True, course=course)
+    
+    # Prevent adding to cart if the authenticated user is already enrolled in THIS BATCH
     if request.user and request.user.is_authenticated and not request.user.is_staff:
         try:
-            if Enrollment.objects.filter(user=request.user, course=course, is_active=True).exists():
-                return Response({
-                    'message': f"You are already enrolled in {course.title}",
-                    'already_enrolled': True,
-                }, status=status.HTTP_400_BAD_REQUEST)
+            # Check batch-specific enrollment
+            if batch:
+                if Enrollment.objects.filter(user=request.user, batch=batch, is_active=True).exists():
+                    return Response({
+                        'message': f"You are already enrolled in {course.title} - {batch.get_display_name()}",
+                        'already_enrolled': True,
+                    }, status=status.HTTP_400_BAD_REQUEST)
         except Exception:
             # If enrollment check fails for any reason, continue (non-fatal)
             pass
     cart = get_or_create_cart(request)
     
-    # Check if course already in cart
+    # Check if this course+batch combination already in cart
     cart_item, created = CartItem.objects.get_or_create(
         cart=cart,
-        course=course
+        course=course,
+        batch=batch
     )
     
     if created:
@@ -429,17 +439,9 @@ def add_to_wishlist(request):
     
     course_id = serializer.validated_data['course_id']
     course = get_object_or_404(Course, id=course_id, is_active=True)
-    # Prevent adding to wishlist if user already enrolled
-    try:
-        if Enrollment.objects.filter(user=request.user, course=course, is_active=True).exists():
-            return Response({
-                'message': f"You are already enrolled in {course.title}",
-                'already_enrolled': True,
-            }, status=status.HTTP_400_BAD_REQUEST)
-    except Exception:
-        # Non-fatal: if enrollment check fails, proceed to wishlist
-        pass
-
+    
+    # Allow adding to wishlist even if enrolled in some batch
+    # (user might want to enroll in a different batch)
     wishlist, created = Wishlist.objects.get_or_create(user=request.user)
 
     if course in wishlist.courses.all():
@@ -585,23 +587,17 @@ def move_to_cart(request, course_id):
     wishlist, created = Wishlist.objects.get_or_create(user=request.user)
     if course in wishlist.courses.all():
         wishlist.courses.remove(course)
-    # Prevent moving to cart if user already enrolled
-    if request.user and request.user.is_authenticated and not request.user.is_staff:
-        try:
-            if Enrollment.objects.filter(user=request.user, course=course, is_active=True).exists():
-                return Response({
-                    'message': f"You are already enrolled in {course.title}",
-                    'already_enrolled': True,
-                }, status=status.HTTP_400_BAD_REQUEST)
-        except Exception:
-            # Non-fatal: continue if check fails
-            pass
-
-    # Add to cart
+    
+    # Allow moving to cart even if enrolled in some batch
+    # (user might want to enroll in a different batch)
+    # Batch-specific enrollment check happens at checkout
+    
+    # Add to cart (without batch, user will select batch at checkout)
     cart = get_or_create_cart(request)
     cart_item, created = CartItem.objects.get_or_create(
         cart=cart,
-        course=course
+        course=course,
+        batch=None  # User can select batch later
     )
     
     cart_serializer = CartSerializer(cart, context={'request': request})

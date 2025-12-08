@@ -519,6 +519,7 @@ class CoursePriceAdmin(BaseModelAdmin):
         }),
         ("Installment Options", {
             "fields": ("installment_available", "installment_count", "installment_display_detailed"),
+            "description": "Set installment_count to define how students must pay (e.g., 3 means students MUST pay in 3 installments). Frontend will show this exact option everywhere (course page, cart, checkout).",
             "classes": ("collapse",)
         }),
         ("Timestamps", {

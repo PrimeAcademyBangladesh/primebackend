@@ -64,11 +64,6 @@ class Course(TimeStampedModel, OptimizedImageModel):
         ('archived', 'Archived'),
     ]
     
-    batch = models.SmallIntegerField(
-        default=0,
-        help_text="Batch number for versioning or grouping courses"
-    )
-    
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
     category = models.ForeignKey(
@@ -565,6 +560,216 @@ class CourseInstructor(models.Model):
         if module_count > 0:
             return f"{self.teacher.get_full_name}{type_display} - {self.course.title} ({module_count} modules)"
         return f"{self.teacher.get_full_name}{type_display} - {self.course.title} (All modules)"
+
+
+class CourseBatch(TimeStampedModel):
+    """Time-bound instances of a course (e.g., Jan 2025 batch, April 2025 batch).
+    
+    This model represents scheduled offerings of a course with specific:
+    - Start and end dates
+    - Enrollment capacity
+    - Batch-specific pricing (if needed)
+    - Enrollment tracking
+    
+    Students enroll in batches, not directly in courses.
+    """
+    
+    BATCH_STATUS_CHOICES = [
+        ('upcoming', 'Upcoming'),
+        ('enrollment_open', 'Enrollment Open'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    course = models.ForeignKey(
+        Course,
+        related_name="batches",
+        on_delete=models.CASCADE,
+        help_text="The course this batch is running for"
+    )
+    
+    batch_number = models.PositiveIntegerField(
+        help_text="Batch sequence number (1, 2, 3, etc.)"
+    )
+    
+    batch_name = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Optional custom batch name (e.g., 'Winter 2025', 'Weekend Batch')"
+    )
+    
+    slug = models.SlugField(
+        max_length=300,
+        unique=True,
+        db_index=True,
+        help_text="URL-friendly slug (auto-generated from course + batch number)"
+    )
+    
+    # Scheduling
+    start_date = models.DateField(
+        help_text="When this batch starts"
+    )
+    end_date = models.DateField(
+        help_text="When this batch ends"
+    )
+    enrollment_start_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="When enrollment opens (optional, defaults to now)"
+    )
+    enrollment_end_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="When enrollment closes (optional, defaults to start_date)"
+    )
+    
+    # Capacity
+    max_students = models.PositiveIntegerField(
+        default=30,
+        help_text="Maximum number of students allowed in this batch"
+    )
+    enrolled_students = models.PositiveIntegerField(
+        default=0,
+        editable=False,
+        help_text="Current number of enrolled students (auto-calculated)"
+    )
+    
+    # Pricing (optional override - if not set, uses course default pricing)
+    custom_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Custom price for this batch (optional, overrides course price)"
+    )
+    
+    # Installment options per batch (override course defaults)
+    installment_available = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Override course installment setting (None = use course default, True = enable, False = disable)"
+    )
+    installment_count = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Batch-specific installment count (overrides course setting if installment_available=True)"
+    )
+    
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=BATCH_STATUS_CHOICES,
+        default='upcoming',
+        db_index=True,
+        help_text="Current status of this batch"
+    )
+    
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="Whether this batch is active and visible"
+    )
+    
+    # Additional info
+    description = models.TextField(
+        blank=True,
+        help_text="Batch-specific description or notes (optional)"
+    )
+    
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Course Batch"
+        verbose_name_plural = "Course Batches"
+        ordering = ['-start_date', 'batch_number']
+        unique_together = ['course', 'batch_number']
+        indexes = [
+            models.Index(fields=['course', 'status', 'is_active']),
+            models.Index(fields=['start_date', 'status']),
+            models.Index(fields=['slug']),
+            models.Index(fields=['status', 'is_active']),
+        ]
+    
+    def save(self, *args, **kwargs):
+        """Auto-generate slug from course slug + batch number."""
+        if not self.slug:
+            base_slug = f"{self.course.slug}-batch-{self.batch_number}"
+            self.slug = base_slug
+            
+            # Ensure uniqueness
+            counter = 1
+            while CourseBatch.objects.filter(slug=self.slug).exclude(pk=self.pk).exists():
+                self.slug = f"{base_slug}-{counter}"
+                counter += 1
+        
+        super().save(*args, **kwargs)
+    
+    def clean(self):
+        """Validate batch dates."""
+        from django.core.exceptions import ValidationError
+        
+        if self.start_date and self.end_date:
+            if self.end_date <= self.start_date:
+                raise ValidationError({
+                    'end_date': 'End date must be after start date.'
+                })
+        
+        if self.enrollment_end_date and self.start_date:
+            if self.enrollment_end_date > self.start_date:
+                raise ValidationError({
+                    'enrollment_end_date': 'Enrollment must close before or on the start date.'
+                })
+    
+    @property
+    def is_enrollment_open(self):
+        """Check if enrollment is currently open for this batch."""
+        from django.utils import timezone
+        now = timezone.now().date()
+        
+        if not self.is_active or self.status in ['cancelled', 'completed']:
+            return False
+        
+        # Check enrollment window
+        enrollment_start = self.enrollment_start_date or self.created_at.date()
+        enrollment_end = self.enrollment_end_date or self.start_date
+        
+        if now < enrollment_start or now > enrollment_end:
+            return False
+        
+        # Check capacity
+        if self.enrolled_students >= self.max_students:
+            return False
+        
+        return True
+    
+    @property
+    def available_seats(self):
+        """Calculate remaining available seats."""
+        return max(0, self.max_students - self.enrolled_students)
+    
+    @property
+    def is_full(self):
+        """Check if batch is at capacity."""
+        return self.enrolled_students >= self.max_students
+    
+    def get_display_name(self):
+        """Get display name for this batch (batch info only, without course title)."""
+        if self.batch_name:
+            return self.batch_name
+        return f"Batch {self.batch_number}"
+    
+    def update_enrolled_count(self):
+        """Update enrolled_students count from actual enrollments."""
+        from api.models.models_order import Enrollment
+        self.enrolled_students = Enrollment.objects.filter(
+            batch=self,
+            is_active=True
+        ).count()
+        self.save(update_fields=['enrolled_students'])
+    
+    def __str__(self):
+        return self.get_display_name()
 
 
 # Section 7: Key Benefits

@@ -347,28 +347,9 @@ class CartAPITestCase(APITestCase):
         self.assertIn('cleared', response.data['message'])
         self.assertEqual(response.data['cart']['item_count'], 0)
     
-    def test_cart_includes_batch_field(self):
-        """Test that cart items include the batch field"""
-        self.client.force_authenticate(user=self.user)
-        
-        # Set batch number for the course
-        self.course.batch = 3
-        self.course.save()
-        
-        # Add course to cart
-        response = self.client.post('/api/cart/add/', {
-            'course_id': str(self.course.id)
-        }, format='json')
-        
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        
-        # Check that batch field is present in the response
-        cart_items = response.data['cart']['items']
-        self.assertEqual(len(cart_items), 1)
-        
-        course_data = cart_items[0]['course']
-        self.assertIn('batch', course_data)
-        self.assertEqual(course_data['batch'], 3)
+    # Note: Course.batch field removed - batches are now separate model
+    # Cart items no longer include batch field in course data
+    # Batch selection happens during enrollment, not cart phase
 
 
 class WishlistAPITestCase(APITestCase):
@@ -504,27 +485,9 @@ class WishlistAPITestCase(APITestCase):
         
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
     
-    def test_wishlist_includes_batch_field(self):
-        """Test that wishlist items include the batch field"""
-        self.client.force_authenticate(user=self.user)
-        
-        # Set batch number for the course
-        self.course.batch = 7
-        self.course.save()
-        
-        # Add course to wishlist
-        response = self.client.post('/api/wishlist/add/', {
-            'course_id': str(self.course.id)
-        }, format='json')
-        
-        # Returns 201 for first add, 200 if already in wishlist
-        self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_201_CREATED])
-        
-        # Check that batch field is present in the response
-        courses = response.data['wishlist']['courses']
-        self.assertEqual(len(courses), 1)
-        self.assertIn('batch', courses[0])
-        self.assertEqual(courses[0]['batch'], 7)
+    # Note: Course.batch field removed - batches are now separate model
+    # Wishlist items no longer include batch field in course data
+    # Batch selection happens during enrollment, not wishlist phase
 
 
 class CartMergeOnLoginTestCase(APITestCase):

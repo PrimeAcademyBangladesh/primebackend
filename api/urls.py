@@ -27,7 +27,7 @@ from api.views.views_cart import (
 from api.views.views_ckeditor_image_upload import CKEditorImageUploadView
 from api.views.views_contact import ContactMessageViewSet
 from api.views.views_course import (
-    CategoryViewSet, CouponViewSet, CoursePriceViewSet, CourseViewSet,
+    CategoryViewSet, CouponViewSet, CourseBatchViewSet, CoursePriceViewSet, CourseViewSet,
     CourseDetailViewSet, CourseContentSectionViewSet, CourseSectionTabViewSet,
     CourseTabbedContentViewSet, WhyEnrolViewSet, CourseModuleViewSet,
     KeyBenefitViewSet, SideImageSectionViewSet, SuccessStoryViewSet,
@@ -94,6 +94,7 @@ router.register(r'our-values/contents', ValueTabContentViewSet, basename='valuet
 
 # ========== Course System - All with 'courses/' prefix ==========
 router.register(r'courses/categories', CategoryViewSet, basename='course-category')
+router.register(r'courses/batches', CourseBatchViewSet, basename='course-batch')
 router.register(r'courses/prices', CoursePriceViewSet, basename='course-price')
 router.register(r'courses/coupons', CouponViewSet, basename='course-coupon')
 router.register(r'courses/details', CourseDetailViewSet, basename='course-detail')

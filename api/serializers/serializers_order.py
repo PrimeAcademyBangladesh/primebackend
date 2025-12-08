@@ -513,6 +513,7 @@ class EnrollmentSerializer(serializers.ModelSerializer):
     progress_display = serializers.SerializerMethodField()
     is_completed_status = serializers.SerializerMethodField()
     days_enrolled = serializers.SerializerMethodField()
+    batch_info = serializers.SerializerMethodField()
     
     class Meta:
         model = Enrollment
@@ -524,6 +525,8 @@ class EnrollmentSerializer(serializers.ModelSerializer):
             'course',
             'course_title',
             'course_slug',
+            'batch',
+            'batch_info',
             'order',
             'order_number',
             'progress_percentage',
@@ -542,6 +545,7 @@ class EnrollmentSerializer(serializers.ModelSerializer):
             'user_name',
             'course_title',
             'course_slug',
+            'batch_info',
             'order_number',
             'progress_display',
             'is_completed_status',
@@ -561,6 +565,20 @@ class EnrollmentSerializer(serializers.ModelSerializer):
         """Calculate days since enrollment."""
         delta = timezone.now() - obj.created_at
         return delta.days
+    
+    def get_batch_info(self, obj):
+        """Get batch information for this enrollment."""
+        if obj.batch:
+            return {
+                'id': str(obj.batch.id),
+                'batch_number': obj.batch.batch_number,
+                'batch_name': obj.batch.batch_name,
+                'display_name': obj.batch.get_display_name(),
+                'slug': obj.batch.slug,
+                'start_date': obj.batch.start_date,
+                'end_date': obj.batch.end_date,
+            }
+        return None
 
 
 class EnrollmentDetailSerializer(EnrollmentSerializer):
@@ -591,12 +609,21 @@ class EnrollmentDetailSerializer(EnrollmentSerializer):
         else:
             header_image = header_image_url
         
+        batch_info = None
+        if obj.batch:
+            batch_info = {
+                'id': str(obj.batch.id),
+                'batch_number': obj.batch.batch_number,
+                'batch_name': obj.batch.batch_name,
+                'slug': obj.batch.slug,
+            }
+        
         return {
             'title': obj.course.title,
             'slug': obj.course.slug,
             'short_description': obj.course.short_description,
             'header_image': header_image,
-            'batch': obj.course.batch,
+            'batch': batch_info,
         }
     
     def get_course_status(self, obj):

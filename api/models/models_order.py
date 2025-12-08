@@ -503,7 +503,12 @@ class OrderItem(TimeStampedModel):
 
 
 class Enrollment(TimeStampedModel):
-    """Track user's purchased courses and progress."""
+    """Track user's purchased courses and progress.
+    
+    IMPORTANT: Students enroll in CourseBatch (not Course directly).
+    The 'course' field is maintained for backward compatibility and quick lookups,
+    but 'batch' is the primary enrollment reference.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
@@ -512,12 +517,25 @@ class Enrollment(TimeStampedModel):
         related_name="enrollments",
         help_text="Student enrolled in the course"
     )
+    
+    # NEW: Primary enrollment reference (batch-based enrollment)
+    batch = models.ForeignKey(
+        'api.CourseBatch',  # Use string reference
+        on_delete=models.CASCADE,
+        related_name="enrollments",
+        null=True,  # Nullable for backward compatibility with existing enrollments
+        blank=True,
+        help_text="Course batch the student is enrolled in (primary reference)"
+    )
+    
+    # LEGACY: Kept for backward compatibility and quick lookups
     course = models.ForeignKey(
         'api.Course',  # Use string reference
         on_delete=models.CASCADE,
         related_name="enrollments",
-        help_text="Course the student is enrolled in"
+        help_text="Course the student is enrolled in (auto-set from batch)"
     )
+    
     order = models.ForeignKey(
         Order, 
         on_delete=models.SET_NULL, 
@@ -559,13 +577,30 @@ class Enrollment(TimeStampedModel):
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Enrollment"
         verbose_name_plural = "Enrollments"
-        unique_together = [("user", "course")]
+        # Updated: User can enroll in multiple batches of the same course
+        unique_together = [("user", "batch")]  # One enrollment per user per batch
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=['user', 'is_active']),
             models.Index(fields=['course', 'is_active']),
+            models.Index(fields=['batch', 'is_active']),
             models.Index(fields=['is_active', 'created_at']),
         ]
+    
+    def save(self, *args, **kwargs):
+        """Auto-set course from batch if batch is provided."""
+        if self.batch and not self.course_id:
+            self.course = self.batch.course
+        super().save(*args, **kwargs)
+        
+        # Update batch enrolled count after save (in a separate transaction)
+        if self.batch_id:
+            from api.models.models_course import CourseBatch
+            try:
+                batch = CourseBatch.objects.get(pk=self.batch_id)
+                batch.update_enrolled_count()
+            except CourseBatch.DoesNotExist:
+                pass
 
     def update_last_accessed(self):
         """Update last accessed timestamp."""
@@ -589,4 +624,6 @@ class Enrollment(TimeStampedModel):
         return self.created_at
     
     def __str__(self):
+        if self.batch:
+            return f"{self.user.get_full_name or self.user.email} enrolled in {self.batch.get_display_name()}"
         return f"{self.user.get_full_name or self.user.email} enrolled in {self.course.title}"

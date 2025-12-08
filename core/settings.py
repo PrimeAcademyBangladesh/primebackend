@@ -160,13 +160,15 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_RATES": {
         "anon": "50000/minute",
-        "user": "1500/hour",
+        "user": "50000/hour",  # Increased for dev mode
         "login": "535/minute",
         "resend": "13/hour",
         "registration": "30/minute",
         # Payment-specific throttle scopes
         "payment_webhook": "200/hour",
         "payment_verify": "30/minute",
+        # Cart-specific throttle scopes
+        "cart": "50000/hour",  # Added for cart operations in dev mode
     },  # In production, consider:
     # "DEFAULT_THROTTLE_RATES": {
     #     "anon": "50/day",  # Changed from 5/min to 50/day - prevents spam but allows some access
@@ -287,9 +289,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "https://prime-academy-bd.vercel.app",
-    "http://prime-academy-bd.vercel.app",
-    "http://45.85.250.92",
+    # "http://45.85.250.92",  # Commented for local testing - will be updated with new URL
+    "https://prime-academy-bd.vercel.app",  # Production frontend
 ]
 
 # Allow credentials for session-based cart (required for guest users)
@@ -307,10 +308,11 @@ CSRF_COOKIE_NAME = 'csrftoken'
 
 
 CSRF_TRUSTED_ORIGINS = [
-    "http://45.85.250.92",
-    "http://45.85.250.92:8080",
+    # "http://45.85.250.92",  # Commented for local testing - will be updated with new URL
+    # "http://45.85.250.92:8080",  # Commented for local testing
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://prime-academy-bd.vercel.app",  # Production frontend
 ]
 
 # Email backend configuration (REQUIRED for mandatory verification)

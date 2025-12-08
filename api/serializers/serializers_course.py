@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from api.models.models_course import (Category, Course, CourseDetail,
+from api.models.models_course import (Category, Course, CourseBatch, CourseDetail,
                                       CourseInstructor, CourseModule, KeyBenefit,
                                       SideImageSection, SuccessStory, WhyEnrol,
                                       CourseContentSection, CourseSectionTab, CourseTabbedContent)
@@ -278,6 +278,199 @@ class CourseInstructorCreateUpdateSerializer(serializers.ModelSerializer):
         return data
 
 
+# ========== Course Batch Serializers ==========
+
+class CourseBatchSerializer(serializers.ModelSerializer):
+    """Serializer for course batches (read-only, for listings)."""
+    course_title = serializers.CharField(source='course.title', read_only=True)
+    course_slug = serializers.CharField(source='course.slug', read_only=True)
+    display_name = serializers.CharField(source='get_display_name', read_only=True)
+    is_enrollment_open = serializers.BooleanField(read_only=True)
+    available_seats = serializers.IntegerField(read_only=True)
+    is_full = serializers.BooleanField(read_only=True)
+    
+    class Meta:
+        model = CourseBatch
+        fields = [
+            'id',
+            'course',
+            'course_title',
+            'course_slug',
+            'batch_number',
+            'batch_name',
+            'slug',
+            'display_name',
+            'start_date',
+            'end_date',
+            'enrollment_start_date',
+            'enrollment_end_date',
+            'max_students',
+            'enrolled_students',
+            'available_seats',
+            'is_full',
+            'custom_price',
+            'status',
+            'is_active',
+            'is_enrollment_open',
+            'description',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'slug',
+            'enrolled_students',
+            'course_title',
+            'course_slug',
+            'display_name',
+            'is_enrollment_open',
+            'available_seats',
+            'is_full',
+            'created_at',
+            'updated_at',
+        ]
+
+
+class CourseBatchMinimalSerializer(serializers.ModelSerializer):
+    """Minimal serializer for course batches (for nested use in course lists)."""
+    display_name = serializers.CharField(source='get_display_name', read_only=True)
+    is_enrollment_open = serializers.BooleanField(read_only=True)
+    available_seats = serializers.IntegerField(read_only=True)
+    installment_preview = serializers.SerializerMethodField()
+    is_enrolled = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = CourseBatch
+        fields = [
+            'id',
+            'batch_number',
+            'batch_name',
+            'slug',
+            'display_name',
+            'start_date',
+            'end_date',
+            'status',
+            'max_students',
+            'enrolled_students',
+            'available_seats',
+            'is_enrollment_open',
+            'custom_price',
+            'installment_preview',
+            'is_enrolled',
+        ]
+        read_only_fields = fields
+    
+    def get_is_enrolled(self, obj):
+        """Check if the current user is enrolled in this batch."""
+        request = self.context.get('request')
+        if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
+            return False
+        
+        try:
+            from api.models.models_order import Enrollment
+            return Enrollment.objects.filter(
+                user=request.user,
+                batch=obj,
+                is_active=True
+            ).exists()
+        except Exception:
+            return False
+    
+    def get_installment_preview(self, obj):
+        """Get installment info for this batch (batch setting overrides course setting)."""
+        # Check if batch has specific installment setting
+        if obj.installment_available is not None:
+            # Batch overrides course setting
+            if not obj.installment_available:
+                return None  # Batch explicitly disabled installments
+            
+            if obj.installment_count:
+                # Calculate price for this batch
+                if obj.custom_price:
+                    total_price = obj.custom_price
+                elif hasattr(obj.course, 'pricing') and obj.course.pricing:
+                    total_price = obj.course.pricing.get_discounted_price()
+                else:
+                    return None
+                
+                per_installment = total_price / obj.installment_count
+                return {
+                    'available': True,
+                    'count': obj.installment_count,
+                    'amount': float(per_installment),
+                    'total': float(total_price),
+                    'description': f"Pay in {obj.installment_count} installments of ৳{per_installment:,.2f}"
+                }
+        
+        # Use course default setting
+        if hasattr(obj.course, 'pricing') and obj.course.pricing:
+            pricing = obj.course.pricing
+            if pricing.installment_available and pricing.installment_count:
+                total_price = obj.custom_price or pricing.get_discounted_price()
+                per_installment = total_price / pricing.installment_count
+                return {
+                    'available': True,
+                    'count': pricing.installment_count,
+                    'amount': float(per_installment),
+                    'total': float(total_price),
+                    'description': f"Pay in {pricing.installment_count} installments of ৳{per_installment:,.2f}"
+                }
+        
+        return None
+
+
+class CourseBatchCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating course batches."""
+    
+    class Meta:
+        model = CourseBatch
+        fields = [
+            'course',
+            'batch_number',
+            'batch_name',
+            'start_date',
+            'end_date',
+            'enrollment_start_date',
+            'enrollment_end_date',
+            'max_students',
+            'custom_price',
+            'status',
+            'is_active',
+            'description',
+        ]
+    
+    def validate(self, data):
+        """Validate batch data."""
+        course = data.get('course')
+        batch_number = data.get('batch_number')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        enrollment_end_date = data.get('enrollment_end_date')
+        
+        # Check for duplicate batch number (only on create)
+        if not self.instance:
+            if course and batch_number:
+                if CourseBatch.objects.filter(course=course, batch_number=batch_number).exists():
+                    raise serializers.ValidationError({
+                        'batch_number': f'Batch {batch_number} already exists for this course.'
+                    })
+        
+        # Validate dates
+        if start_date and end_date:
+            if end_date <= start_date:
+                raise serializers.ValidationError({
+                    'end_date': 'End date must be after start date.'
+                })
+        
+        if enrollment_end_date and start_date:
+            if enrollment_end_date > start_date:
+                raise serializers.ValidationError({
+                    'enrollment_end_date': 'Enrollment must close before or on the start date.'
+                })
+        
+        return data
+
+
 # ========== Course Price Serializers ==========
 
 class CoursePriceSerializer(serializers.ModelSerializer):
@@ -308,6 +501,23 @@ class CoursePriceSerializer(serializers.ModelSerializer):
         source='get_currency_display',
         read_only=True
     )
+    installment_preview = serializers.SerializerMethodField()
+    
+    def get_installment_preview(self, obj):
+        """Generate installment preview for frontend display."""
+        if not obj.installment_available or not obj.installment_count:
+            return None
+        
+        total_price = obj.get_discounted_price()
+        installment_amount = obj.get_installment_amount()
+        
+        return {
+            'available': True,
+            'count': obj.installment_count,
+            'amount': float(installment_amount) if installment_amount else 0,
+            'total': float(total_price),
+            'description': f"Pay in {obj.installment_count} installments of ৳{installment_amount:,.2f}" if installment_amount else None
+        }
     
     class Meta:
         model = CoursePrice
@@ -328,6 +538,7 @@ class CoursePriceSerializer(serializers.ModelSerializer):
             'installment_available',
             'installment_count',
             'installment_amount',
+            'installment_preview',
             'created_at',
             'updated_at',
         ]
@@ -338,6 +549,7 @@ class CoursePriceSerializer(serializers.ModelSerializer):
             'effective_price',
             'savings',
             'installment_amount',
+            'installment_preview',
             'created_at',
             'updated_at',
         ]
@@ -730,6 +942,7 @@ class CourseListSerializer(serializers.ModelSerializer):
     pricing = CoursePriceSerializer(read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     is_purchased = serializers.SerializerMethodField(read_only=True)
+    active_batches = serializers.SerializerMethodField(read_only=True)
     
     class Meta:
         model = Course
@@ -749,12 +962,12 @@ class CourseListSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'is_purchased',
-            'batch',
+            'active_batches',
         ]
         read_only_fields = ['id', 'slug', 'created_at', 'updated_at']
 
     def get_is_purchased(self, obj):
-        """Return True if current request user is already enrolled in this course."""
+        """Return True if current request user is already enrolled in ANY batch of this course."""
         request = self.context.get('request')
         # If view annotated the queryset, prefer the annotated boolean
         if hasattr(obj, 'is_purchased'):
@@ -767,6 +980,12 @@ class CourseListSerializer(serializers.ModelSerializer):
             return Enrollment.objects.filter(user=request.user, course=obj, is_active=True).exists()
         except Exception:
             return False
+    
+    def get_active_batches(self, obj):
+        """Return active batches for this course with enrollment status."""
+        request = self.context.get('request')
+        batches = obj.batches.filter(is_active=True).order_by('start_date')[:5]
+        return CourseBatchMinimalSerializer(batches, many=True, context={'request': request}).data
 
 
 class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
@@ -778,6 +997,7 @@ class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     detail = CourseDetailSerializer(read_only=True)
     instructors = CourseInstructorSerializer(many=True, read_only=True)
     modules = serializers.SerializerMethodField()
+    batches = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     is_purchased = serializers.SerializerMethodField(read_only=True)
     
@@ -801,9 +1021,9 @@ class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             'modules',
             'instructors',
             'created_at',
-                'updated_at',
-                'is_purchased',
-                'batch',
+            'updated_at',
+            'is_purchased',
+            'batches',
         ]
         read_only_fields = ['id', 'slug', 'created_at', 'updated_at']
     
@@ -835,6 +1055,11 @@ class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             return Enrollment.objects.filter(user=request.user, course=obj, is_active=True).exists()
         except Exception:
             return False
+    
+    def get_batches(self, obj):
+        """Return all batches for this course."""
+        batches = obj.batches.filter(is_active=True).order_by('-start_date')
+        return CourseBatchSerializer(batches, many=True).data
 
 
 class CourseCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
@@ -847,7 +1072,6 @@ class CourseCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer)
             'id',
             'slug',
             'category',
-            'batch',
             'show_in_megamenu',
             'show_in_home_tab',
             'title',

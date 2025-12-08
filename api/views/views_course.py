@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from api.models.models_course import (
     Category,
     Course,
+    CourseBatch,
     CourseContentSection,
     CourseDetail,
     CourseInstructor,
@@ -38,6 +39,8 @@ from api.serializers.serializers_course import (
     CouponCreateUpdateSerializer,
     CouponSerializer,
     CouponValidationSerializer,
+    CourseBatchCreateUpdateSerializer,
+    CourseBatchSerializer,
     CourseContentSectionCreateUpdateSerializer,
     CourseContentSectionSerializer,
     CourseCreateUpdateSerializer,
@@ -109,13 +112,68 @@ class CourseFilter(django_filters.FilterSet):
 @extend_schema_view(
     list=extend_schema(
         summary="List all course categories",
-        description="Retrieve all active categories. Staff users see all categories.",
+        description="""
+        Retrieve all active categories for course organization.
+        
+        **Permissions:**
+        - Public users: See only active categories (`is_active=True`)
+        - Staff users: See all categories including inactive ones
+        
+        **Frontend Usage:**
+        - Course category navigation/filters
+        - Homepage category sections
+        - Course listing filter dropdowns
+        - Megamenu category links
+        
+        **Response includes:**
+        - `id`: Category UUID
+        - `name`: Display name
+        - `slug`: URL-friendly identifier
+        - `description`: Category description
+        - `is_active`: Visibility status
+        - `show_in_megamenu`: Whether to show in navigation
+        - `icon`: Optional icon identifier
+        
+        **Example Usage:**
+        ```javascript
+        // Fetch all categories for navigation
+        const response = await fetch('/api/courses/categories/');
+        const { data } = await response.json();
+        const categories = data.results; // Array of category objects
+        ```
+        """,
         responses={200: CategorySerializer},
         tags=["Course - Categories"],
     ),
     retrieve=extend_schema(
         summary="Retrieve a course category by slug",
-        description="Get a single category by its slug identifier.",
+        description="""
+        Get detailed information about a specific category using its slug.
+        
+        **Frontend Usage:**
+        - Category landing pages
+        - Display category details above filtered courses
+        - Breadcrumb navigation context
+        
+        **URL Pattern:** `/api/courses/categories/{category_slug}/`
+        
+        **Example:**
+        ```javascript
+        // Get web-development category details
+        const response = await fetch('/api/courses/categories/web-development/');
+        const { data } = await response.json();
+        console.log(data.name); // "Web Development"
+        ```
+        """,
+        parameters=[
+            OpenApiParameter(
+                name="slug",
+                type=str,
+                location=OpenApiParameter.PATH,
+                description="URL-friendly category identifier (e.g., 'web-development', 'data-science')",
+                required=True,
+            )
+        ],
         responses={200: CategorySerializer},
         tags=["Course - Categories"],
     ),
@@ -201,7 +259,96 @@ class CategoryViewSet(BaseAdminViewSet):
 @extend_schema_view(
     list=extend_schema(
         summary="List courses",
-        description="Get paginated list of courses. Public users see only published & active courses.",
+        description="""
+        Get paginated list of courses with batch information.
+        
+        **Permissions:**
+        - Public: Only published & active courses
+        - Staff: All courses regardless of status
+        
+        **Key Features:**
+        - Each course includes `active_batches` array with enrollment status
+        - `is_purchased` flag for authenticated users (shows if user is enrolled)
+        - Optimized with select_related/prefetch_related to avoid N+1 queries
+        - Cached for 10 minutes to improve performance
+        
+        **Filtering Options:**
+        - `category`: Filter by category slug or ID
+        - `status`: Filter by status (published, draft, archived)
+        - `is_active`: Boolean filter for active courses
+        - `search`: Search in title and short_description
+        - `ordering`: Sort by title, created_at, updated_at (use `-` for descending)
+        
+        **Pagination:**
+        - Default page size: 10 items
+        - Use `?page=2` for next pages
+        
+        **Frontend Usage:**
+        ```javascript
+        // Get first page of courses
+        const response = await fetch('/api/courses/');
+        const { data } = await response.json();
+        
+        data.results.forEach(course => {
+          console.log(course.title);
+          console.log(course.active_batches); // Array of available batches
+          console.log(course.is_purchased); // true if user enrolled
+        });
+        
+        // Filter by category
+        const webCourses = await fetch('/api/courses/?category=web-development');
+        
+        // Search courses
+        const searchResults = await fetch('/api/courses/?search=python');
+        
+        // Sort by newest first
+        const newest = await fetch('/api/courses/?ordering=-created_at');
+        ```
+        
+        **Response Structure:**
+        - Each course has `active_batches` field containing batches with `is_enrollment_open=True`
+        - Use batch information to show "Enroll Now" buttons with batch selection
+        - Check `is_purchased` to show "Continue Learning" vs "Enroll" buttons
+        """,
+        parameters=[
+            OpenApiParameter(
+                name="category",
+                type=str,
+                description="Filter by category slug or UUID",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="status",
+                type=str,
+                description="Filter by status: published, draft, or archived",
+                required=False,
+                enum=["published", "draft", "archived"],
+            ),
+            OpenApiParameter(
+                name="is_active",
+                type=bool,
+                description="Filter by active status",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="search",
+                type=str,
+                description="Search in course title and description",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="ordering",
+                type=str,
+                description="Sort results: title, created_at, updated_at (prefix with - for descending)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=int,
+                description="Page number for pagination",
+                required=False,
+            ),
+        ],
         responses={200: CourseListSerializer},
         tags=["Course - Main"],
     ),
@@ -212,13 +359,75 @@ class CategoryViewSet(BaseAdminViewSet):
     ),
     retrieve=extend_schema(
         summary="Retrieve course by slug",
-        description="Get detailed course information including pricing and all course details.",
+        description="""
+        Get comprehensive course details including all batches, pricing, modules, and content.
+        
+        **URL Pattern:** `/api/courses/{course_slug}/`
+        
+        **Smart Caching Behavior:**
+        - **Anonymous users**: Cached response (10 min) with sample module content only
+        - **Enrolled students**: Full uncached response with complete module access
+        - **Staff/Admins**: Full uncached response with all content
+        
+        **Response Includes:**
+        - Complete course information (title, description, thumbnail, etc.)
+        - `batches` array: All batches for this course with enrollment status
+        - `pricing` object: Course pricing details (regular, discount, installments)
+        - `detail` object: Extended course details with:
+          - `modules`: Course curriculum modules
+          - `content_sections`: Organized course content
+          - `why_enrol`: Enrollment reasons
+          - `benefits`: Key benefits
+          - `success_stories`: Student testimonials
+          - `instructors`: Course instructors
+        - `is_purchased`: Boolean indicating if current user is enrolled (authenticated users only)
+        
+        **Batch Information:**
+        Each batch in the `batches` array includes:
+        - `batch_number`: Batch identifier
+        - `start_date`, `end_date`: Batch schedule
+        - `enrollment_start`, `enrollment_end`: Enrollment window
+        - `is_enrollment_open`: Whether enrollment is currently open
+        - `available_seats`: Remaining capacity
+        - `is_full`: Whether batch is at capacity
+        
+        **Frontend Usage:**
+        ```javascript
+        // Get complete course details
+        const response = await fetch('/api/courses/django-web-development/');
+        const { data } = await response.json();
+        
+        // Display available batches
+        const openBatches = data.batches.filter(b => b.is_enrollment_open);
+        
+        // Show enrollment button based on status
+        if (data.is_purchased) {
+          showButton('Continue Learning');
+        } else if (openBatches.length > 0) {
+          showButton('Enroll Now');
+        } else {
+          showButton('Notify Me');
+        }
+        
+        // Display pricing
+        console.log(`Price: $${data.pricing.regular_price}`);
+        if (data.pricing.discount_price) {
+          console.log(`Discount: $${data.pricing.discount_price}`);
+        }
+        ```
+        
+        **Module Access:**
+        - Anonymous/Guest users: See only modules marked as `is_sample=True`
+        - Enrolled students: See all modules with full content
+        - Staff: See all modules regardless of enrollment
+        """,
         parameters=[
             OpenApiParameter(
                 name="slug",
                 type=str,
                 location=OpenApiParameter.PATH,
-                description="Slug of the course (use slug, not UUID)",
+                description="URL-friendly course identifier (e.g., 'django-web-development', 'react-masterclass')",
+                required=True,
             )
         ],
         responses={200: CourseDetailedSerializer},
@@ -384,14 +593,56 @@ class CourseViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get courses by category",
-        description="Retrieve all active published courses in a specific category.",
+        description="""
+        Retrieve all active published courses in a specific category.
+        
+        **URL Pattern:** `/api/courses/category/{category_slug}/`
+        
+        **Permissions:** Public (AllowAny)
+        
+        **Use Cases:**
+        - Category landing pages showing all courses in category
+        - Category-specific course browsing
+        - Filtered course listings by category
+        
+        **Response:** Paginated list of courses (same as main list endpoint)
+        
+        **Frontend Usage:**
+        ```javascript
+        // Get all web development courses
+        const response = await fetch('/api/courses/category/web-development/');
+        const { data } = await response.json();
+        
+        data.results.forEach(course => {
+          console.log(course.title);
+          console.log(course.active_batches); // Available batches
+        });
+        
+        // Pagination
+        const page2 = await fetch('/api/courses/category/web-development/?page=2');
+        ```
+        
+        **Filter Behavior:**
+        - Only returns courses where:
+          - `category.slug` matches the provided slug
+          - `category.is_active = True`
+          - `course.is_active = True`
+          - `course.status = 'published'`
+        """,
         parameters=[
             OpenApiParameter(
                 name="category_slug",
                 type=str,
                 location=OpenApiParameter.PATH,
-                description="Slug of the category",
-            )
+                description="Category slug identifier (e.g., 'web-development', 'data-science')",
+                required=True,
+            ),
+            OpenApiParameter(
+                name="page",
+                type=int,
+                description="Page number for pagination",
+                required=False,
+            ),
         ],
         responses={200: CourseListSerializer},
         tags=["Course - Main"],
@@ -429,7 +680,51 @@ class CourseViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get featured/latest courses",
-        description="Retrieve the latest 6 published courses.",
+        description="""
+        Retrieve the latest 6 published courses for homepage/featured sections.
+        
+        **URL Pattern:** `/api/courses/featured/`
+        
+        **Permissions:** Public (AllowAny)
+        
+        **Caching:** Response cached for 30 minutes for performance
+        
+        **Use Cases:**
+        - Homepage featured course carousel
+        - "Latest Courses" section
+        - Course highlights above the fold
+        
+        **Response Structure:**
+        ```json
+        {
+          "success": true,
+          "message": "Featured courses retrieved successfully",
+          "data": {
+            "results": [
+              // Array of 6 most recent published courses
+            ]
+          }
+        }
+        ```
+        
+        **Frontend Usage:**
+        ```javascript
+        // Get featured courses for homepage
+        const response = await fetch('/api/courses/featured/');
+        const { data } = await response.json();
+        const featuredCourses = data.results;
+        
+        // Display in carousel/grid
+        featuredCourses.forEach(course => {
+          displayCourseCard(course.title, course.thumbnail, course.slug);
+        });
+        ```
+        
+        **Notes:**
+        - Always returns exactly 6 courses (or fewer if less than 6 are published)
+        - Sorted by creation date (newest first)
+        - Only includes active, published courses
+        """,
         responses={200: CourseListSerializer},
         tags=["Course - Main"],
     )
@@ -453,7 +748,78 @@ class CourseViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get categories with courses for home",
-        description="Return active categories and up to 10 courses per category for home display. By default only courses with `show_in_home_tab=True` are returned. Use `include_all=true` to include all published courses.",
+        description="""
+        Return active categories each with up to 10 courses for homepage tabbed sections.
+        
+        **URL Pattern:** `/api/courses/home-categories/`
+        
+        **Permissions:** Public (AllowAny)
+        
+        **Caching:** Response cached for 15 minutes
+        
+        **Query Parameters:**
+        - `include_all=true`: Include all published courses (default: only courses with `show_in_home_tab=True`)
+        
+        **Use Cases:**
+        - Homepage tabbed course sections by category
+        - Category-organized course browsing on landing page
+        - Dynamic homepage content sections
+        
+        **Response Structure:**
+        ```json
+        {
+          "success": true,
+          "message": "Home categories with courses retrieved",
+          "data": [
+            {
+              "category": {
+                "id": "uuid",
+                "name": "Web Development",
+                "slug": "web-development",
+                "icon": "fa-code"
+              },
+              "courses": [
+                // Up to 10 courses in this category
+              ]
+            },
+            // ... more categories
+          ]
+        }
+        ```
+        
+        **Frontend Usage:**
+        ```javascript
+        // Get categories with courses for tabbed homepage
+        const response = await fetch('/api/courses/home-categories/');
+        const { data } = await response.json();
+        
+        // Render tabs for each category
+        data.forEach(section => {
+          createTab(section.category.name);
+          section.courses.forEach(course => {
+            displayCourseCard(course);
+          });
+        });
+        
+        // Include all courses (not just featured)
+        const allCourses = await fetch('/api/courses/home-categories/?include_all=true');
+        ```
+        
+        **Filtering Logic:**
+        - Only active categories with active, published courses
+        - Categories with no matching courses are excluded from response
+        - Courses sorted by creation date (newest first)
+        - Maximum 10 courses per category
+        """,
+        parameters=[
+            OpenApiParameter(
+                name="include_all",
+                type=bool,
+                description="Include all published courses instead of only courses with show_in_home_tab=True",
+                required=False,
+                default=False,
+            ),
+        ],
         responses={200: OpenApiParameter},
         tags=["Course - Main"],
     )
@@ -505,7 +871,73 @@ class CourseViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get megamenu navigation (category -> course titles)",
-        description="Return categories with a list of course titles (and slugs) for building site navigation.",
+        description="""
+        Return categories with minimal course information for site navigation megamenu.
+        
+        **URL Pattern:** `/api/courses/megamenu-nav/`
+        
+        **Permissions:** Public (AllowAny)
+        
+        **Caching:** Response cached for 1 hour (invalidated on Course/Category changes)
+        
+        **Use Cases:**
+        - Header megamenu dropdown navigation
+        - Category-based course navigation
+        - Site-wide course directory
+        
+        **Response Structure:**
+        ```json
+        {
+          "success": true,
+          "message": "Megamenu nav retrieved",
+          "data": [
+            {
+              "category": {
+                "id": "uuid",
+                "name": "Web Development",
+                "slug": "web-development"
+              },
+              "courses": [
+                {
+                  "id": "uuid",
+                  "title": "Django Web Development",
+                  "slug": "django-web-development"
+                },
+                // ... up to 10 courses
+              ]
+            },
+            // ... more categories
+          ]
+        }
+        ```
+        
+        **Frontend Usage:**
+        ```javascript
+        // Build megamenu navigation
+        const response = await fetch('/api/courses/megamenu-nav/');
+        const { data } = await response.json();
+        
+        // Create dropdown menu structure
+        data.forEach(section => {
+          const dropdown = createDropdown(section.category.name);
+          section.courses.forEach(course => {
+            dropdown.addLink(course.title, `/courses/${course.slug}`);
+          });
+        });
+        ```
+        
+        **Filtering Logic:**
+        - Only categories with `show_in_megamenu=True`
+        - Only courses with `show_in_megamenu=True`
+        - Active and published courses only
+        - Maximum 10 courses per category
+        - Courses sorted by creation date (newest first)
+        
+        **Performance:**
+        - Highly optimized with prefetch_related to avoid N+1 queries
+        - Returns minimal data (only IDs, titles, and slugs)
+        - Aggressively cached for fast navigation rendering
+        """,
         responses={200: OpenApiParameter},
         tags=["Course - Main"],
     )
@@ -571,13 +1003,67 @@ class CourseViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get modules for a course",
-        description="Get all modules for a specific course by course slug. Returns modules with UUIDs that can be used to filter live classes, assignments, and quizzes.",
+        description="""
+        Get all modules for a specific course by course slug.
+        
+        **URL Pattern:** `/api/courses/{course_slug}/modules/`
+        
+        **Permissions:** Public (AllowAny)
+        
+        **Use Cases:**
+        - Display course curriculum/syllabus
+        - Module navigation in course player
+        - Filter live classes/assignments/quizzes by module
+        
+        **Response Structure:**
+        Each module includes:
+        - `id`: Module UUID (use this for filtering content)
+        - `title`: Module name
+        - `description`: Module description
+        - `order`: Display order (sorted)
+        - `duration`: Estimated duration
+        - `is_active`: Visibility status
+        - `is_sample`: Whether module is available for preview
+        
+        **Frontend Usage:**
+        ```javascript
+        // Get all modules for Django course
+        const response = await fetch('/api/courses/django-web-development/modules/');
+        const { data } = await response.json();
+        
+        // Display module list
+        data.forEach(module => {
+          console.log(`${module.order}. ${module.title}`);
+          console.log(`Duration: ${module.duration}`);
+        });
+        
+        // Filter live classes by module
+        const moduleId = data[0].id;
+        const classes = await fetch(`/api/live-classes/?module=${moduleId}`);
+        
+        // Filter assignments by module
+        const assignments = await fetch(`/api/assignments/?module=${moduleId}`);
+        
+        // Filter quizzes by module
+        const quizzes = await fetch(`/api/quizzes/?module=${moduleId}`);
+        ```
+        
+        **Important:**
+        - Returns only active modules (`is_active=True`)
+        - Modules are sorted by `order` field
+        - Module UUIDs are required for filtering related content (classes, assignments, quizzes)
+        - Sample modules (`is_sample=True`) are visible to all users
+        
+        **Error Handling:**
+        - Returns 404 if course not found or not published
+        """,
         parameters=[
             OpenApiParameter(
                 name="course_slug",
                 type=str,
                 location=OpenApiParameter.PATH,
-                description="Slug of the course",
+                description="Course slug identifier (e.g., 'django-web-development')",
+                required=True,
             )
         ],
         responses={200: CourseModuleSerializer(many=True)},
@@ -621,32 +1107,63 @@ class CourseViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List course prices",
+        summary="List course prices (Admin)",
+        description="""
+        **Admin Only**: Manage course pricing records.
+        
+        **Filtering:**
+        - `?currency=USD|BDT`: Filter by currency
+        - `?is_free=true`: Filter free courses
+        - `?is_active=true`: Active prices only
+        - `?installment_available=true`: Courses with installment options
+        
+        **Frontend Note:** Use course detail endpoint for public pricing info.
+        """,
         responses={200: CoursePriceSerializer},
         tags=["Course - Pricing"],
     ),
     retrieve=extend_schema(
-        summary="Retrieve course price",
+        summary="Retrieve course price (Admin)",
+        description="Get specific pricing record by UUID.",
         responses={200: CoursePriceSerializer},
         tags=["Course - Pricing"],
     ),
     create=extend_schema(
-        summary="Create course price",
+        summary="Create course price (Admin)",
+        description="""
+        Create new pricing for a course.
+        
+        **Required Fields:**
+        - `course`: Course UUID
+        - `base_price`: Original price
+        - `currency`: 'USD' or 'BDT'
+        
+        **Optional:**
+        - `discount_price`: Discounted price
+        - `is_free`: Mark as free course
+        - `installment_available`: Enable installment payments
+        - `installment_count`: Number of installments
+        """,
         responses={201: CoursePriceCreateUpdateSerializer},
         tags=["Course - Pricing"],
     ),
     update=extend_schema(
-        summary="Update course price",
+        summary="Update course price (Admin)",
+        description="Full update of course pricing.",
         responses={200: CoursePriceCreateUpdateSerializer},
         tags=["Course - Pricing"],
     ),
     partial_update=extend_schema(
-        summary="Partially update course price",
+        summary="Partially update course price (Admin)",
+        description="Partial update of pricing fields.",
         responses={200: CoursePriceCreateUpdateSerializer},
         tags=["Course - Pricing"],
     ),
     destroy=extend_schema(
-        summary="Delete course price", responses={204: None}, tags=["Course - Pricing"]
+        summary="Delete course price (Admin)",
+        description="Delete a course pricing record.",
+        responses={204: None},
+        tags=["Course - Pricing"]
     ),
 )
 class CoursePriceViewSet(BaseAdminViewSet):
@@ -675,13 +1192,46 @@ class CoursePriceViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get price by course slug",
-        description="Retrieve pricing information for a specific course.",
+        description="""
+        Retrieve pricing information for a specific course.
+        
+        **URL Pattern:** `/api/courses/prices/course/{course_slug}/`
+        
+        **Permissions:** Public (AllowAny)
+        
+        **Use Cases:**
+        - Display pricing on course detail page
+        - Check installment availability
+        - Calculate discounted prices
+        
+        **Frontend Usage:**
+        ```javascript
+        // Get pricing for Django course
+        const response = await fetch('/api/courses/prices/course/django-web-development/');
+        const { data } = await response.json();
+        
+        console.log(`Regular: $${data.base_price}`);
+        if (data.discount_price) {
+          console.log(`Discounted: $${data.discount_price}`);
+        }
+        
+        if (data.installment_available) {
+          const installmentAmount = data.discount_price || data.base_price;
+          const perMonth = installmentAmount / data.installment_count;
+          console.log(`${data.installment_count} installments of $${perMonth}`);
+        }
+        ```
+        
+        **Note:** Pricing is also included in course detail endpoint (`/api/courses/{slug}/`).
+        Use this endpoint when you need only pricing without full course details.
+        """,
         parameters=[
             OpenApiParameter(
                 name="course_slug",
                 type=str,
                 location=OpenApiParameter.PATH,
-                description="Slug of the course",
+                description="Course slug identifier (e.g., 'django-web-development')",
+                required=True,
             )
         ],
         responses={200: CoursePriceSerializer},
@@ -714,7 +1264,18 @@ class CoursePriceViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List coupons",
+        summary="List coupons (Admin)",
+        description="""
+        **Admin Only**: Manage discount coupons.
+        
+        **Filtering:**
+        - `?discount_type=percentage|fixed`: Filter by discount type
+        - `?is_active=true`: Active coupons only
+        - `?apply_to_all=true`: Universal coupons vs course-specific
+        - `?search=CODE123`: Search by coupon code
+        
+        **Frontend Note:** Public users should use `/api/courses/coupons/active/` endpoint.
+        """,
         responses={200: CouponSerializer},
         tags=["Course - Coupons"],
     ),
@@ -774,7 +1335,73 @@ class CouponViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Validate coupon code",
-        description="Validate a coupon code for a specific course and calculate discount.",
+        description="""
+        Validate a coupon code for a specific course and calculate the discount.
+        
+        **URL Pattern:** `/api/courses/coupons/validate/` (POST)
+        
+        **Permissions:** Public (AllowAny)
+        
+        **Use Cases:**
+        - Apply coupon code at checkout
+        - Display discount amount before payment
+        - Validate coupon before enrollment
+        
+        **Request Body:**
+        ```json
+        {
+          "code": "SUMMER2024",
+          "course_slug": "django-web-development"
+        }
+        ```
+        
+        **Response:**
+        ```json
+        {
+          "success": true,
+          "message": "Coupon validated successfully",
+          "data": {
+            "original_price": 199.99,
+            "discount_amount": 50.00,
+            "final_price": 149.99,
+            "discount_type": "fixed",
+            "discount_value": 50,
+            "coupon_code": "SUMMER2024",
+            "message": "Coupon applied successfully! You save USD 50.00"
+          }
+        }
+        ```
+        
+        **Frontend Usage:**
+        ```javascript
+        // Validate coupon at checkout
+        const validateCoupon = async (code, courseSlug) => {
+          const response = await fetch('/api/courses/coupons/validate/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, course_slug: courseSlug })
+          });
+          
+          const { data } = await response.json();
+          if (response.ok) {
+            displayDiscount(data.discount_amount);
+            updateTotal(data.final_price);
+          }
+        };
+        ```
+        
+        **Validation Rules:**
+        - Coupon must be active (`is_active=True`)
+        - Must be within validity dates (`valid_from` to `valid_until`)
+        - Must apply to the specified course (unless `apply_to_all=True`)
+        - Usage limit must not be exceeded (`usage_limit`)
+        
+        **Error Cases:**
+        - Invalid coupon code: 400 error
+        - Expired coupon: 400 error with "expired" message
+        - Coupon not applicable to course: 400 error
+        - Usage limit exceeded: 400 error
+        """,
         request=CouponValidationSerializer,
         responses={200: CouponApplyResultSerializer},
         tags=["Course - Coupons"],
@@ -834,7 +1461,53 @@ class CouponViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get active coupons",
-        description="Retrieve all currently valid and active coupons.",
+        description="""
+        Retrieve all currently valid and active coupons.
+        
+        **URL Pattern:** `/api/courses/coupons/active/`
+        
+        **Permissions:** Public (AllowAny)
+        
+        **Use Cases:**
+        - Display available coupons to users
+        - Show promotional codes on homepage
+        - Coupon suggestion at checkout
+        
+        **Filtering:**
+        - Only coupons with `is_active=True`
+        - Current date within `valid_from` to `valid_until` range
+        - Pagination enabled
+        
+        **Frontend Usage:**
+        ```javascript
+        // Get all active coupons
+        const response = await fetch('/api/courses/coupons/active/');
+        const { data } = await response.json();
+        
+        data.results.forEach(coupon => {
+          console.log(`Code: ${coupon.code}`);
+          console.log(`Discount: ${coupon.discount_value}${coupon.discount_type === 'percentage' ? '%' : ' USD'}`);
+          console.log(`Valid until: ${coupon.valid_until}`);
+          
+          if (coupon.apply_to_all) {
+            console.log('Applies to all courses');
+          } else {
+            console.log(`Applies to: ${coupon.courses.length} courses`);
+          }
+        });
+        ```
+        
+        **Response Fields:**
+        - `code`: Coupon code to use
+        - `discount_type`: 'percentage' or 'fixed'
+        - `discount_value`: Discount amount or percentage
+        - `valid_from`: Start date
+        - `valid_until`: Expiration date
+        - `apply_to_all`: Boolean - applies to all courses
+        - `courses`: Array of applicable course slugs (if not apply_to_all)
+        - `usage_limit`: Maximum number of uses (null = unlimited)
+        - `times_used`: Current usage count
+        """,
         responses={200: CouponSerializer},
         tags=["Course - Coupons"],
     )
@@ -869,20 +1542,53 @@ class CouponViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List all course details",
-        description="Get all course detail pages with nested components.",
+        summary="List all course details (Admin)",
+        description="""
+        **Admin Only**: Get all CourseDetail records with nested components.
+        
+        CourseDetail extends Course with hero sections, content organization, and marketing components.
+        Frontend typically accesses this via the main Course retrieve endpoint.
+        
+        **Use Cases:**
+        - Admin dashboard listing
+        - Bulk course detail management
+        - Content audit and review
+        
+        **Note:** Frontend should use `/api/courses/{slug}/` to get course details,
+        not this endpoint directly.
+        """,
         tags=["Course - Details"],
     ),
     retrieve=extend_schema(
-        summary="Retrieve course detail by ID", tags=["Course - Details"]
+        summary="Retrieve course detail by ID (Admin)",
+        description="""
+        **Admin Only**: Get a specific CourseDetail record by its UUID.
+        
+        **Note:** Frontend should use `/api/courses/{slug}/` which includes
+        the nested course detail information.
+        """,
+        tags=["Course - Details"]
     ),
-    create=extend_schema(summary="Create course detail", tags=["Course - Details"]),
-    update=extend_schema(summary="Update course detail", tags=["Course - Details"]),
+    create=extend_schema(
+        summary="Create course detail (Admin)",
+        description="Create a new CourseDetail record linked to a Course.",
+        tags=["Course - Details"]
+    ),
+    update=extend_schema(
+        summary="Update course detail (Admin)",
+        description="Full update of a CourseDetail record.",
+        tags=["Course - Details"]
+    ),
     partial_update=extend_schema(
-        summary="Partially update course detail", tags=["Course - Details"]
+        summary="Partially update course detail (Admin)",
+        description="Partial update of CourseDetail fields.",
+        tags=["Course - Details"]
     ),
     destroy=extend_schema(
-        summary="Delete course detail", responses={204: None}, tags=["Course - Details"]
+        summary="Delete course detail (Admin)",
+        description="Delete a CourseDetail record.",
+        responses={204: None},
+        tags=["Course - Details"]
     ),
 )
 class CourseDetailViewSet(BaseAdminViewSet):
@@ -923,17 +1629,51 @@ class CourseDetailViewSet(BaseAdminViewSet):
 
 
 @extend_schema_view(
-    list=extend_schema(summary="List content sections", tags=["Course - Content"]),
-    retrieve=extend_schema(
-        summary="Retrieve content section", tags=["Course - Content"]
+    list=extend_schema(
+        summary="List content sections (Admin)",
+        description="""
+        **Admin Only**: Manage course content sections.
+        
+        Content sections organize course detail page content into logical groups.
+        Each section can have up to 2 tabs with multiple media items.
+        
+        **Use Cases:**
+        - Admin content management
+        - Course page structure editing
+        - Content section reordering
+        
+        **Frontend Note:** Access sections via `/api/courses/{slug}/` in the nested
+        `detail.content_sections` array.
+        
+        **Filtering:**
+        - `?is_active=true`: Active sections only
+        - `?course={uuid}`: Filter by CourseDetail UUID
+        """,
+        tags=["Course - Content"]
     ),
-    create=extend_schema(summary="Create content section", tags=["Course - Content"]),
-    update=extend_schema(summary="Update content section", tags=["Course - Content"]),
+    retrieve=extend_schema(
+        summary="Retrieve content section (Admin)",
+        description="Get a specific content section by UUID with nested tabs and contents.",
+        tags=["Course - Content"]
+    ),
+    create=extend_schema(
+        summary="Create content section (Admin)",
+        description="Create a new content section for a course detail page.",
+        tags=["Course - Content"]
+    ),
+    update=extend_schema(
+        summary="Update content section (Admin)",
+        description="Full update of a content section.",
+        tags=["Course - Content"]
+    ),
     partial_update=extend_schema(
-        summary="Partially update content section", tags=["Course - Content"]
+        summary="Partially update content section (Admin)",
+        description="Partial update of content section fields.",
+        tags=["Course - Content"]
     ),
     destroy=extend_schema(
-        summary="Delete content section",
+        summary="Delete content section (Admin)",
+        description="Delete a content section and its nested tabs/contents.",
         responses={204: None},
         tags=["Course - Content"],
     ),
@@ -970,24 +1710,52 @@ class CourseContentSectionViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List section tabs", responses={200: None}, tags=["Course - Content"]
+        summary="List section tabs (Admin)",
+        description="""
+        **Admin Only**: Manage tabs within course content sections.
+        
+        **Business Rule:** Maximum 2 tabs per content section.
+        
+        Each tab can contain multiple media items (images/videos).
+        
+        **Filtering:**
+        - `?section={uuid}`: Filter by content section UUID
+        - `?is_active=true`: Active tabs only
+        
+        **Frontend Note:** Tabs are accessed via nested structure in course detail.
+        """,
+        responses={200: None},
+        tags=["Course - Content"]
     ),
     retrieve=extend_schema(
-        summary="Retrieve section tab", responses={200: None}, tags=["Course - Content"]
+        summary="Retrieve section tab (Admin)",
+        description="Get a specific tab with its nested contents (images/videos).",
+        responses={200: None},
+        tags=["Course - Content"]
     ),
     create=extend_schema(
-        summary="Create section tab", responses={201: None}, tags=["Course - Content"]
+        summary="Create section tab (Admin)",
+        description="Create a new tab within a content section. Max 2 tabs per section.",
+        responses={201: None},
+        tags=["Course - Content"]
     ),
     update=extend_schema(
-        summary="Update section tab", responses={200: None}, tags=["Course - Content"]
+        summary="Update section tab (Admin)",
+        description="Full update of a section tab.",
+        responses={200: None},
+        tags=["Course - Content"]
     ),
     partial_update=extend_schema(
-        summary="Partially update section tab",
+        summary="Partially update section tab (Admin)",
+        description="Partial update of tab fields.",
         responses={200: None},
         tags=["Course - Content"],
     ),
     destroy=extend_schema(
-        summary="Delete section tab", responses={204: None}, tags=["Course - Content"]
+        summary="Delete section tab (Admin)",
+        description="Delete a tab and its nested contents.",
+        responses={204: None},
+        tags=["Course - Content"]
     ),
 )
 class CourseSectionTabViewSet(BaseAdminViewSet):
@@ -1022,28 +1790,51 @@ class CourseSectionTabViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List tabbed content items",
+        summary="List tabbed content items (Admin)",
+        description="""
+        **Admin Only**: Manage media items (images/videos) within section tabs.
+        
+        Each tab can have multiple content items displayed in order.
+        
+        **Filtering:**
+        - `?tab={uuid}`: Filter by tab UUID
+        - `?media_type=image|video`: Filter by media type
+        - `?is_active=true`: Active content only
+        
+        **Frontend Note:** Content items accessed via course detail nested structure.
+        """,
         responses={200: None},
         tags=["Course - Content"],
     ),
     retrieve=extend_schema(
-        summary="Retrieve content item",
+        summary="Retrieve content item (Admin)",
+        description="Get a specific media item by UUID.",
         responses={200: None},
         tags=["Course - Content"],
     ),
     create=extend_schema(
-        summary="Create content item", responses={201: None}, tags=["Course - Content"]
+        summary="Create content item (Admin)",
+        description="Add new image or video to a tab.",
+        responses={201: None},
+        tags=["Course - Content"]
     ),
     update=extend_schema(
-        summary="Update content item", responses={200: None}, tags=["Course - Content"]
+        summary="Update content item (Admin)",
+        description="Full update of a media item.",
+        responses={200: None},
+        tags=["Course - Content"]
     ),
     partial_update=extend_schema(
-        summary="Partially update content item",
+        summary="Partially update content item (Admin)",
+        description="Partial update of media item fields.",
         responses={200: None},
         tags=["Course - Content"],
     ),
     destroy=extend_schema(
-        summary="Delete content item", responses={204: None}, tags=["Course - Content"]
+        summary="Delete content item (Admin)",
+        description="Delete a media item from a tab.",
+        responses={204: None},
+        tags=["Course - Content"]
     ),
 )
 class CourseTabbedContentViewSet(BaseAdminViewSet):
@@ -1076,32 +1867,46 @@ class CourseTabbedContentViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List why enrol sections",
+        summary="List why enrol sections (Admin)",
+        description="""
+        **Admin Only**: Manage enrollment reason sections.
+        
+        These highlight key reasons to enroll in a course.
+        
+        **Filtering:** `?course={uuid}` - Filter by CourseDetail UUID
+        
+        **Frontend:** Access via `/api/courses/{slug}/` in `detail.why_enrol` array
+        """,
         responses={200: None},
         tags=["Course - Components"],
     ),
     retrieve=extend_schema(
-        summary="Retrieve why enrol section",
+        summary="Retrieve why enrol section (Admin)",
+        description="Get a specific enrollment reason by UUID.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     create=extend_schema(
-        summary="Create why enrol section",
+        summary="Create why enrol section (Admin)",
+        description="Add new enrollment reason to course detail.",
         responses={201: None},
         tags=["Course - Components"],
     ),
     update=extend_schema(
-        summary="Update why enrol section",
+        summary="Update why enrol section (Admin)",
+        description="Full update of enrollment reason.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     partial_update=extend_schema(
-        summary="Partially update why enrol section",
+        summary="Partially update why enrol section (Admin)",
+        description="Partial update of enrollment reason.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     destroy=extend_schema(
-        summary="Delete why enrol section",
+        summary="Delete why enrol section (Admin)",
+        description="Delete an enrollment reason.",
         responses={204: None},
         tags=["Course - Components"],
     ),
@@ -1134,32 +1939,49 @@ class WhyEnrolViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List course modules",
+        summary="List course modules (Admin)",
+        description="""
+        **Admin Only**: Manage course curriculum modules.
+        
+        **Important:** Frontend should use `/api/courses/{slug}/modules/` instead.
+        This endpoint is for admin management only.
+        
+        **Filtering:**
+        - `?course={uuid}`: Filter by CourseDetail UUID
+        - `?is_active=true`: Active modules only
+        
+        **Note:** Module UUIDs are used to filter live classes, assignments, and quizzes.
+        """,
         responses={200: None},
         tags=["Course - Components"],
     ),
     retrieve=extend_schema(
-        summary="Retrieve course module",
+        summary="Retrieve course module (Admin)",
+        description="Get specific module with all details.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     create=extend_schema(
-        summary="Create course module",
+        summary="Create course module (Admin)",
+        description="Add new module to course curriculum.",
         responses={201: None},
         tags=["Course - Components"],
     ),
     update=extend_schema(
-        summary="Update course module",
+        summary="Update course module (Admin)",
+        description="Full update of course module.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     partial_update=extend_schema(
-        summary="Partially update course module",
+        summary="Partially update course module (Admin)",
+        description="Partial update of module fields.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     destroy=extend_schema(
-        summary="Delete course module",
+        summary="Delete course module (Admin)",
+        description="Delete a course module.",
         responses={204: None},
         tags=["Course - Components"],
     ),
@@ -1192,30 +2014,46 @@ class CourseModuleViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List key benefits", responses={200: None}, tags=["Course - Components"]
+        summary="List key benefits (Admin)",
+        description="""
+        **Admin Only**: Manage course key benefits.
+        
+        Benefits highlight what students gain from the course.
+        
+        **Filtering:** `?course={uuid}` - Filter by CourseDetail UUID
+        
+        **Frontend:** Access via `/api/courses/{slug}/` in `detail.benefits` array
+        """,
+        responses={200: None},
+        tags=["Course - Components"]
     ),
     retrieve=extend_schema(
-        summary="Retrieve key benefit",
+        summary="Retrieve key benefit (Admin)",
+        description="Get a specific benefit by UUID.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     create=extend_schema(
-        summary="Create key benefit",
+        summary="Create key benefit (Admin)",
+        description="Add new benefit to course.",
         responses={201: None},
         tags=["Course - Components"],
     ),
     update=extend_schema(
-        summary="Update key benefit",
+        summary="Update key benefit (Admin)",
+        description="Full update of course benefit.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     partial_update=extend_schema(
-        summary="Partially update key benefit",
+        summary="Partially update key benefit (Admin)",
+        description="Partial update of benefit.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     destroy=extend_schema(
-        summary="Delete key benefit",
+        summary="Delete key benefit (Admin)",
+        description="Delete a course benefit.",
         responses={204: None},
         tags=["Course - Components"],
     ),
@@ -1248,32 +2086,46 @@ class KeyBenefitViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List side image sections",
+        summary="List side image sections (Admin)",
+        description="""
+        **Admin Only**: Manage side-by-side image/text sections.
+        
+        These display content with accompanying images.
+        
+        **Filtering:** `?course={uuid}` - Filter by CourseDetail UUID
+        
+        **Frontend:** Access via `/api/courses/{slug}/` in `detail.side_image_sections`
+        """,
         responses={200: None},
         tags=["Course - Components"],
     ),
     retrieve=extend_schema(
-        summary="Retrieve side image section",
+        summary="Retrieve side image section (Admin)",
+        description="Get specific side image section by UUID.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     create=extend_schema(
-        summary="Create side image section",
+        summary="Create side image section (Admin)",
+        description="Add new side image section to course.",
         responses={201: None},
         tags=["Course - Components"],
     ),
     update=extend_schema(
-        summary="Update side image section",
+        summary="Update side image section (Admin)",
+        description="Full update of side image section.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     partial_update=extend_schema(
-        summary="Partially update side image section",
+        summary="Partially update side image section (Admin)",
+        description="Partial update of side image section.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     destroy=extend_schema(
-        summary="Delete side image section",
+        summary="Delete side image section (Admin)",
+        description="Delete a side image section.",
         responses={204: None},
         tags=["Course - Components"],
     ),
@@ -1306,32 +2158,46 @@ class SideImageSectionViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List success stories",
+        summary="List success stories (Admin)",
+        description="""
+        **Admin Only**: Manage student success stories/testimonials.
+        
+        Success stories showcase student achievements after completing courses.
+        
+        **Filtering:** `?course={uuid}` - Filter by CourseDetail UUID
+        
+        **Frontend:** Access via `/api/courses/{slug}/` in `detail.success_stories` array
+        """,
         responses={200: None},
         tags=["Course - Components"],
     ),
     retrieve=extend_schema(
-        summary="Retrieve success story",
+        summary="Retrieve success story (Admin)",
+        description="Get specific success story with student details.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     create=extend_schema(
-        summary="Create success story",
+        summary="Create success story (Admin)",
+        description="Add new student success story/testimonial.",
         responses={201: None},
         tags=["Course - Components"],
     ),
     update=extend_schema(
-        summary="Update success story",
+        summary="Update success story (Admin)",
+        description="Full update of success story.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     partial_update=extend_schema(
-        summary="Partially update success story",
+        summary="Partially update success story (Admin)",
+        description="Partial update of success story.",
         responses={200: None},
         tags=["Course - Components"],
     ),
     destroy=extend_schema(
-        summary="Delete success story",
+        summary="Delete success story (Admin)",
+        description="Delete a success story.",
         responses={204: None},
         tags=["Course - Components"],
     ),
@@ -1364,32 +2230,66 @@ class SuccessStoryViewSet(BaseAdminViewSet):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List course instructors",
+        summary="List course instructor assignments (Admin)",
+        description="""
+        **Admin Only**: Manage instructor-to-course assignments.
+        
+        Links teachers/instructors to courses and specific modules.
+        
+        **Filtering:**
+        - `?course={uuid}`: Filter by course UUID
+        - `?teacher={uuid}`: Filter by teacher UUID
+        - `?instructor_type=lead|assistant`: Filter by instructor role
+        - `?is_active=true`: Active assignments only
+        
+        **Use Cases:**
+        - Assign instructors to courses
+        - Link instructors to specific modules
+        - Manage instructor roles (lead vs assistant)
+        
+        **Frontend:** Instructor info included in course detail response.
+        """,
         responses={200: None},
         tags=["Course - Instructors"],
     ),
     retrieve=extend_schema(
-        summary="Retrieve course instructor",
+        summary="Retrieve instructor assignment (Admin)",
+        description="Get specific instructor assignment with linked modules.",
         responses={200: None},
         tags=["Course - Instructors"],
     ),
     create=extend_schema(
-        summary="Assign instructor to course",
+        summary="Assign instructor to course (Admin)",
+        description="""
+        Create new instructor assignment to a course.
+        
+        **Required Fields:**
+        - `course`: Course UUID
+        - `teacher`: Teacher/Instructor UUID
+        - `instructor_type`: 'lead' or 'assistant'
+        
+        **Optional:**
+        - `modules`: Array of module UUIDs this instructor handles
+        - `assigned_date`: Assignment date (defaults to now)
+        """,
         responses={201: None},
         tags=["Course - Instructors"],
     ),
     update=extend_schema(
-        summary="Update instructor assignment",
+        summary="Update instructor assignment (Admin)",
+        description="Full update of instructor assignment.",
         responses={200: None},
         tags=["Course - Instructors"],
     ),
     partial_update=extend_schema(
-        summary="Partially update instructor assignment",
+        summary="Partially update instructor assignment (Admin)",
+        description="Update specific fields of instructor assignment.",
         responses={200: None},
         tags=["Course - Instructors"],
     ),
     destroy=extend_schema(
-        summary="Remove instructor from course",
+        summary="Remove instructor from course (Admin)",
+        description="Delete instructor assignment from course.",
         responses={204: None},
         tags=["Course - Instructors"],
     ),
@@ -1419,3 +2319,263 @@ class CourseInstructorViewSet(BaseAdminViewSet):
         if self.action in ["create", "update", "partial_update"]:
             return CourseInstructorCreateUpdateSerializer
         return CourseInstructorSerializer
+
+
+# ========== Course Batch ViewSet ==========
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List all course batches",
+        description="""Get paginated list of course batches with filtering and search.
+        
+        **Frontend Usage:**
+        - Display all available batches across all courses
+        - Filter by course, status, or batch number
+        - Search by batch name, course title, or description
+        
+        **Query Parameters:**
+        - `course` (UUID): Filter by course ID
+        - `status`: Filter by status (upcoming, enrollment_open, running, completed, cancelled)
+        - `is_active` (boolean): Filter by active status
+        - `search`: Search in batch_name, course title, description
+        - `ordering`: Sort by start_date, batch_number, created_at (prefix with - for descending)
+        
+        **Response includes:**
+        - Full batch details with enrollment info
+        - Computed fields: is_enrollment_open, available_seats, is_full
+        - Related course information (title, slug)
+        """,
+        responses={200: CourseBatchSerializer(many=True)},
+        tags=["Course - Batches"],
+        parameters=[
+            OpenApiParameter(name='course', type=str, description='Filter by course UUID'),
+            OpenApiParameter(name='status', type=str, description='Filter by batch status'),
+            OpenApiParameter(name='is_active', type=bool, description='Filter by active status'),
+            OpenApiParameter(name='search', type=str, description='Search in batch name, course title, description'),
+            OpenApiParameter(name='ordering', type=str, description='Order by: start_date, batch_number, created_at (prefix - for desc)'),
+        ],
+    ),
+    retrieve=extend_schema(
+        summary="Get single batch details",
+        description="""Retrieve detailed information about a specific course batch by slug.
+        
+        **Frontend Usage:**
+        - Display batch detail page
+        - Show enrollment status and availability
+        - Check if batch accepts enrollments
+        
+        **Returns:**
+        - Complete batch information
+        - Enrollment statistics (enrolled_students, available_seats)
+        - Computed properties (is_enrollment_open, is_full)
+        - Related course details
+        
+        **Note:** Use slug from batch list or course detail response
+        """,
+        responses={200: CourseBatchSerializer},
+        tags=["Course - Batches"],
+    ),
+    create=extend_schema(
+        summary="Create new course batch (Admin only)",
+        description="""Create a new batch for a course.
+        
+        **Admin Only** - Requires staff authentication.
+        
+        **Required Fields:**
+        - course (UUID): Course this batch belongs to
+        - batch_number (int): Sequential batch number (must be unique per course)
+        - start_date (date): When batch starts (YYYY-MM-DD)
+        - end_date (date): When batch ends (YYYY-MM-DD)
+        - max_students (int): Maximum enrollment capacity
+        
+        **Optional Fields:**
+        - batch_name: Custom name (e.g., 'Winter 2025', 'Weekend Batch')
+        - enrollment_start_date: When enrollment opens (defaults to now)
+        - enrollment_end_date: When enrollment closes (defaults to start_date)
+        - custom_price: Override course default price for this batch
+        - status: Batch status (default: 'upcoming')
+        - description: Batch-specific notes
+        
+        **Auto-generated:**
+        - slug: Created from course slug + batch number
+        - enrolled_students: Calculated from actual enrollments
+        """,
+        request=CourseBatchCreateUpdateSerializer,
+        responses={201: CourseBatchSerializer},
+        tags=["Course - Batches"],
+    ),
+    update=extend_schema(
+        summary="Update course batch",
+        responses={200: CourseBatchSerializer},
+        tags=["Course - Batches"],
+    ),
+    partial_update=extend_schema(
+        summary="Partially update course batch",
+        responses={200: CourseBatchSerializer},
+        tags=["Course - Batches"],
+    ),
+    destroy=extend_schema(
+        summary="Delete course batch",
+        responses={204: None},
+        tags=["Course - Batches"],
+    ),
+)
+class CourseBatchViewSet(BaseAdminViewSet):
+    """CRUD operations for Course Batches.
+    
+    Students enroll in course batches, not courses directly.
+    Each batch represents a time-bound offering of a course.
+    """
+
+    queryset = CourseBatch.objects.select_related("course").all()
+    serializer_class = CourseBatchSerializer
+    permission_classes = [permissions.AllowAny]  # Public can view batches
+    pagination_class = StandardResultsSetPagination
+    lookup_field = "slug"
+    lookup_url_kwarg = "slug"
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    filterset_fields = ["course", "status", "is_active", "batch_number"]
+    search_fields = ["batch_name", "course__title", "description"]
+    ordering_fields = ["start_date", "batch_number", "created_at"]
+    ordering = ["-start_date"]
+
+    def get_permissions(self):
+        """Allow public read access, require staff for write operations."""
+        if self.action in ["create", "update", "partial_update", "destroy"]:
+            return [IsStaff()]
+        return [permissions.AllowAny()]
+
+    def get_serializer_class(self):
+        if self.action in ["create", "update", "partial_update"]:
+            return CourseBatchCreateUpdateSerializer
+        return CourseBatchSerializer
+
+    @extend_schema(
+        summary="Get batches for specific course",
+        description="""Get all batches for a specific course by course slug.
+        
+        **Frontend Usage:**
+        - Course detail page batch selection
+        - Display available batches for a course
+        - Show enrollment options
+        
+        **URL:** `/api/courses/batches/by-course/{course_slug}/`
+        
+        **Example:** `/api/courses/batches/by-course/django-web-development/`
+        
+        **Returns:**
+        - Array of batches for the specified course
+        - Only active batches returned
+        - Sorted by start date (most recent first)
+        """,
+        responses={200: CourseBatchSerializer(many=True)},
+        tags=["Course - Batches"],
+        parameters=[
+            OpenApiParameter(
+                name='course_slug',
+                type=str,
+                location=OpenApiParameter.PATH,
+                description='Course slug (e.g., django-web-development)'
+            ),
+        ],
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="by-course/(?P<course_slug>[^/.]+)",
+        permission_classes=[permissions.AllowAny],
+    )
+    def by_course(self, request, course_slug=None):
+        """Get all batches for a specific course by course slug.
+        
+        Usage: GET /api/courses/batches/by-course/django-bootcamp/
+        """
+        try:
+            course = Course.objects.get(slug=course_slug, is_active=True)
+        except Course.DoesNotExist:
+            return api_response(
+                success=False,
+                message="Course not found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+        
+        batches = self.queryset.filter(course=course, is_active=True)
+        serializer = self.get_serializer(batches, many=True)
+        
+        return api_response(
+            success=True,
+            message="Course batches retrieved successfully",
+            data=serializer.data,
+            status_code=status.HTTP_200_OK
+        )
+    
+    @extend_schema(
+        summary="Get batches with open enrollment",
+        description="""Get all batches currently accepting enrollments across all courses.
+        
+        **Frontend Usage:**
+        - Homepage 'Enroll Now' sections
+        - Browse enrollable batches
+        - Filter available courses
+        
+        **URL:** `/api/courses/batches/enrollment-open/`
+        
+        **Automatically filters by:**
+        - Active batches only
+        - Current date within enrollment window
+        - Status: 'enrollment_open' or 'upcoming'
+        - Not at capacity (enrolled_students < max_students)
+        - Not cancelled or completed
+        
+        **Returns:**
+        - Array of batches ready for enrollment
+        - Includes availability info (available_seats)
+        - Shows enrollment deadline (enrollment_end_date)
+        
+        **Perfect for:** 'Available Courses' listings, enrollment widgets
+        """,
+        responses={200: CourseBatchSerializer(many=True)},
+        tags=["Course - Batches"],
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="enrollment-open",
+        permission_classes=[permissions.AllowAny],
+    )
+    def enrollment_open(self, request):
+        """Get all batches currently accepting enrollments.
+        
+        Usage: GET /api/courses/batches/enrollment-open/
+        """
+        from django.utils import timezone
+        now = timezone.now().date()
+        
+        # Get batches with open enrollment
+        batches = self.queryset.filter(
+            is_active=True,
+            status__in=['enrollment_open', 'upcoming'],
+        ).exclude(
+            status='cancelled'
+        ).exclude(
+            status='completed'
+        )
+        
+        # Filter by enrollment dates and capacity
+        open_batches = []
+        for batch in batches:
+            if batch.is_enrollment_open:
+                open_batches.append(batch)
+        
+        serializer = self.get_serializer(open_batches, many=True)
+        
+        return api_response(
+            success=True,
+            message="Open enrollment batches retrieved successfully",
+            data=serializer.data,
+            status_code=status.HTTP_200_OK
+        )

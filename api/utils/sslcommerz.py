@@ -37,12 +37,14 @@ class SSLCommerzPayment:
             self.session_url = "https://securepay.sslcommerz.com/gwprocess/v4/api.php"
             self.validation_url = "https://securepay.sslcommerz.com/validator/api/validationserverAPI.php"
     
-    def init_payment(self, order, token: str = None) -> Dict:
+    def init_payment(self, order, token: str = None, amount: Decimal = None) -> Dict:
         """
         Initialize payment session with SSLCommerz.
         
         Args:
             order: Order instance
+            token: Optional payment token
+            amount: Optional specific amount (for installment payments). If None, uses order.total_amount
             
         Returns:
             dict: Response from SSLCommerz containing GatewayPageURL
@@ -52,6 +54,9 @@ class SSLCommerzPayment:
         """
         from api.models.models_order import Order
 
+        # Use provided amount or fall back to total_amount
+        payment_amount = amount if amount is not None else order.total_amount
+
         # Build payment data
         post_data = {
             # Store credentials
@@ -59,7 +64,7 @@ class SSLCommerzPayment:
             'store_passwd': self.store_password,
             
             # Transaction info
-            'total_amount': str(order.total_amount),
+            'total_amount': str(payment_amount),
             'currency': order.currency,
             'tran_id': order.order_number,
             

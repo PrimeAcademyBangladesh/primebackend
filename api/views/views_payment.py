@@ -96,32 +96,21 @@ class PaymentInitiateView(APIView):
             gateway = SSLCommerzPayment()
             
             try:
-                session_data = gateway.init_payment(order)
+                # Calculate payment amount (installment or full)
+                amount_to_pay = order.total_amount
+                if order.is_installment:
+                    installment = order.installment_payments.filter(status='pending').order_by('installment_number').first()
+                    if installment:
+                        amount_to_pay = installment.amount
+                
+                # Pass the correct amount to SSLCommerz
+                session_data = gateway.init_payment(order, amount=amount_to_pay)
                 
                 # Update order status to processing
                 order.status = 'processing'
                 order.payment_method = 'ssl_commerce'
                 order.save()
                 
-                # --- Old code: always sent full order amount ---
-                # return api_response(
-                #     True,
-                #     "Payment session initialized successfully",
-                #     {
-                #         'payment_url': session_data.get('GatewayPageURL'),
-                #         'session_key': session_data.get('sessionkey'),
-                #         'order_number': order.order_number,
-                #         'amount': str(order.total_amount),
-                #         'currency': order.currency,
-                #     }
-                # )
-
-                # --- New code: send next unpaid installment amount if applicable ---
-                amount_to_pay = order.total_amount
-                if order.is_installment:
-                    installment = order.installment_payments.filter(status='pending').order_by('installment_number').first()
-                    if installment:
-                        amount_to_pay = installment.amount
                 return api_response(
                     True,
                     "Payment session initialized successfully",
@@ -218,34 +207,98 @@ def payment_webhook(request):
         #     return Response({'error': 'Invalid signature'}, status=403)
         
         # Validate payment with SSLCommerz
-        is_valid, validation_data = gateway.validate_payment(val_id, order.total_amount)
+        # NOTE: For installments, we're validating the installment amount, not total
+        payment_amount = Decimal(amount) if amount else order.total_amount
+        is_valid, validation_data = gateway.validate_payment(val_id, payment_amount)
         
         if is_valid and payment_status in ['VALID', 'VALIDATED']:
-            # Payment successful - complete the order
-            logger.info(f"Payment validated for order {tran_id}. Completing order...")
+            # Payment successful
+            logger.info(f"Payment validated for order {tran_id}. Amount: {payment_amount}")
             
-            order.status = 'completed'
-            order.completed_at = timezone.now()
-            order.payment_id = bank_tran_id or val_id
             order.payment_method = 'ssl_commerce'
             
-            # Store payment details in notes
-            order.notes = f"SSLCommerz Payment - Val ID: {val_id}, Bank Tran ID: {bank_tran_id}, Card: {card_type}"
-            order.save()
-            
-            # Create enrollments automatically
-            logger.info(f"Creating enrollments for order {order.order_number}...")
-            order.mark_as_completed()
-            
-            enrollment_count = order.enrollments.count()
-            logger.info(f"Order {order.order_number} completed. Created {enrollment_count} enrollments.")
-            
-            return Response({
-                'success': True,
-                'message': 'Payment verified and order completed',
-                'order_number': order.order_number,
-                'enrollments_created': enrollment_count
-            })
+            # Handle installment payments
+            if order.is_installment:
+                logger.info(f"Processing installment payment for order {order.order_number}")
+                
+                # Find the next pending installment
+                from api.models.models_order import OrderInstallment
+                next_installment = order.installment_payments.filter(
+                    status='pending'
+                ).order_by('installment_number').first()
+                
+                if next_installment:
+                    # Mark this installment as paid
+                    next_installment.mark_as_paid(
+                        payment_id=bank_tran_id or val_id,
+                        payment_method=card_type or 'ssl_commerce'
+                    )
+                    logger.info(f"Marked installment {next_installment.installment_number} as paid")
+                    
+                    # Refresh order to get updated installments_paid count
+                    order.refresh_from_db()
+                    
+                    # Check if all installments are paid
+                    if order.is_fully_paid():
+                        order.status = 'completed'
+                        order.completed_at = timezone.now()
+                        order.payment_status = 'completed'
+                        logger.info(f"All installments paid. Order {order.order_number} completed")
+                    else:
+                        order.status = 'processing'
+                        order.payment_status = 'partial'
+                        logger.info(f"Installment {order.installments_paid}/{order.installment_plan} paid")
+                    
+                    # Store payment details in notes
+                    existing_notes = order.notes or ''
+                    new_note = f"Installment {order.installments_paid} - Val ID: {val_id}, Bank Tran ID: {bank_tran_id}, Card: {card_type}"
+                    order.notes = f"{existing_notes}\n{new_note}" if existing_notes else new_note
+                    order.save()
+                    
+                    # Create enrollments for partial payment (first installment grants access)
+                    if order.installments_paid >= 1:
+                        logger.info(f"Creating enrollments for order {order.order_number}...")
+                        order.mark_as_completed()
+                    
+                    enrollment_count = order.enrollments.count()
+                    
+                    return Response({
+                        'success': True,
+                        'message': f'Installment {order.installments_paid}/{order.installment_plan} payment verified',
+                        'order_number': order.order_number,
+                        'installments_paid': order.installments_paid,
+                        'installment_plan': order.installment_plan,
+                        'payment_status': order.payment_status,
+                        'enrollments_created': enrollment_count
+                    })
+                else:
+                    logger.warning(f"No pending installment found for order {order.order_number}")
+            else:
+                # Full payment (not installment)
+                logger.info(f"Processing full payment for order {tran_id}")
+                
+                order.status = 'completed'
+                order.completed_at = timezone.now()
+                order.payment_id = bank_tran_id or val_id
+                order.payment_status = 'completed'
+                
+                # Store payment details in notes
+                order.notes = f"SSLCommerz Payment - Val ID: {val_id}, Bank Tran ID: {bank_tran_id}, Card: {card_type}"
+                order.save()
+                
+                # Create enrollments automatically
+                logger.info(f"Creating enrollments for order {order.order_number}...")
+                order.mark_as_completed()
+                
+                enrollment_count = order.enrollments.count()
+                logger.info(f"Order {order.order_number} completed. Created {enrollment_count} enrollments.")
+                
+                return Response({
+                    'success': True,
+                    'message': 'Payment verified and order completed',
+                    'order_number': order.order_number,
+                    'enrollments_created': enrollment_count
+                })
         else:
             # Payment failed or invalid
             order.status = 'failed'
@@ -317,22 +370,58 @@ def payment_success_redirect(request):
                 # Only validate if not already completed
                 if order.status != 'completed' and val_id:
                     gateway = SSLCommerzPayment()
-                    is_valid, validation_data = gateway.validate_payment(val_id, order.total_amount)
+                    payment_amount = Decimal(amount) if amount else order.total_amount
+                    is_valid, validation_data = gateway.validate_payment(val_id, payment_amount)
                     
                     if is_valid and payment_status in ['VALID', 'VALIDATED']:
-                        # Payment successful - complete the order
+                        # Payment successful
                         logger.info(f"Payment validated for order {tran_id} in success redirect")
                         
-                        order.status = 'completed'
-                        order.completed_at = timezone.now()
-                        order.payment_id = bank_tran_id or val_id
                         order.payment_method = 'ssl_commerce'
-                        order.notes = f"SSLCommerz Payment - Val ID: {val_id}, Bank Tran ID: {bank_tran_id}, Card: {card_type}"
-                        order.save()
                         
-                        # Create enrollments
-                        order.mark_as_completed()
-                        logger.info(f"Order {order.order_number} completed in success redirect")
+                        # Handle installment payments
+                        if order.is_installment:
+                            from api.models.models_order import OrderInstallment
+                            next_installment = order.installment_payments.filter(
+                                status='pending'
+                            ).order_by('installment_number').first()
+                            
+                            if next_installment:
+                                next_installment.mark_as_paid(
+                                    payment_id=bank_tran_id or val_id,
+                                    payment_method=card_type or 'ssl_commerce'
+                                )
+                                order.refresh_from_db()
+                                
+                                if order.is_fully_paid():
+                                    order.status = 'completed'
+                                    order.completed_at = timezone.now()
+                                    order.payment_status = 'completed'
+                                else:
+                                    order.status = 'processing'
+                                    order.payment_status = 'partial'
+                                
+                                existing_notes = order.notes or ''
+                                new_note = f"Installment {order.installments_paid} - Val ID: {val_id}, Bank Tran ID: {bank_tran_id}, Card: {card_type}"
+                                order.notes = f"{existing_notes}\n{new_note}" if existing_notes else new_note
+                                order.save()
+                                
+                                if order.installments_paid >= 1:
+                                    order.mark_as_completed()
+                                
+                                logger.info(f"Installment {order.installments_paid}/{order.installment_plan} paid in success redirect")
+                        else:
+                            # Full payment
+                            order.status = 'completed'
+                            order.completed_at = timezone.now()
+                            order.payment_id = bank_tran_id or val_id
+                            order.payment_status = 'completed'
+                            order.notes = f"SSLCommerz Payment - Val ID: {val_id}, Bank Tran ID: {bank_tran_id}, Card: {card_type}"
+                            order.save()
+                            
+                            # Create enrollments
+                            order.mark_as_completed()
+                            logger.info(f"Order {order.order_number} completed in success redirect")
                 
             except Order.DoesNotExist:
                 logger.error(f"Order not found for tran_id: {tran_id}")

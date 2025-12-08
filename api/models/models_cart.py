@@ -69,9 +69,16 @@ class CartItem(TimeStampedModel):
         on_delete=models.CASCADE,
         help_text="Course added to cart"
     )
+    batch = models.ForeignKey(
+        'CourseBatch',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="Specific batch for enrollment (optional)"
+    )
     
     class Meta(TimeStampedModel.Meta):
-        unique_together = ('cart', 'course')
+        unique_together = ('cart', 'course', 'batch')
         verbose_name = "Cart Item"
         verbose_name_plural = "Cart Items"
         ordering = ['-created_at']
