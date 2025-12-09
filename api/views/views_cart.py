@@ -179,20 +179,42 @@ def add_to_cart(request):
         from api.models.models_course import CourseBatch
         batch = get_object_or_404(CourseBatch, id=batch_id, is_active=True, course=course)
     
-    # Prevent adding to cart if the authenticated user is already enrolled in THIS BATCH
+    # Prevent adding to cart if the authenticated user is already enrolled
     if request.user and request.user.is_authenticated and not request.user.is_staff:
-        try:
+        if batch:
             # Check batch-specific enrollment
-            if batch:
-                if Enrollment.objects.filter(user=request.user, batch=batch, is_active=True).exists():
-                    return Response({
-                        'message': f"You are already enrolled in {course.title} - {batch.get_display_name()}",
-                        'already_enrolled': True,
-                    }, status=status.HTTP_400_BAD_REQUEST)
-        except Exception:
-            # If enrollment check fails for any reason, continue (non-fatal)
-            pass
+            if Enrollment.objects.filter(user=request.user, batch=batch, is_active=True).exists():
+                return Response({
+                    'error': f"You are already enrolled in {course.title} - {batch.get_display_name()}",
+                    'detail': 'Cannot add enrolled courses to cart',
+                    'already_enrolled': True,
+                }, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # Check if user is enrolled in ANY batch of this course
+            if Enrollment.objects.filter(user=request.user, course=course, is_active=True).exists():
+                return Response({
+                    'error': f"You are already enrolled in {course.title}",
+                    'detail': 'Cannot add enrolled courses to cart',
+                    'already_enrolled': True,
+                }, status=status.HTTP_400_BAD_REQUEST)
+    
     cart = get_or_create_cart(request)
+    
+    # SINGLE COURSE RESTRICTION: Only allow one course in cart at a time
+    existing_items = cart.items.all()
+    if existing_items.exists():
+        existing_item = existing_items.first()
+        # Check if trying to add a different course
+        if existing_item.course.id != course_id or (existing_item.batch and existing_item.batch.id != batch_id):
+            return Response({
+                'error': 'You can only purchase one course at a time',
+                'detail': f'Please remove "{existing_item.course.title}" from cart first',
+                'existing_course': {
+                    'id': str(existing_item.course.id),
+                    'title': existing_item.course.title,
+                    'batch': existing_item.batch.get_display_name() if existing_item.batch else None
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
     
     # Check if this course+batch combination already in cart
     cart_item, created = CartItem.objects.get_or_create(
@@ -583,14 +605,19 @@ def move_to_cart(request, course_id):
     """Move a course from wishlist to cart"""
     course = get_object_or_404(Course, id=course_id, is_active=True)
     
+    # Check if user is already enrolled in ANY batch of this course
+    if not request.user.is_staff:
+        if Enrollment.objects.filter(user=request.user, course=course, is_active=True).exists():
+            return Response({
+                'error': f"You are already enrolled in {course.title}",
+                'detail': 'Cannot add enrolled courses to cart',
+                'already_enrolled': True,
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
     # Remove from wishlist
     wishlist, created = Wishlist.objects.get_or_create(user=request.user)
     if course in wishlist.courses.all():
         wishlist.courses.remove(course)
-    
-    # Allow moving to cart even if enrolled in some batch
-    # (user might want to enroll in a different batch)
-    # Batch-specific enrollment check happens at checkout
     
     # Add to cart (without batch, user will select batch at checkout)
     cart = get_or_create_cart(request)

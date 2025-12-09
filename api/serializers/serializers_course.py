@@ -288,6 +288,9 @@ class CourseBatchSerializer(serializers.ModelSerializer):
     is_enrollment_open = serializers.BooleanField(read_only=True)
     available_seats = serializers.IntegerField(read_only=True)
     is_full = serializers.BooleanField(read_only=True)
+    has_installment = serializers.SerializerMethodField()
+    installment_preview = serializers.SerializerMethodField()
+    is_enrolled = serializers.SerializerMethodField()
     
     class Meta:
         model = CourseBatch
@@ -312,6 +315,9 @@ class CourseBatchSerializer(serializers.ModelSerializer):
             'status',
             'is_active',
             'is_enrollment_open',
+            'has_installment',
+            'installment_preview',
+            'is_enrolled',
             'description',
             'created_at',
             'updated_at',
@@ -326,9 +332,82 @@ class CourseBatchSerializer(serializers.ModelSerializer):
             'is_enrollment_open',
             'available_seats',
             'is_full',
+            'has_installment',
+            'installment_preview',
+            'is_enrolled',
             'created_at',
             'updated_at',
         ]
+    
+    def get_is_enrolled(self, obj):
+        """Check if the current user is enrolled in this batch."""
+        request = self.context.get('request')
+        if not request or not getattr(request, 'user', None) or not request.user.is_authenticated:
+            return False
+        
+        try:
+            from api.models.models_order import Enrollment
+            return Enrollment.objects.filter(
+                user=request.user,
+                batch=obj,
+                is_active=True
+            ).exists()
+        except Exception:
+            return False
+    
+    def get_has_installment(self, obj):
+        """Check if this batch has installment payment available."""
+        # Batch-specific override
+        if obj.installment_available is not None:
+            return obj.installment_available and obj.installment_count is not None and obj.installment_count > 0
+        
+        # Course default
+        if hasattr(obj.course, 'pricing') and obj.course.pricing:
+            return obj.course.pricing.installment_available and obj.course.pricing.installment_count is not None and obj.course.pricing.installment_count > 0
+        
+        return False
+    
+    def get_installment_preview(self, obj):
+        """Get installment info for this batch (batch setting overrides course setting)."""
+        # Check if batch has specific installment setting
+        if obj.installment_available is not None:
+            # Batch overrides course setting
+            if not obj.installment_available:
+                return None  # Batch explicitly disabled installments
+            
+            if obj.installment_count:
+                # Calculate price for this batch
+                if obj.custom_price:
+                    total_price = obj.custom_price
+                elif hasattr(obj.course, 'pricing') and obj.course.pricing:
+                    total_price = obj.course.pricing.get_discounted_price()
+                else:
+                    return None
+                
+                per_installment = total_price / obj.installment_count
+                return {
+                    'available': True,
+                    'count': obj.installment_count,
+                    'amount': float(per_installment),
+                    'total': float(total_price),
+                    'description': f"Pay in {obj.installment_count} installments of ৳{per_installment:,.2f}"
+                }
+        
+        # Use course default setting
+        if hasattr(obj.course, 'pricing') and obj.course.pricing:
+            pricing = obj.course.pricing
+            if pricing.installment_available and pricing.installment_count:
+                total_price = obj.custom_price or pricing.get_discounted_price()
+                per_installment = total_price / pricing.installment_count
+                return {
+                    'available': True,
+                    'count': pricing.installment_count,
+                    'amount': float(per_installment),
+                    'total': float(total_price),
+                    'description': f"Pay in {pricing.installment_count} installments of ৳{per_installment:,.2f}"
+                }
+        
+        return None
 
 
 class CourseBatchMinimalSerializer(serializers.ModelSerializer):
@@ -336,6 +415,7 @@ class CourseBatchMinimalSerializer(serializers.ModelSerializer):
     display_name = serializers.CharField(source='get_display_name', read_only=True)
     is_enrollment_open = serializers.BooleanField(read_only=True)
     available_seats = serializers.IntegerField(read_only=True)
+    has_installment = serializers.SerializerMethodField()
     installment_preview = serializers.SerializerMethodField()
     is_enrolled = serializers.SerializerMethodField()
     
@@ -355,6 +435,7 @@ class CourseBatchMinimalSerializer(serializers.ModelSerializer):
             'available_seats',
             'is_enrollment_open',
             'custom_price',
+            'has_installment',
             'installment_preview',
             'is_enrolled',
         ]
@@ -375,6 +456,18 @@ class CourseBatchMinimalSerializer(serializers.ModelSerializer):
             ).exists()
         except Exception:
             return False
+    
+    def get_has_installment(self, obj):
+        """Check if this batch has installment payment available."""
+        # Batch-specific override
+        if obj.installment_available is not None:
+            return obj.installment_available and obj.installment_count is not None and obj.installment_count > 0
+        
+        # Course default
+        if hasattr(obj.course, 'pricing') and obj.course.pricing:
+            return obj.course.pricing.installment_available and obj.course.pricing.installment_count is not None and obj.course.pricing.installment_count > 0
+        
+        return False
     
     def get_installment_preview(self, obj):
         """Get installment info for this batch (batch setting overrides course setting)."""
@@ -1059,7 +1152,7 @@ class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     def get_batches(self, obj):
         """Return all batches for this course."""
         batches = obj.batches.filter(is_active=True).order_by('-start_date')
-        return CourseBatchSerializer(batches, many=True).data
+        return CourseBatchSerializer(batches, many=True, context=self.context).data
 
 
 class CourseCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):

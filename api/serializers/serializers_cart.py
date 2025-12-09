@@ -64,8 +64,50 @@ class CartItemSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'batch_info', 'created_at', 'updated_at']
     
     def get_batch_info(self, obj):
-        """Get batch information for this cart item"""
+        """Get batch information for this cart item including installment availability"""
         if obj.batch:
+            # Determine if installment is available for this batch
+            # Batch setting overrides course setting
+            has_installment = False
+            installment_preview = None
+            
+            if obj.batch.installment_available is not None:
+                # Batch explicitly sets installment availability
+                if obj.batch.installment_available and obj.batch.installment_count:
+                    has_installment = True
+                    # Calculate installment details for batch
+                    if obj.batch.custom_price:
+                        total_price = obj.batch.custom_price
+                    elif hasattr(obj.course, 'pricing') and obj.course.pricing:
+                        total_price = obj.course.pricing.get_discounted_price()
+                    else:
+                        total_price = None
+                    
+                    if total_price:
+                        per_installment = total_price / obj.batch.installment_count
+                        installment_preview = {
+                            'available': True,
+                            'count': obj.batch.installment_count,
+                            'amount': float(per_installment),
+                            'total': float(total_price),
+                            'description': f"Pay in {obj.batch.installment_count} installments of ৳{per_installment:,.2f}"
+                        }
+            else:
+                # Use course default setting
+                if hasattr(obj.course, 'pricing') and obj.course.pricing:
+                    pricing = obj.course.pricing
+                    if pricing.installment_available and pricing.installment_count:
+                        has_installment = True
+                        total_price = obj.batch.custom_price or pricing.get_discounted_price()
+                        per_installment = total_price / pricing.installment_count
+                        installment_preview = {
+                            'available': True,
+                            'count': pricing.installment_count,
+                            'amount': float(per_installment),
+                            'total': float(total_price),
+                            'description': f"Pay in {pricing.installment_count} installments of ৳{per_installment:,.2f}"
+                        }
+            
             return {
                 'id': str(obj.batch.id),
                 'batch_number': obj.batch.batch_number,
@@ -74,6 +116,8 @@ class CartItemSerializer(serializers.ModelSerializer):
                 'slug': obj.batch.slug,
                 'start_date': obj.batch.start_date,
                 'end_date': obj.batch.end_date,
+                'has_installment': has_installment,
+                'installment_preview': installment_preview,
             }
         return None
     
@@ -83,17 +127,18 @@ class CartItemSerializer(serializers.ModelSerializer):
 
 
 class CartSerializer(serializers.ModelSerializer):
-    """Serializer for shopping cart"""
+    """Serializer for shopping cart with payment method grouping"""
     items = CartItemSerializer(many=True, read_only=True)
     installment_preview = serializers.SerializerMethodField()
     total = serializers.SerializerMethodField()
     item_count = serializers.SerializerMethodField()
+    payment_summary = serializers.SerializerMethodField()
     
     class Meta:
         model = Cart
         fields = [
             'id', 'items', 'total', 'item_count', 'installment_preview',
-            'created_at', 'updated_at'
+            'payment_summary', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
@@ -105,6 +150,57 @@ class CartSerializer(serializers.ModelSerializer):
         """Get item count"""
         return obj.get_item_count()
 
+    def get_payment_summary(self, obj):
+        """Group cart items by payment method for checkout validation.
+        
+        Returns summary of installment vs full payment items to help frontend
+        enforce single payment method per checkout.
+        """
+        items = obj.items.all()
+        if not items.exists():
+            return {
+                'has_mixed_payment_methods': False,
+                'installment_items': [],
+                'full_payment_items': [],
+                'can_checkout_together': True
+            }
+        
+        installment_items = []
+        full_payment_items = []
+        
+        for item in items:
+            item_data = {
+                'item_id': str(item.id),
+                'course_title': item.course.title,
+                'batch_name': item.batch.get_display_name() if item.batch else None,
+                'subtotal': float(item.get_subtotal())
+            }
+            
+            # Check if item has installment
+            has_installment = False
+            if item.batch:
+                if item.batch.installment_available is not None:
+                    has_installment = item.batch.installment_available and item.batch.installment_count
+                elif hasattr(item.course, 'pricing') and item.course.pricing:
+                    has_installment = item.course.pricing.installment_available and item.course.pricing.installment_count
+            
+            if has_installment:
+                installment_items.append(item_data)
+            else:
+                full_payment_items.append(item_data)
+        
+        has_mixed = len(installment_items) > 0 and len(full_payment_items) > 0
+        
+        return {
+            'has_mixed_payment_methods': has_mixed,
+            'installment_items_count': len(installment_items),
+            'full_payment_items_count': len(full_payment_items),
+            'installment_items': installment_items,
+            'full_payment_items': full_payment_items,
+            'can_checkout_together': not has_mixed,
+            'message': 'Your cart has courses with different payment methods. Please checkout one payment type at a time.' if has_mixed else 'All items can be checked out together.'
+        }
+    
     def get_installment_preview(self, obj):
         """Return backend-controlled installment plan from course pricing.
 

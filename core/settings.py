@@ -148,27 +148,24 @@ REST_FRAMEWORK = {
     ),
     "EXCEPTION_HANDLER": "api.utils.response_utils.custom_exception_handler",
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
-    # Temporarily disabled for testing
-    "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.AnonRateThrottle",
-        "rest_framework.throttling.UserRateThrottle",
-    ],
+    # Throttling DISABLED for development
+    "DEFAULT_THROTTLE_CLASSES": [],  # Disabled
     "DEFAULT_PARSER_CLASSES": [
         "core.parsers.StrictJSONParser",
         "rest_framework.parsers.FormParser",
         "rest_framework.parsers.MultiPartParser",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "50000/minute",
-        "user": "50000/hour",  # Increased for dev mode
-        "login": "535/minute",
-        "resend": "13/hour",
-        "registration": "30/minute",
+        "anon": "100000/day",
+        "user": "100000/day",
+        "login": "1000/minute",
+        "resend": "100/hour",
+        "registration": "100/minute",
         # Payment-specific throttle scopes
-        "payment_webhook": "200/hour",
-        "payment_verify": "30/minute",
+        "payment_webhook": "1000/hour",
+        "payment_verify": "100/minute",
         # Cart-specific throttle scopes
-        "cart": "50000/hour",  # Added for cart operations in dev mode
+        "cart": "100000/day",
     },  # In production, consider:
     # "DEFAULT_THROTTLE_RATES": {
     #     "anon": "50/day",  # Changed from 5/min to 50/day - prevents spam but allows some access

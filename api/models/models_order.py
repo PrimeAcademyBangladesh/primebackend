@@ -279,6 +279,7 @@ class Order(TimeStampedModel):
             Enrollment.objects.get_or_create(
                 user=self.user,
                 course=item.course,
+                batch=item.batch,
                 defaults={'order': self}
             )
     
@@ -446,6 +447,13 @@ class OrderItem(TimeStampedModel):
         'api.Course',  # Use string reference
         on_delete=models.CASCADE,
         help_text="Course being purchased"
+    )
+    batch = models.ForeignKey(
+        'api.CourseBatch',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="Specific batch for enrollment (optional)"
     )
     course_title = models.CharField(
         max_length=255,

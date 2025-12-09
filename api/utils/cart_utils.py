@@ -2,6 +2,7 @@
 Cart utility functions for merging guest carts with user carts.
 """
 from api.models.models_cart import Cart, CartItem
+from api.models.models_order import Enrollment
 
 
 def merge_guest_cart_to_user(user, session_key):
@@ -42,14 +43,31 @@ def merge_guest_cart_to_user(user, session_key):
     
     # Transfer items from guest cart to user cart
     items_merged = 0
+    skipped_enrolled = 0
     for guest_item in guest_cart.items.all():
-        # Only add if course is not already in user's cart
-        if guest_item.course_id not in existing_course_ids:
-            CartItem.objects.create(
-                cart=user_cart,
-                course=guest_item.course
-            )
-            items_merged += 1
+        # Skip if course is already in user's cart
+        if guest_item.course_id in existing_course_ids:
+            continue
+        
+        # Skip if user is enrolled in this course/batch
+        if guest_item.batch:
+            # Check batch-specific enrollment
+            if Enrollment.objects.filter(user=user, batch=guest_item.batch, is_active=True).exists():
+                skipped_enrolled += 1
+                continue
+        else:
+            # Check if user is enrolled in ANY batch of this course
+            if Enrollment.objects.filter(user=user, course=guest_item.course, is_active=True).exists():
+                skipped_enrolled += 1
+                continue
+        
+        # Add to user's cart
+        CartItem.objects.create(
+            cart=user_cart,
+            course=guest_item.course,
+            batch=guest_item.batch
+        )
+        items_merged += 1
     
     # Delete guest cart and its items
     guest_cart.delete()

@@ -53,6 +53,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
     """Serializer for order items."""
     course_title = serializers.CharField(read_only=True)
     course_slug = serializers.CharField(source='course.slug', read_only=True)
+    batch_info = serializers.SerializerMethodField()
     total = serializers.SerializerMethodField()
     
     class Meta:
@@ -60,6 +61,8 @@ class OrderItemSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'course',
+            'batch',
+            'batch_info',
             'course_title',
             'course_slug',
             'price',
@@ -68,7 +71,18 @@ class OrderItemSerializer(serializers.ModelSerializer):
             'total',
             'created_at',
         ]
-        read_only_fields = ['id', 'course_title', 'course_slug', 'total', 'created_at']
+        read_only_fields = ['id', 'batch_info', 'course_title', 'course_slug', 'total', 'created_at']
+    
+    def get_batch_info(self, obj):
+        """Get batch information if available."""
+        if obj.batch:
+            return {
+                'id': str(obj.batch.id),
+                'batch_number': obj.batch.batch_number,
+                'batch_name': obj.batch.batch_name,
+                'display_name': obj.batch.get_display_name(),
+            }
+        return None
     
     def get_total(self, obj):
         """Calculate total for this item."""
@@ -80,7 +94,7 @@ class OrderItemCreateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = OrderItem
-        fields = ['course', 'price', 'discount', 'currency']
+        fields = ['course', 'batch', 'price', 'discount', 'currency']
     
     def validate(self, attrs):
         """Validate order item data."""
