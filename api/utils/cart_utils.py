@@ -38,16 +38,21 @@ def merge_guest_cart_to_user(user, session_key):
     # Get or create user cart
     user_cart, _ = Cart.objects.get_or_create(user=user)
     
-    # Get all courses already in user's cart
-    existing_course_ids = set(user_cart.items.values_list('course_id', flat=True))
+    # SINGLE COURSE RESTRICTION: Only merge the first valid item
+    # Check if user cart already has items
+    if user_cart.items.exists():
+        # User cart already has items, don't merge any guest items
+        guest_cart.delete()
+        return user_cart, 0
     
     # Transfer items from guest cart to user cart
     items_merged = 0
     skipped_enrolled = 0
+    
     for guest_item in guest_cart.items.all():
-        # Skip if course is already in user's cart
-        if guest_item.course_id in existing_course_ids:
-            continue
+        # SINGLE COURSE RESTRICTION: Only allow merging ONE course
+        if items_merged >= 1:
+            break
         
         # Skip if user is enrolled in this course/batch
         if guest_item.batch:
@@ -61,7 +66,7 @@ def merge_guest_cart_to_user(user, session_key):
                 skipped_enrolled += 1
                 continue
         
-        # Add to user's cart
+        # Add to user's cart (only the first valid item)
         CartItem.objects.create(
             cart=user_cart,
             course=guest_item.course,

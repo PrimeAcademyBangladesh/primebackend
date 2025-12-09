@@ -568,19 +568,24 @@ class CartMergeOnLoginTestCase(APITestCase):
         )
     
     def test_guest_cart_merged_on_login(self):
-        """Test that guest cart items are merged to user cart on login"""
+        """Test that guest cart items are merged to user cart on login (single course only)"""
         # Add items to cart as guest
         self.client.post('/api/cart/add/', {
             'course_id': str(self.course1.id)
         }, format='json')
         
-        self.client.post('/api/cart/add/', {
+        # Note: Due to single course restriction, only first course will be added
+        # Second course add will fail with error
+        response2 = self.client.post('/api/cart/add/', {
             'course_id': str(self.course2.id)
         }, format='json')
         
-        # Verify guest cart has 2 items
+        # Second add should fail due to single course restriction
+        self.assertEqual(response2.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        # Verify guest cart has only 1 item (single course restriction)
         response = self.client.get('/api/cart/')
-        self.assertEqual(response.data['item_count'], 2)
+        self.assertEqual(response.data['item_count'], 1)
         
         # Login
         login_response = self.client.post('/api/students/login/', {
@@ -596,7 +601,8 @@ class CartMergeOnLoginTestCase(APITestCase):
             # Cart merge info may be present
             if 'cart_merged' in data:
                 self.assertTrue(data['cart_merged'])
-                self.assertEqual(data['cart_items_merged'], 2)
+                # Only 1 item merged due to single course restriction
+                self.assertEqual(data['cart_items_merged'], 1)
         
         # Get cart as authenticated user
         token = login_response.data['data']['tokens']['access']
@@ -604,8 +610,8 @@ class CartMergeOnLoginTestCase(APITestCase):
         
         cart_response = self.client.get('/api/cart/')
         
-        # Verify user cart now has the items
-        self.assertEqual(cart_response.data['item_count'], 2)
+        # Verify user cart now has only 1 item (single course restriction)
+        self.assertEqual(cart_response.data['item_count'], 1)
     
     def test_no_merge_when_no_guest_cart(self):
         """Test login without guest cart works normally"""
