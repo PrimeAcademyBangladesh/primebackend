@@ -604,3 +604,131 @@ class QuizAnswer(models.Model):
 
     def __str__(self):
         return f"{self.attempt.student.get_full_name} - Q{self.question.order}"
+
+
+# ========== Course Resources/Materials ==========
+
+class CourseResource(models.Model):
+    """
+    Course materials/resources uploaded by teachers.
+    Can be linked to modules, live classes, or standalone.
+    """
+    
+    RESOURCE_TYPE_CHOICES = [
+        ('pdf', 'PDF Document'),
+        ('video', 'Video'),
+        ('slide', 'Presentation Slides'),
+        ('code', 'Code/Project Files'),
+        ('document', 'Document'),
+        ('link', 'External Link'),
+        ('other', 'Other'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Relationships
+    module = models.ForeignKey(
+        'CourseModule',
+        related_name='resources',
+        on_delete=models.CASCADE,
+        help_text="Module this resource belongs to"
+    )
+    live_class = models.ForeignKey(
+        LiveClass,
+        related_name='resources',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Optional: Link to specific live class"
+    )
+    
+    # Resource details
+    title = models.CharField(
+        max_length=200,
+        help_text="Resource title (e.g., 'Week 1 Slides', 'Python Basics Notes')"
+    )
+    description = CKEditor5Field(
+        blank=True,
+        null=True,
+        help_text="Description of the resource"
+    )
+    resource_type = models.CharField(
+        max_length=20,
+        choices=RESOURCE_TYPE_CHOICES,
+        default='document'
+    )
+    
+    # File or URL
+    file = models.FileField(
+        upload_to='course_resources/',
+        blank=True,
+        null=True,
+        help_text="Upload file (PDF, ZIP, PPT, etc.)"
+    )
+    external_url = models.URLField(
+        blank=True,
+        null=True,
+        help_text="External link (Google Drive, YouTube, etc.)"
+    )
+    
+    # File metadata
+    file_size = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="File size in bytes"
+    )
+    download_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of times downloaded"
+    )
+    
+    # Organization
+    order = models.PositiveIntegerField(
+        default=0,
+        help_text="Display order within module"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether resource is visible to students"
+    )
+    
+    # Tracking
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='uploaded_resources',
+        limit_choices_to={'role__in': ['teacher', 'admin', 'superadmin']}
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Course Resource"
+        verbose_name_plural = "Course Resources"
+        ordering = ['module', 'order', '-created_at']
+        indexes = [
+            models.Index(fields=['module', 'is_active']),
+            models.Index(fields=['live_class']),
+        ]
+    
+    def __str__(self):
+        return f"{self.module.title} - {self.title}"
+    
+    def increment_download_count(self):
+        """Increment download counter"""
+        self.download_count += 1
+        self.save(update_fields=['download_count'])
+    
+    def get_file_size_display(self):
+        """Return human-readable file size"""
+        if not self.file_size:
+            return "Unknown"
+        
+        size = self.file_size
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024.0:
+                return f"{size:.1f} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} TB"

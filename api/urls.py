@@ -61,7 +61,8 @@ from api.views.views_live_class_assignment_quiz import (
     AssignmentViewSet,
     AssignmentSubmissionViewSet,
     QuizViewSet,
-    QuizAttemptViewSet
+    QuizAttemptViewSet,
+    CourseResourceViewSet
 )
 from api.views.views_export import (
     export_students_csv, export_students_pdf,
@@ -126,6 +127,9 @@ router.register(r'assignments', AssignmentViewSet, basename='assignment')
 router.register(r'assignment-submissions', AssignmentSubmissionViewSet, basename='assignment-submission')
 router.register(r'quizzes', QuizViewSet, basename='quiz')
 router.register(r'quiz-attempts', QuizAttemptViewSet, basename='quiz-attempt')
+
+# Course Resources (Teacher-uploaded materials)
+router.register(r'resources', CourseResourceViewSet, basename='course-resource')
 
 
 urlpatterns = router.urls + [

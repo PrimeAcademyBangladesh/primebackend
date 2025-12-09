@@ -41,6 +41,8 @@ class LiveClassSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     can_join = serializers.SerializerMethodField()
     has_recording = serializers.SerializerMethodField()
     attendance_marked = serializers.SerializerMethodField()  # NEW: Student attendance status
+    has_enrollment = serializers.SerializerMethodField()  # NEW: Check if student is enrolled
+    batch_info = serializers.SerializerMethodField()  # NEW: Student's batch information
     
     class Meta:
         model = LiveClass
@@ -64,6 +66,8 @@ class LiveClassSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             'can_join',
             'has_recording',
             'attendance_marked',  # NEW
+            'has_enrollment',  # NEW
+            'batch_info',  # NEW
             'created_at',
             'updated_at',
         ]
@@ -105,6 +109,49 @@ class LiveClassSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             return attendance
         except Exception:
             return False
+    
+    def get_has_enrollment(self, obj):
+        """Check if current student is enrolled in the course"""
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+        
+        try:
+            from api.models.models_order import Enrollment
+            return Enrollment.objects.filter(
+                user=request.user,
+                course=obj.module.course.course,
+                is_active=True
+            ).exists()
+        except Exception:
+            return False
+    
+    def get_batch_info(self, obj):
+        """Get student's batch information for this course"""
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return None
+        
+        try:
+            from api.models.models_order import Enrollment
+            enrollment = Enrollment.objects.filter(
+                user=request.user,
+                course=obj.module.course.course,
+                is_active=True
+            ).select_related('batch').first()
+            
+            if enrollment and enrollment.batch:
+                return {
+                    'id': str(enrollment.batch.id),
+                    'batch_number': enrollment.batch.batch_number,
+                    'batch_name': enrollment.batch.batch_name,
+                    'display_name': enrollment.batch.display_name,
+                    'start_date': enrollment.batch.start_date,
+                    'end_date': enrollment.batch.end_date,
+                }
+            return None
+        except Exception:
+            return None
 
 
 class LiveClassCreateUpdateSerializer(serializers.ModelSerializer):
@@ -177,6 +224,8 @@ class AssignmentSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     obtained_marks = serializers.SerializerMethodField()  # NEW: Grade received
     can_submit = serializers.SerializerMethodField()  # NEW: Check deadline
     attachment_url = serializers.SerializerMethodField()  # NEW: Assignment file URL
+    has_enrollment = serializers.SerializerMethodField()  # NEW: Check if student is enrolled
+    batch_info = serializers.SerializerMethodField()  # NEW: Student's batch information
     
     class Meta:
         model = Assignment
@@ -203,6 +252,8 @@ class AssignmentSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             'obtained_marks',  # NEW
             'can_submit',  # NEW
             'attachment_url',  # NEW
+            'has_enrollment',  # NEW
+            'batch_info',  # NEW
             'created_at',
             'updated_at',
         ]
@@ -292,6 +343,49 @@ class AssignmentSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.attachment.url)
             return obj.attachment.url
         return None
+    
+    def get_has_enrollment(self, obj):
+        """Check if current student is enrolled in the course"""
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+        
+        try:
+            from api.models.models_order import Enrollment
+            return Enrollment.objects.filter(
+                user=request.user,
+                course=obj.module.course.course,
+                is_active=True
+            ).exists()
+        except Exception:
+            return False
+    
+    def get_batch_info(self, obj):
+        """Get student's batch information for this course"""
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return None
+        
+        try:
+            from api.models.models_order import Enrollment
+            enrollment = Enrollment.objects.filter(
+                user=request.user,
+                course=obj.module.course.course,
+                is_active=True
+            ).select_related('batch').first()
+            
+            if enrollment and enrollment.batch:
+                return {
+                    'id': str(enrollment.batch.id),
+                    'batch_number': enrollment.batch.batch_number,
+                    'batch_name': enrollment.batch.batch_name,
+                    'display_name': enrollment.batch.display_name,
+                    'start_date': enrollment.batch.start_date,
+                    'end_date': enrollment.batch.end_date,
+                }
+            return None
+        except Exception:
+            return None
 
 
 class AssignmentCreateUpdateSerializer(serializers.ModelSerializer):
@@ -459,6 +553,8 @@ class QuizSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     best_score = serializers.SerializerMethodField()  # NEW: Highest score
     last_attempt_date = serializers.SerializerMethodField()  # NEW: Last attempt
     is_completed = serializers.SerializerMethodField()  # NEW: Progress tracking
+    has_enrollment = serializers.SerializerMethodField()  # NEW: Check if student is enrolled
+    batch_info = serializers.SerializerMethodField()  # NEW: Student's batch information
     
     class Meta:
         model = Quiz
@@ -485,6 +581,8 @@ class QuizSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             'best_score',  # NEW
             'last_attempt_date',  # NEW
             'is_completed',  # NEW
+            'has_enrollment',  # NEW
+            'batch_info',  # NEW
             'questions',
             'created_at',
             'updated_at',
@@ -580,6 +678,49 @@ class QuizSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             return attempts_used > 0
         except Exception:
             return False
+    
+    def get_has_enrollment(self, obj):
+        """Check if current student is enrolled in the course"""
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+        
+        try:
+            from api.models.models_order import Enrollment
+            return Enrollment.objects.filter(
+                user=request.user,
+                course=obj.module.course.course,
+                is_active=True
+            ).exists()
+        except Exception:
+            return False
+    
+    def get_batch_info(self, obj):
+        """Get student's batch information for this course"""
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return None
+        
+        try:
+            from api.models.models_order import Enrollment
+            enrollment = Enrollment.objects.filter(
+                user=request.user,
+                course=obj.module.course.course,
+                is_active=True
+            ).select_related('batch').first()
+            
+            if enrollment and enrollment.batch:
+                return {
+                    'id': str(enrollment.batch.id),
+                    'batch_number': enrollment.batch.batch_number,
+                    'batch_name': enrollment.batch.batch_name,
+                    'display_name': enrollment.batch.display_name,
+                    'start_date': enrollment.batch.start_date,
+                    'end_date': enrollment.batch.end_date,
+                }
+            return None
+        except Exception:
+            return None
 
 
 # Serializer for create/update operations on Quiz (writable)
@@ -717,3 +858,135 @@ class CourseModuleDetailSerializer(HTMLFieldsMixin, serializers.ModelSerializer)
         return obj.quizzes.filter(is_active=True).annotate(
             active_question_count=Count('questions', filter=Q(questions__is_active=True))
         ).filter(active_question_count__gt=0).count()
+
+
+# ========== Course Resource Serializers ==========
+
+class CourseResourceSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
+    """Serializer for course resources/materials."""
+    html_fields = ['description']
+    
+    uploaded_by_name = serializers.CharField(
+        source='uploaded_by.get_full_name',
+        read_only=True,
+        allow_null=True
+    )
+    live_class_title = serializers.CharField(
+        source='live_class.title',
+        read_only=True,
+        allow_null=True
+    )
+    module_title = serializers.CharField(
+        source='module.title',
+        read_only=True
+    )
+    resource_type_display = serializers.CharField(
+        source='get_resource_type_display',
+        read_only=True
+    )
+    file_size_display = serializers.SerializerMethodField()
+    file_url = serializers.SerializerMethodField()
+    can_download = serializers.SerializerMethodField()
+    
+    class Meta:
+        from api.models.models_module import CourseResource
+        model = CourseResource
+        fields = [
+            'id',
+            'module',
+            'module_title',
+            'live_class',
+            'live_class_title',
+            'title',
+            'description',
+            'resource_type',
+            'resource_type_display',
+            'file',
+            'file_url',
+            'external_url',
+            'file_size',
+            'file_size_display',
+            'download_count',
+            'order',
+            'is_active',
+            'uploaded_by_name',
+            'can_download',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'download_count', 'created_at', 'updated_at']
+    
+    def get_file_size_display(self, obj):
+        """Get human-readable file size"""
+        return obj.get_file_size_display()
+    
+    def get_file_url(self, obj):
+        """Get full URL for file"""
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+    
+    def get_can_download(self, obj):
+        """Check if user can download this resource"""
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+        
+        # Check if student is enrolled in the course
+        try:
+            from api.models.models_order import Enrollment
+            is_enrolled = Enrollment.objects.filter(
+                user=request.user,
+                course=obj.module.course.course,
+                is_active=True
+            ).exists()
+            return is_enrolled
+        except Exception:
+            return False
+
+
+class CourseResourceCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating course resources (teachers/admin)."""
+    
+    class Meta:
+        from api.models.models_module import CourseResource
+        model = CourseResource
+        fields = [
+            'module',
+            'live_class',
+            'title',
+            'description',
+            'resource_type',
+            'file',
+            'external_url',
+            'order',
+            'is_active',
+        ]
+    
+    def validate(self, attrs):
+        """Ensure either file or external_url is provided"""
+        file_provided = attrs.get('file') or (self.instance and self.instance.file)
+        url_provided = attrs.get('external_url')
+        
+        if not file_provided and not url_provided:
+            raise serializers.ValidationError(
+                "Either 'file' or 'external_url' must be provided"
+            )
+        
+        return attrs
+    
+    def create(self, validated_data):
+        """Create resource and calculate file size"""
+        resource = super().create(validated_data)
+        
+        if resource.file:
+            try:
+                resource.file_size = resource.file.size
+                resource.save(update_fields=['file_size'])
+            except Exception:
+                pass
+        
+        return resource
