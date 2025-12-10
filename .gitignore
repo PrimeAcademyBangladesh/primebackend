@@ -13,6 +13,10 @@ media/**
 .vscode/
 # Backup files # 
 *.bak 
+# Output files from scripts
+*.txt
+!requirements.txt
+!requirements-dep.txt
 docs
 docs/**
 .pytest_cache/

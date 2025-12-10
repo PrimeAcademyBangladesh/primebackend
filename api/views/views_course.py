@@ -487,7 +487,7 @@ class CourseViewSet(BaseAdminViewSet):
         override the viewset-level permissions.
         """
         # Check if this action has custom permission_classes in its decorator
-        if hasattr(self, 'action'):
+        if hasattr(self, 'action') and self.action is not None:
             try:
                 # Get the action method
                 action_method = getattr(self, self.action, None)
@@ -496,7 +496,7 @@ class CourseViewSet(BaseAdminViewSet):
                     action_permissions = action_method.kwargs.get('permission_classes')
                     if action_permissions is not None:
                         return [permission() for permission in action_permissions]
-            except (AttributeError, KeyError):
+            except (AttributeError, KeyError, TypeError):
                 pass
         
         # Fall back to viewset-level permissions

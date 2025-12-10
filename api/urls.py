@@ -68,7 +68,7 @@ from api.views.views_export import (
     export_students_csv, export_students_pdf,
     export_employees_csv, export_employees_pdf,
     export_orders_csv, export_order_invoice_pdf,
-    export_my_order_invoice_pdf,
+    export_my_order_invoice_pdf, export_my_order_invoice_by_number_pdf,
     export_course_completion_csv, export_course_completion_pdf,
     export_revenue_analytics_csv, export_revenue_analytics_pdf
 )
@@ -339,6 +339,7 @@ urlpatterns = router.urls + [
     
     # Student's own invoice download
     path("export/my-orders/<uuid:order_id>/invoice/", export_my_order_invoice_pdf, name="export-my-order-invoice"),
+    path("export/my-orders/<str:order_number>/invoice/", export_my_order_invoice_by_number_pdf, name="export-my-order-invoice-by-number"),
     
     # Course completion reports
     path("export/course-completion/csv/", export_course_completion_csv, name="export-course-completion-csv"),

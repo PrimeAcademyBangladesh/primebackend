@@ -81,6 +81,15 @@ class LiveClass(models.Model):
         limit_choices_to={'role__in': ['teacher', 'admin', 'superadmin']}
     )
     
+    batch = models.ForeignKey(
+        'CourseBatch',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='live_classes',
+        help_text='Specific batch this live class is for (optional - leave blank for all batches)'
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -88,7 +97,7 @@ class LiveClass(models.Model):
         verbose_name = "Live Class"
         verbose_name_plural = "Live Classes"
         ordering = ['module', 'order']
-        unique_together = ['module', 'order']
+        unique_together = ['module', 'batch', 'order']  # Allow same order for different batches
 
     def __str__(self):
         return f"{self.module.title} - {self.title}"
@@ -202,6 +211,15 @@ class Assignment(models.Model):
         limit_choices_to={'role__in': ['teacher', 'admin', 'superadmin']}
     )
     
+    batch = models.ForeignKey(
+        'CourseBatch',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assignments',
+        help_text='Specific batch this assignment is for (optional - leave blank for all batches)'
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -209,7 +227,7 @@ class Assignment(models.Model):
         verbose_name = "Assignment"
         verbose_name_plural = "Assignments"
         ordering = ['module', 'order']
-        unique_together = ['module', 'order']
+        unique_together = ['module', 'batch', 'order']  # Allow same order for different batches
 
     def __str__(self):
         return f"{self.module.title} - {self.title}"
@@ -372,6 +390,15 @@ class Quiz(models.Model):
         null=True,
         related_name='created_quizzes',
         limit_choices_to={'role__in': ['teacher', 'admin', 'superadmin']}
+    )
+    
+    batch = models.ForeignKey(
+        'CourseBatch',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='quizzes',
+        help_text='Specific batch this quiz is for (optional - leave blank for all batches)'
     )
     
     created_at = models.DateTimeField(auto_now_add=True)

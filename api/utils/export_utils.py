@@ -5,17 +5,26 @@ for students, employees, orders, and reports.
 """
 
 import csv
+import requests
 from io import BytesIO, StringIO
 from datetime import datetime
+from decimal import Decimal
 from django.http import HttpResponse
+from django.conf import settings
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
+from reportlab.lib.units import inch, mm
 from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics import renderPDF
+try:
+    from reportlab.graphics.barcode import qr
+except ImportError:
+    qr = None
 
 
 class CSVExporter:
@@ -180,179 +189,289 @@ class PDFExporter:
 
 
 class InvoicePDFGenerator:
-    """Generate professional invoice PDFs."""
+    """Generate professional invoice PDFs with logo, QR code, and watermark."""
     
     def __init__(self, order):
         self.order = order
-        self.pagesize = letter
+        self.pagesize = A4
+        self.buffer = BytesIO()
         self.styles = getSampleStyleSheet()
-        self._add_custom_styles()
+        self._register_styles()
+        self.logo_url = "http://45.85.250.92/assets/prime-academy-logo-full-dark.png"
     
-    def _add_custom_styles(self):
-        """Add custom styles for invoice."""
+    def _register_styles(self):
+        """Register custom styles for invoice."""
         self.styles.add(ParagraphStyle(
-            name='InvoiceTitle',
-            parent=self.styles['Heading1'],
+            name="InvTitle",
             fontSize=28,
-            textColor=colors.HexColor('#2C3E50'),
-            spaceAfter=20,
+            fontName="Helvetica-Bold",
             alignment=TA_CENTER,
-            fontName='Helvetica-Bold'
+            spaceAfter=20,
+            spaceBefore=10,
+            textColor=colors.HexColor('#1a202c')
         ))
         
         self.styles.add(ParagraphStyle(
-            name='InvoiceHeading',
-            parent=self.styles['Heading2'],
-            fontSize=12,
-            textColor=colors.HexColor('#2C3E50'),
-            spaceAfter=6,
-            fontName='Helvetica-Bold'
+            name="InvSectionTitle",
+            fontSize=13,
+            fontName="Helvetica-Bold",
+            spaceAfter=10,
+            textColor=colors.HexColor('#2d3748')
         ))
         
         self.styles.add(ParagraphStyle(
-            name='InvoiceBody',
-            parent=self.styles['Normal'],
+            name="InvBodyText",
             fontSize=10,
-            textColor=colors.HexColor('#333333'),
+            leading=14,
+            textColor=colors.HexColor('#4a5568')
         ))
         
         self.styles.add(ParagraphStyle(
             name='InvoiceRight',
             parent=self.styles['Normal'],
             fontSize=10,
-            textColor=colors.HexColor('#333333'),
+            textColor=colors.HexColor('#4a5568'),
             alignment=TA_RIGHT
         ))
     
+    def get_logo(self):
+        """Download and return logo image."""
+        try:
+            # Try to get logo from URL
+            response = requests.get(self.logo_url, timeout=5)
+            if response.status_code == 200:
+                logo_buffer = BytesIO(response.content)
+                return Image(logo_buffer, width=138, height=50)
+        except Exception:
+            pass
+        
+        # Return text placeholder if logo fails
+        return None
+    
+    def get_qr_verification_url(self):
+        """Generate verification URL for QR code."""
+        base_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+        return f"{base_url}/verify-invoice/{self.order.order_number}"
+    
+    def generate_qr_code(self):
+        """Generate QR code for invoice verification."""
+        if qr is None:
+            return None
+        
+        try:
+            qr_code = qr.QrCodeWidget(self.get_qr_verification_url())
+            bounds = qr_code.getBounds()
+            width = bounds[2] - bounds[0]
+            height = bounds[3] - bounds[1]
+            
+            drawing = Drawing(60, 60, transform=[
+                60.0 / width, 0, 0, 60.0 / height, 0, 0
+            ])
+            drawing.add(qr_code)
+            return drawing
+        except Exception:
+            return None
+    
+    def _draw_watermark(self, canvas, doc):
+        """Draw watermark on every page."""
+        canvas.saveState()
+        canvas.setFillColorRGB(0.85, 0.85, 0.85)
+        canvas.setFont("Helvetica-Bold", 60)
+        canvas.translate(300, 400)
+        canvas.rotate(45)
+        canvas.drawCentredString(0, 0, "PRIME ACADEMY")
+        canvas.restoreState()
+    
     def generate(self):
-        """Generate invoice PDF."""
-        buffer = BytesIO()
+        """Generate invoice PDF matching reference design."""
         doc = SimpleDocTemplate(
-            buffer,
+            self.buffer,
             pagesize=self.pagesize,
             rightMargin=50,
             leftMargin=50,
             topMargin=50,
-            bottomMargin=30,
+            bottomMargin=50
         )
         
         story = []
         
-        # Invoice header
-        story.append(Paragraph('INVOICE', self.styles['InvoiceTitle']))
-        story.append(Spacer(1, 20))
+        # Header: Logo (left) and Invoice Number (right)
+        logo = self.get_logo()
+        if not logo:
+            logo = Paragraph('<b>PRIME ACADEMY</b>', self.styles['InvBodyText'])
         
-        # Company info and invoice details
-        data = [
-            ['Prime Academy', f'Invoice #: {self.order.order_number}'],
-            ['Learning Management System', f'Date: {self.order.created_at.strftime("%B %d, %Y")}'],
-            ['', f'Status: {self.order.get_payment_status_display()}'],
-        ]
+        header_data = [[
+            logo,
+            Paragraph(f'<b>Invoice #:</b> {self.order.order_number}', self.styles['InvoiceRight'])
+        ]]
         
-        info_table = Table(data, colWidths=[3*inch, 3*inch])
-        info_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        header_table = Table(header_data, colWidths=[4*inch, 3*inch])
+        header_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
         ]))
-        story.append(info_table)
-        story.append(Spacer(1, 20))
-        
-        # Bill to section
-        story.append(Paragraph('Bill To:', self.styles['InvoiceHeading']))
-        story.append(Paragraph(f'{self.order.billing_name}', self.styles['InvoiceBody']))
-        story.append(Paragraph(f'{self.order.billing_email}', self.styles['InvoiceBody']))
-        story.append(Paragraph(f'{self.order.billing_phone}', self.styles['InvoiceBody']))
-        if self.order.billing_address:
-            story.append(Paragraph(f'{self.order.billing_address}', self.styles['InvoiceBody']))
-        story.append(Spacer(1, 20))
-        
-        # Order items table
-        story.append(Paragraph('Order Details:', self.styles['InvoiceHeading']))
+        story.append(header_table)
         story.append(Spacer(1, 10))
         
-        # Table headers
-        items_data = [['Course', 'Price', 'Qty', 'Total']]
+        # INVOICE title
+        story.append(Paragraph('<b>INVOICE</b>', 
+                              ParagraphStyle(
+                                  name='InvoiceTitle',
+                                  fontSize=24,
+                                  fontName='Helvetica-Bold',
+                                  alignment=TA_CENTER
+                              )))
+        story.append(Spacer(1, 15*mm))
         
-        # Add order items
-        for item in self.order.items.all():
-            items_data.append([
-                item.course.title,
-                f'৳{item.price:,.2f}',
-                '1',
-                f'৳{item.price:,.2f}'
-            ])
+        # From/To Table
+        from_to_data = [
+            ['From', 'To'],
+            [
+                Paragraph('<b>Prime Academy</b><br/>Suite 5040, Lift 5<br/>Dhanmondi, Dhaka<br/>Phone: +880 1300 290492<br/>Email: info@primeacademy.org', 
+                         self.styles['InvBodyText']),
+                Paragraph(f'<b>{self.order.billing_name}</b><br/>{self.order.billing_email}<br/>{self.order.billing_phone}' + 
+                         (f'<br/>{self.order.billing_address}' if self.order.billing_address else ''),
+                         self.styles['InvBodyText'])
+            ]
+        ]
         
-        items_table = Table(items_data, colWidths=[3.5*inch, 1*inch, 0.5*inch, 1*inch])
-        items_table.setStyle(TableStyle([
+        from_to_table = Table(from_to_data, colWidths=[3.5*inch, 3.5*inch])
+        from_to_table.setStyle(TableStyle([
             # Header
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#34495E')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d3d3d3')),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('TOPPADDING', (0, 0), (-1, 0), 10),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
             
             # Body
-            ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
             ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('TOPPADDING', (0, 1), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+            ('TOPPADDING', (0, 1), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 10),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
             
             # Grid
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey]),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ]))
-        story.append(items_table)
+        story.append(from_to_table)
         story.append(Spacer(1, 20))
         
-        # Totals section
-        totals_data = [
-            ['Subtotal:', f'৳{self.order.subtotal:,.2f}'],
-        ]
+        # Date, Payment Method, Status
+        status_color = colors.green if self.order.status == 'completed' else colors.orange
+        info_text = (f'<b>Date:</b> {self.order.created_at.strftime("%d %B %Y")}<br/>'
+                    f'<b>Payment Method:</b> {self.order.payment_method if self.order.payment_method else "N/A"}<br/>'
+                    f'<b>Status:</b> <font color="green">{self.order.get_status_display().upper()}</font>')
+        story.append(Paragraph(info_text, self.styles['InvBodyText']))
+        story.append(Spacer(1, 20))
         
-        if self.order.discount_amount > 0:
-            totals_data.append(['Discount:', f'-৳{self.order.discount_amount:,.2f}'])
-            if self.order.coupon:
-                totals_data.append(['Coupon Code:', self.order.coupon.code])
+        # Payment Details heading
+        story.append(Paragraph('<font color="#003366"><b>Payment Details</b></font>', 
+                              ParagraphStyle(
+                                  name='PaymentHeading',
+                                  fontSize=14,
+                                  fontName='Helvetica-Bold',
+                                  textColor=colors.HexColor('#003366')
+                              )))
+        story.append(Spacer(1, 10))
         
-        totals_data.append(['Total:', f'৳{self.order.total_amount:,.2f}'])
-        totals_data.append(['Paid:', f'৳{self.order.paid_amount:,.2f}'])
+        # Course/Batch/Amount Table
+        payment_data = [['Course', 'Batch', 'Amount']]
         
-        if self.order.due_amount > 0:
-            totals_data.append(['Due:', f'৳{self.order.due_amount:,.2f}'])
+        for item in self.order.items.all():
+            # Get batch info from enrollment
+            batch_name = 'N/A'
+            try:
+                from api.models.models_order import Enrollment
+                enrollment = Enrollment.objects.filter(
+                    user=self.order.user,
+                    course=item.course
+                ).first()
+                if enrollment and enrollment.batch:
+                    batch_name = enrollment.batch.get_display_name()
+            except Exception as e:
+                # Fallback: try to get from order item if it has batch info
+                pass
+            
+            payment_data.append([
+                item.course.title,
+                batch_name,
+                f'{item.price:,.2f}/-'
+            ])
         
-        totals_table = Table(totals_data, colWidths=[4.5*inch, 1.5*inch])
-        totals_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
-            ('FONTNAME', (0, 0), (-1, -2), 'Helvetica'),
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('TOPPADDING', (0, 0), (-1, -1), 6),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-            ('LINEABOVE', (0, -1), (-1, -1), 2, colors.black),
+        payment_table = Table(payment_data, colWidths=[3.5*inch, 2*inch, 1.5*inch])
+        payment_table.setStyle(TableStyle([
+            # Header
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d3d3d3')),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('TOPPADDING', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('ALIGN', (0, 0), (-1, 0), 'LEFT'),
+            
+            # Body
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ('TOPPADDING', (0, 1), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 10),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+            ('ALIGN', (2, 1), (2, -1), 'RIGHT'),
+            
+            # Grid
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ]))
-        story.append(totals_table)
+        story.append(payment_table)
         story.append(Spacer(1, 30))
         
-        # Footer
-        story.append(Paragraph('Thank you for your purchase!', self.styles['InvoiceBody']))
-        story.append(Spacer(1, 10))
-        story.append(Paragraph(
-            'For any queries, please contact us at support@primeacademy.com',
-            self.styles['InvoiceBody']
-        ))
+        # QR Code and verification info
+        qr_code = self.generate_qr_code()
+        if qr_code:
+            qr_data = [
+                [qr_code, Paragraph('<b>Verify this invoice</b><br/>Scan QR code to verify authenticity<br/>'
+                                   f'or visit: {self.get_qr_verification_url()}', 
+                                   self.styles['InvBodyText'])]
+            ]
+            qr_table = Table(qr_data, colWidths=[70, 5*inch])
+            qr_table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ]))
+            story.append(qr_table)
+            story.append(Spacer(1, 20))
         
-        # Build PDF
-        doc.build(story)
-        buffer.seek(0)
+        # Footer with thank you message
+        story.append(Spacer(1, 10))
+        footer_text = ('<b>Thank you for choosing Prime Academy!</b><br/><br/>'
+                      'For any queries or support, please contact us:<br/>'
+                      'Email: support@primeacademy.com<br/>'
+                      'Phone: +880 1234-567890')
+        story.append(Paragraph(footer_text, self.styles['InvBodyText']))
+        
+        story.append(Spacer(1, 20))
+        
+        # Automated invoice notice
+        automated_notice = ('<para align="center"><i>This is a computer-generated invoice and does not require a physical signature.</i></para>')
+        story.append(Paragraph(automated_notice, 
+                              ParagraphStyle(
+                                  name='AutomatedNotice',
+                                  fontSize=9,
+                                  textColor=colors.HexColor('#666666'),
+                                  alignment=TA_CENTER
+                              )))
+        
+        # Build PDF with watermark
+        doc.build(story, onFirstPage=self._draw_watermark, onLaterPages=self._draw_watermark)
+        self.buffer.seek(0)
         
         # Prepare response
         filename = f'Invoice_{self.order.order_number}.pdf'
-        response = HttpResponse(buffer.read(), content_type='application/pdf')
+        response = HttpResponse(self.buffer.read(), content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         
         return response

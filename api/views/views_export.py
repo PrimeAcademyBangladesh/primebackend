@@ -546,6 +546,47 @@ def export_my_order_invoice_pdf(request, order_id):
     return generator.generate()
 
 
+@extend_schema(
+    tags=["Data Export"],
+    summary="Export my order invoice by order number as PDF (Student)",
+    description="Download invoice for your own order using order number. Students can only access their own invoices.",
+    parameters=[
+        OpenApiParameter(
+            name='order_number',
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.PATH,
+            description='Order number (e.g., ORD-20251210-XXXXX)',
+            required=True
+        ),
+    ],
+    responses={
+        200: OpenApiResponse(description='PDF invoice file'),
+        404: OpenApiResponse(description='Order not found'),
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def export_my_order_invoice_by_number_pdf(request, order_number):
+    """Export user's own order invoice as PDF file using order number."""
+    
+    try:
+        # Students can only access their own orders
+        if request.user.role == 'student':
+            order = Order.objects.select_related('user', 'coupon').prefetch_related('items__course').get(
+                order_number=order_number,
+                user=request.user
+            )
+        else:
+            # Staff/Admin can access any order
+            order = Order.objects.select_related('user', 'coupon').prefetch_related('items__course').get(order_number=order_number)
+    except Order.DoesNotExist:
+        return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
+    
+    # Generate invoice PDF
+    generator = InvoicePDFGenerator(order)
+    return generator.generate()
+
+
 # ============================================================================
 # Course Completion Reports
 # ============================================================================
