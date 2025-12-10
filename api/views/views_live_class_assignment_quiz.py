@@ -239,7 +239,39 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         attendance.save()
 
         serializer = LiveClassAttendanceSerializer(attendance)
-        return Response(api_response(True, 'Attendance recorded successfully', serializer.data))
+        return api_response(True, 'Attendance recorded successfully', serializer.data)
+
+    @extend_schema(
+        tags=['Course - Live Classes'],
+        summary='Get my attendance',
+        description='Get current student\'s attendance status for this live class'
+    )
+    @action(detail=True, methods=['get'], url_path='my-attendance')
+    def my_attendance(self, request, pk=None):
+        """Get current student's attendance for this live class"""
+        live_class = self.get_object()
+        student = request.user
+        
+        try:
+            attendance = LiveClassAttendance.objects.get(
+                live_class=live_class,
+                student=student
+            )
+            serializer = LiveClassAttendanceSerializer(attendance)
+            return api_response(
+                True,
+                'Attendance retrieved successfully',
+                serializer.data
+            )
+        except LiveClassAttendance.DoesNotExist:
+            return api_response(
+                True,
+                'No attendance record found',
+                {
+                    'attended': False,
+                    'joined_at': None
+                }
+            )
 
     @extend_schema(
         tags=['Course - Live Classes'],
@@ -252,14 +284,14 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         live_class = self.get_object()
         attendances = live_class.attendances.select_related('student').all()
         serializer = LiveClassAttendanceSerializer(attendances, many=True)
-        return Response(api_response(
+        return api_response(
             True,
             'Attendances retrieved successfully',
             {
                 'attendances': serializer.data,
                 'total_students': attendances.count()
             }
-        ))
+        )
 
 
 @extend_schema_view(

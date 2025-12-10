@@ -1722,7 +1722,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/BrandRequest'
-        required: true
       security:
       - jwtAuth: []
       - bearerAuth: []
@@ -1784,7 +1783,6 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/BrandRequest'
-        required: true
       security:
       - jwtAuth: []
       - bearerAuth: []
@@ -2427,15 +2425,162 @@ paths:
   /api/courses/:
     get:
       operationId: api_courses_list
-      description: Get paginated list of courses. Public users see only published
-        & active courses.
+      description: "\n        Get paginated list of courses with batch information.\n\
+        \        \n        **Permissions:**\n        - Public: Only published & active\
+        \ courses\n        - Staff: All courses regardless of status\n        \n \
+        \       **Key Features:**\n        - Each course includes `active_batches`\
+        \ array with enrollment status\n        - `is_purchased` flag for authenticated\
+        \ users (shows if user is enrolled)\n        - Optimized with select_related/prefetch_related\
+        \ to avoid N+1 queries\n        - Cached for 10 minutes to improve performance\n\
+        \        \n        **Filtering Options:**\n        - `category`: Filter by\
+        \ category slug or ID\n        - `status`: Filter by status (published, draft,\
+        \ archived)\n        - `is_active`: Boolean filter for active courses\n  \
+        \      - `search`: Search in title and short_description\n        - `ordering`:\
+        \ Sort by title, created_at, updated_at (use `-` for descending)\n       \
+        \ \n        **Pagination:**\n        - Default page size: 10 items\n     \
+        \   - Use `?page=2` for next pages\n        \n        **Frontend Usage:**\n\
+        \        ```javascript\n        // Get first page of courses\n        const\
+        \ response = await fetch('/api/courses/');\n        const { data } = await\
+        \ response.json();\n        \n        data.results.forEach(course => {\n \
+        \         console.log(course.title);\n          console.log(course.active_batches);\
+        \ // Array of available batches\n          console.log(course.is_purchased);\
+        \ // true if user enrolled\n        });\n        \n        // Filter by category\n\
+        \        const webCourses = await fetch('/api/courses/?category=web-development');\n\
+        \        \n        // Search courses\n        const searchResults = await\
+        \ fetch('/api/courses/?search=python');\n        \n        // Sort by newest\
+        \ first\n        const newest = await fetch('/api/courses/?ordering=-created_at');\n\
+        \        ```\n        \n        **Response Structure:**\n        - Each course\
+        \ has `active_batches` field containing batches with `is_enrollment_open=True`\n\
+        \        - Use batch information to show \"Enroll Now\" buttons with batch\
+        \ selection\n        - Check `is_purchased` to show \"Continue Learning\"\
+        \ vs \"Enroll\" buttons\n        "
       summary: List courses
       parameters:
       - in: query
         name: category
         schema:
           type: string
+        description: Filter by category slug or UUID
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+        description: Filter by active status
+      - in: query
+        name: ordering
+        schema:
+          type: string
+        description: 'Sort results: title, created_at, updated_at (prefix with - for
+          descending)'
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Page number for pagination
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Search in course title and description
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - archived
+          - draft
+          - published
+        description: 'Filter by status: published, draft, or archived'
+      tags:
+      - Course - Main
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCourseListList'
+          description: ''
+    post:
+      operationId: api_courses_create
+      description: 'Course CRUD: slug for retrieve, ID for update/delete.'
+      summary: Create a course
+      tags:
+      - Course - Main
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CourseCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CourseCreateUpdateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseCreateUpdate'
+          description: ''
+  /api/courses/{course_slug}/modules/:
+    get:
+      operationId: api_courses_modules_list
+      description: "\n        Get all modules for a specific course by course slug.\n\
+        \        \n        **URL Pattern:** `/api/courses/{course_slug}/modules/`\n\
+        \        \n        **Permissions:** Public (AllowAny)\n        \n        **Use\
+        \ Cases:**\n        - Display course curriculum/syllabus\n        - Module\
+        \ navigation in course player\n        - Filter live classes/assignments/quizzes\
+        \ by module\n        \n        **Response Structure:**\n        Each module\
+        \ includes:\n        - `id`: Module UUID (use this for filtering content)\n\
+        \        - `title`: Module name\n        - `description`: Module description\n\
+        \        - `order`: Display order (sorted)\n        - `duration`: Estimated\
+        \ duration\n        - `is_active`: Visibility status\n        - `is_sample`:\
+        \ Whether module is available for preview\n        \n        **Frontend Usage:**\n\
+        \        ```javascript\n        // Get all modules for Django course\n   \
+        \     const response = await fetch('/api/courses/django-web-development/modules/');\n\
+        \        const { data } = await response.json();\n        \n        // Display\
+        \ module list\n        data.forEach(module => {\n          console.log(`${module.order}.\
+        \ ${module.title}`);\n          console.log(`Duration: ${module.duration}`);\n\
+        \        });\n        \n        // Filter live classes by module\n       \
+        \ const moduleId = data[0].id;\n        const classes = await fetch(`/api/live-classes/?module=${moduleId}`);\n\
+        \        \n        // Filter assignments by module\n        const assignments\
+        \ = await fetch(`/api/assignments/?module=${moduleId}`);\n        \n     \
+        \   // Filter quizzes by module\n        const quizzes = await fetch(`/api/quizzes/?module=${moduleId}`);\n\
+        \        ```\n        \n        **Important:**\n        - Returns only active\
+        \ modules (`is_active=True`)\n        - Modules are sorted by `order` field\n\
+        \        - Module UUIDs are required for filtering related content (classes,\
+        \ assignments, quizzes)\n        - Sample modules (`is_sample=True`) are visible\
+        \ to all users\n        \n        **Error Handling:**\n        - Returns 404\
+        \ if course not found or not published\n        "
+      summary: Get modules for a course
+      parameters:
+      - in: query
+        name: category
+        schema:
+          type: string
         description: Filter by category slug (e.g., web-development, data-science)
+      - in: path
+        name: course_slug
+        schema:
+          type: string
+        description: Course slug identifier (e.g., 'django-web-development')
+        required: true
       - in: query
         name: is_active
         schema:
@@ -2490,35 +2635,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaginatedCourseListList'
-          description: ''
-    post:
-      operationId: api_courses_create
-      description: 'Course CRUD: slug for retrieve, ID for update/delete.'
-      summary: Create a course
-      tags:
-      - Course - Main
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CourseCreateUpdateRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/CourseCreateUpdateRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/CourseCreateUpdateRequest'
-        required: true
-      security:
-      - jwtAuth: []
-      - bearerAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CourseCreateUpdate'
+                $ref: '#/components/schemas/PaginatedCourseModuleList'
           description: ''
   /api/courses/{id}/:
     put:
@@ -2612,15 +2729,50 @@ paths:
   /api/courses/{slug}/:
     get:
       operationId: api_courses_retrieve
-      description: Get detailed course information including pricing and all course
-        details.
+      description: "\n        Get comprehensive course details including all batches,\
+        \ pricing, modules, and content.\n        \n        **URL Pattern:** `/api/courses/{course_slug}/`\n\
+        \        \n        **Smart Caching Behavior:**\n        - **Anonymous users**:\
+        \ Cached response (10 min) with sample module content only\n        - **Enrolled\
+        \ students**: Full uncached response with complete module access\n       \
+        \ - **Staff/Admins**: Full uncached response with all content\n        \n\
+        \        **Response Includes:**\n        - Complete course information (title,\
+        \ description, thumbnail, etc.)\n        - `batches` array: All batches for\
+        \ this course with enrollment status\n        - `pricing` object: Course pricing\
+        \ details (regular, discount, installments)\n        - `detail` object: Extended\
+        \ course details with:\n          - `modules`: Course curriculum modules\n\
+        \          - `content_sections`: Organized course content\n          - `why_enrol`:\
+        \ Enrollment reasons\n          - `benefits`: Key benefits\n          - `success_stories`:\
+        \ Student testimonials\n          - `instructors`: Course instructors\n  \
+        \      - `is_purchased`: Boolean indicating if current user is enrolled (authenticated\
+        \ users only)\n        \n        **Batch Information:**\n        Each batch\
+        \ in the `batches` array includes:\n        - `batch_number`: Batch identifier\n\
+        \        - `start_date`, `end_date`: Batch schedule\n        - `enrollment_start`,\
+        \ `enrollment_end`: Enrollment window\n        - `is_enrollment_open`: Whether\
+        \ enrollment is currently open\n        - `available_seats`: Remaining capacity\n\
+        \        - `is_full`: Whether batch is at capacity\n        \n        **Frontend\
+        \ Usage:**\n        ```javascript\n        // Get complete course details\n\
+        \        const response = await fetch('/api/courses/django-web-development/');\n\
+        \        const { data } = await response.json();\n        \n        // Display\
+        \ available batches\n        const openBatches = data.batches.filter(b =>\
+        \ b.is_enrollment_open);\n        \n        // Show enrollment button based\
+        \ on status\n        if (data.is_purchased) {\n          showButton('Continue\
+        \ Learning');\n        } else if (openBatches.length > 0) {\n          showButton('Enroll\
+        \ Now');\n        } else {\n          showButton('Notify Me');\n        }\n\
+        \        \n        // Display pricing\n        console.log(`Price: $${data.pricing.regular_price}`);\n\
+        \        if (data.pricing.discount_price) {\n          console.log(`Discount:\
+        \ $${data.pricing.discount_price}`);\n        }\n        ```\n        \n \
+        \       **Module Access:**\n        - Anonymous/Guest users: See only modules\
+        \ marked as `is_sample=True`\n        - Enrolled students: See all modules\
+        \ with full content\n        - Staff: See all modules regardless of enrollment\n\
+        \        "
       summary: Retrieve course by slug
       parameters:
       - in: path
         name: slug
         schema:
           type: string
-        description: Slug of the course (use slug, not UUID)
+        description: URL-friendly course identifier (e.g., 'django-web-development',
+          'react-masterclass')
         required: true
       tags:
       - Course - Main
@@ -2635,11 +2787,434 @@ paths:
               schema:
                 $ref: '#/components/schemas/CourseDetailed'
           description: ''
+  /api/courses/batches/:
+    get:
+      operationId: api_courses_batches_list
+      description: "Get paginated list of course batches with filtering and search.\n\
+        \        \n        **Frontend Usage:**\n        - Display all available batches\
+        \ across all courses\n        - Filter by course, status, or batch number\n\
+        \        - Search by batch name, course title, or description\n        \n\
+        \        **Query Parameters:**\n        - `course` (UUID): Filter by course\
+        \ ID\n        - `status`: Filter by status (upcoming, enrollment_open, running,\
+        \ completed, cancelled)\n        - `is_active` (boolean): Filter by active\
+        \ status\n        - `search`: Search in batch_name, course title, description\n\
+        \        - `ordering`: Sort by start_date, batch_number, created_at (prefix\
+        \ with - for descending)\n        \n        **Response includes:**\n     \
+        \   - Full batch details with enrollment info\n        - Computed fields:\
+        \ is_enrollment_open, available_seats, is_full\n        - Related course information\
+        \ (title, slug)\n        "
+      summary: List all course batches
+      parameters:
+      - in: query
+        name: batch_number
+        schema:
+          type: integer
+      - in: query
+        name: course
+        schema:
+          type: string
+        description: Filter by course UUID
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+        description: Filter by active status
+      - in: query
+        name: ordering
+        schema:
+          type: string
+        description: 'Order by: start_date, batch_number, created_at (prefix - for
+          desc)'
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Search in batch name, course title, description
+      - in: query
+        name: status
+        schema:
+          type: string
+        description: Filter by batch status
+      tags:
+      - Course - Batches
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCourseBatchList'
+          description: ''
+    post:
+      operationId: api_courses_batches_create
+      description: "Create a new batch for a course.\n        \n        **Admin Only**\
+        \ - Requires staff authentication.\n        \n        **Required Fields:**\n\
+        \        - course (UUID): Course this batch belongs to\n        - batch_number\
+        \ (int): Sequential batch number (must be unique per course)\n        - start_date\
+        \ (date): When batch starts (YYYY-MM-DD)\n        - end_date (date): When\
+        \ batch ends (YYYY-MM-DD)\n        - max_students (int): Maximum enrollment\
+        \ capacity\n        \n        **Optional Fields:**\n        - batch_name:\
+        \ Custom name (e.g., 'Winter 2025', 'Weekend Batch')\n        - enrollment_start_date:\
+        \ When enrollment opens (defaults to now)\n        - enrollment_end_date:\
+        \ When enrollment closes (defaults to start_date)\n        - custom_price:\
+        \ Override course default price for this batch\n        - status: Batch status\
+        \ (default: 'upcoming')\n        - description: Batch-specific notes\n   \
+        \     \n        **Auto-generated:**\n        - slug: Created from course slug\
+        \ + batch number\n        - enrolled_students: Calculated from actual enrollments\n\
+        \        "
+      summary: Create new course batch (Admin only)
+      tags:
+      - Course - Batches
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseBatchCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CourseBatchCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CourseBatchCreateUpdateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseBatch'
+          description: ''
+  /api/courses/batches/{slug}/:
+    get:
+      operationId: api_courses_batches_retrieve
+      description: "Retrieve detailed information about a specific course batch by\
+        \ slug.\n        \n        **Frontend Usage:**\n        - Display batch detail\
+        \ page\n        - Show enrollment status and availability\n        - Check\
+        \ if batch accepts enrollments\n        \n        **Returns:**\n        -\
+        \ Complete batch information\n        - Enrollment statistics (enrolled_students,\
+        \ available_seats)\n        - Computed properties (is_enrollment_open, is_full)\n\
+        \        - Related course details\n        \n        **Note:** Use slug from\
+        \ batch list or course detail response\n        "
+      summary: Get single batch details
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+          description: URL-friendly slug (auto-generated from course + batch number)
+        required: true
+      tags:
+      - Course - Batches
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseBatch'
+          description: ''
+    put:
+      operationId: api_courses_batches_update
+      description: |-
+        CRUD operations for Course Batches.
+
+        Students enroll in course batches, not courses directly.
+        Each batch represents a time-bound offering of a course.
+      summary: Update course batch
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+          description: URL-friendly slug (auto-generated from course + batch number)
+        required: true
+      tags:
+      - Course - Batches
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseBatchCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CourseBatchCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CourseBatchCreateUpdateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseBatch'
+          description: ''
+    patch:
+      operationId: api_courses_batches_partial_update
+      description: |-
+        CRUD operations for Course Batches.
+
+        Students enroll in course batches, not courses directly.
+        Each batch represents a time-bound offering of a course.
+      summary: Partially update course batch
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+          description: URL-friendly slug (auto-generated from course + batch number)
+        required: true
+      tags:
+      - Course - Batches
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCourseBatchCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCourseBatchCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCourseBatchCreateUpdateRequest'
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseBatch'
+          description: ''
+    delete:
+      operationId: api_courses_batches_destroy
+      description: |-
+        CRUD operations for Course Batches.
+
+        Students enroll in course batches, not courses directly.
+        Each batch represents a time-bound offering of a course.
+      summary: Delete course batch
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+          description: URL-friendly slug (auto-generated from course + batch number)
+        required: true
+      tags:
+      - Course - Batches
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/courses/batches/by-course/{course_slug}/:
+    get:
+      operationId: api_courses_batches_by_course_list
+      description: "Get all batches for a specific course by course slug.\n      \
+        \  \n        **Frontend Usage:**\n        - Course detail page batch selection\n\
+        \        - Display available batches for a course\n        - Show enrollment\
+        \ options\n        \n        **URL:** `/api/courses/batches/by-course/{course_slug}/`\n\
+        \        \n        **Example:** `/api/courses/batches/by-course/django-web-development/`\n\
+        \        \n        **Returns:**\n        - Array of batches for the specified\
+        \ course\n        - Only active batches returned\n        - Sorted by start\
+        \ date (most recent first)\n        "
+      summary: Get batches for specific course
+      parameters:
+      - in: query
+        name: batch_number
+        schema:
+          type: integer
+      - in: query
+        name: course
+        schema:
+          type: string
+          format: uuid
+      - in: path
+        name: course_slug
+        schema:
+          type: string
+        description: Course slug (e.g., django-web-development)
+        required: true
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - cancelled
+          - completed
+          - enrollment_open
+          - running
+          - upcoming
+        description: |-
+          Current status of this batch
+
+          * `upcoming` - Upcoming
+          * `enrollment_open` - Enrollment Open
+          * `running` - Running
+          * `completed` - Completed
+          * `cancelled` - Cancelled
+      tags:
+      - Course - Batches
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCourseBatchList'
+          description: ''
+  /api/courses/batches/enrollment-open/:
+    get:
+      operationId: api_courses_batches_enrollment_open_list
+      description: "Get all batches currently accepting enrollments across all courses.\n\
+        \        \n        **Frontend Usage:**\n        - Homepage 'Enroll Now' sections\n\
+        \        - Browse enrollable batches\n        - Filter available courses\n\
+        \        \n        **URL:** `/api/courses/batches/enrollment-open/`\n    \
+        \    \n        **Automatically filters by:**\n        - Active batches only\n\
+        \        - Current date within enrollment window\n        - Status: 'enrollment_open'\
+        \ or 'upcoming'\n        - Not at capacity (enrolled_students < max_students)\n\
+        \        - Not cancelled or completed\n        \n        **Returns:**\n  \
+        \      - Array of batches ready for enrollment\n        - Includes availability\
+        \ info (available_seats)\n        - Shows enrollment deadline (enrollment_end_date)\n\
+        \        \n        **Perfect for:** 'Available Courses' listings, enrollment\
+        \ widgets\n        "
+      summary: Get batches with open enrollment
+      parameters:
+      - in: query
+        name: batch_number
+        schema:
+          type: integer
+      - in: query
+        name: course
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - cancelled
+          - completed
+          - enrollment_open
+          - running
+          - upcoming
+        description: |-
+          Current status of this batch
+
+          * `upcoming` - Upcoming
+          * `enrollment_open` - Enrollment Open
+          * `running` - Running
+          * `completed` - Completed
+          * `cancelled` - Cancelled
+      tags:
+      - Course - Batches
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCourseBatchList'
+          description: ''
   /api/courses/benefits/:
     get:
       operationId: api_courses_benefits_retrieve
-      description: CRUD operations for KeyBenefit.
-      summary: List key benefits
+      description: "\n        **Admin Only**: Manage course key benefits.\n      \
+        \  \n        Benefits highlight what students gain from the course.\n    \
+        \    \n        **Filtering:** `?course={uuid}` - Filter by CourseDetail UUID\n\
+        \        \n        **Frontend:** Access via `/api/courses/{slug}/` in `detail.benefits`\
+        \ array\n        "
+      summary: List key benefits (Admin)
       tags:
       - Course - Components
       security:
@@ -2651,8 +3226,8 @@ paths:
           description: No response body
     post:
       operationId: api_courses_benefits_create
-      description: CRUD operations for KeyBenefit.
-      summary: Create key benefit
+      description: Add new benefit to course.
+      summary: Create key benefit (Admin)
       tags:
       - Course - Components
       requestBody:
@@ -2676,8 +3251,8 @@ paths:
   /api/courses/benefits/{id}/:
     get:
       operationId: api_courses_benefits_retrieve_2
-      description: CRUD operations for KeyBenefit.
-      summary: Retrieve key benefit
+      description: Get a specific benefit by UUID.
+      summary: Retrieve key benefit (Admin)
       parameters:
       - in: path
         name: id
@@ -2697,8 +3272,8 @@ paths:
           description: No response body
     put:
       operationId: api_courses_benefits_update
-      description: CRUD operations for KeyBenefit.
-      summary: Update key benefit
+      description: Full update of course benefit.
+      summary: Update key benefit (Admin)
       parameters:
       - in: path
         name: id
@@ -2729,8 +3304,8 @@ paths:
           description: No response body
     patch:
       operationId: api_courses_benefits_partial_update
-      description: CRUD operations for KeyBenefit.
-      summary: Partially update key benefit
+      description: Partial update of benefit.
+      summary: Partially update key benefit (Admin)
       parameters:
       - in: path
         name: id
@@ -2760,8 +3335,8 @@ paths:
           description: No response body
     delete:
       operationId: api_courses_benefits_destroy
-      description: CRUD operations for KeyBenefit.
-      summary: Delete key benefit
+      description: Delete a course benefit.
+      summary: Delete key benefit (Admin)
       parameters:
       - in: path
         name: id
@@ -2781,7 +3356,21 @@ paths:
   /api/courses/categories/:
     get:
       operationId: api_courses_categories_list
-      description: Retrieve all active categories. Staff users see all categories.
+      description: "\n        Retrieve all active categories for course organization.\n\
+        \        \n        **Permissions:**\n        - Public users: See only active\
+        \ categories (`is_active=True`)\n        - Staff users: See all categories\
+        \ including inactive ones\n        \n        **Frontend Usage:**\n       \
+        \ - Course category navigation/filters\n        - Homepage category sections\n\
+        \        - Course listing filter dropdowns\n        - Megamenu category links\n\
+        \        \n        **Response includes:**\n        - `id`: Category UUID\n\
+        \        - `name`: Display name\n        - `slug`: URL-friendly identifier\n\
+        \        - `description`: Category description\n        - `is_active`: Visibility\
+        \ status\n        - `show_in_megamenu`: Whether to show in navigation\n  \
+        \      - `icon`: Optional icon identifier\n        \n        **Example Usage:**\n\
+        \        ```javascript\n        // Fetch all categories for navigation\n \
+        \       const response = await fetch('/api/courses/categories/');\n      \
+        \  const { data } = await response.json();\n        const categories = data.results;\
+        \ // Array of category objects\n        ```\n        "
       summary: List all course categories
       parameters:
       - in: query
@@ -2860,14 +3449,21 @@ paths:
   /api/courses/categories/{slug}/:
     get:
       operationId: api_courses_categories_retrieve
-      description: Get a single category by its slug identifier.
+      description: "\n        Get detailed information about a specific category using\
+        \ its slug.\n        \n        **Frontend Usage:**\n        - Category landing\
+        \ pages\n        - Display category details above filtered courses\n     \
+        \   - Breadcrumb navigation context\n        \n        **URL Pattern:** `/api/courses/categories/{category_slug}/`\n\
+        \        \n        **Example:**\n        ```javascript\n        // Get web-development\
+        \ category details\n        const response = await fetch('/api/courses/categories/web-development/');\n\
+        \        const { data } = await response.json();\n        console.log(data.name);\
+        \ // \"Web Development\"\n        ```\n        "
       summary: Retrieve a course category by slug
       parameters:
       - in: path
         name: slug
         schema:
           type: string
-          description: URL-friendly version of the name
+        description: URL-friendly category identifier (e.g., 'web-development', 'data-science')
         required: true
       tags:
       - Course - Categories
@@ -2975,15 +3571,36 @@ paths:
   /api/courses/category/{category_slug}/:
     get:
       operationId: api_courses_category_retrieve
-      description: Retrieve all active published courses in a specific category.
+      description: "\n        Retrieve all active published courses in a specific\
+        \ category.\n        \n        **URL Pattern:** `/api/courses/category/{category_slug}/`\n\
+        \        \n        **Permissions:** Public (AllowAny)\n        \n        **Use\
+        \ Cases:**\n        - Category landing pages showing all courses in category\n\
+        \        - Category-specific course browsing\n        - Filtered course listings\
+        \ by category\n        \n        **Response:** Paginated list of courses (same\
+        \ as main list endpoint)\n        \n        **Frontend Usage:**\n        ```javascript\n\
+        \        // Get all web development courses\n        const response = await\
+        \ fetch('/api/courses/category/web-development/');\n        const { data }\
+        \ = await response.json();\n        \n        data.results.forEach(course\
+        \ => {\n          console.log(course.title);\n          console.log(course.active_batches);\
+        \ // Available batches\n        });\n        \n        // Pagination\n   \
+        \     const page2 = await fetch('/api/courses/category/web-development/?page=2');\n\
+        \        ```\n        \n        **Filter Behavior:**\n        - Only returns\
+        \ courses where:\n          - `category.slug` matches the provided slug\n\
+        \          - `category.is_active = True`\n          - `course.is_active =\
+        \ True`\n          - `course.status = 'published'`\n        "
       summary: Get courses by category
       parameters:
       - in: path
         name: category_slug
         schema:
           type: string
-        description: Slug of the category
+        description: Category slug identifier (e.g., 'web-development', 'data-science')
         required: true
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Page number for pagination
       tags:
       - Course - Main
       security:
@@ -3000,8 +3617,16 @@ paths:
   /api/courses/content-sections/:
     get:
       operationId: api_courses_content_sections_list
-      description: CRUD operations for CourseContentSection.
-      summary: List content sections
+      description: "\n        **Admin Only**: Manage course content sections.\n  \
+        \      \n        Content sections organize course detail page content into\
+        \ logical groups.\n        Each section can have up to 2 tabs with multiple\
+        \ media items.\n        \n        **Use Cases:**\n        - Admin content\
+        \ management\n        - Course page structure editing\n        - Content section\
+        \ reordering\n        \n        **Frontend Note:** Access sections via `/api/courses/{slug}/`\
+        \ in the nested\n        `detail.content_sections` array.\n        \n    \
+        \    **Filtering:**\n        - `?is_active=true`: Active sections only\n \
+        \       - `?course={uuid}`: Filter by CourseDetail UUID\n        "
+      summary: List content sections (Admin)
       parameters:
       - in: query
         name: course
@@ -3051,8 +3676,8 @@ paths:
           description: ''
     post:
       operationId: api_courses_content_sections_create
-      description: CRUD operations for CourseContentSection.
-      summary: Create content section
+      description: Create a new content section for a course detail page.
+      summary: Create content section (Admin)
       tags:
       - Course - Content
       requestBody:
@@ -3080,8 +3705,8 @@ paths:
   /api/courses/content-sections/{id}/:
     get:
       operationId: api_courses_content_sections_retrieve
-      description: CRUD operations for CourseContentSection.
-      summary: Retrieve content section
+      description: Get a specific content section by UUID with nested tabs and contents.
+      summary: Retrieve content section (Admin)
       parameters:
       - in: path
         name: id
@@ -3105,8 +3730,8 @@ paths:
           description: ''
     put:
       operationId: api_courses_content_sections_update
-      description: CRUD operations for CourseContentSection.
-      summary: Update content section
+      description: Full update of a content section.
+      summary: Update content section (Admin)
       parameters:
       - in: path
         name: id
@@ -3141,8 +3766,8 @@ paths:
           description: ''
     patch:
       operationId: api_courses_content_sections_partial_update
-      description: CRUD operations for CourseContentSection.
-      summary: Partially update content section
+      description: Partial update of content section fields.
+      summary: Partially update content section (Admin)
       parameters:
       - in: path
         name: id
@@ -3176,8 +3801,8 @@ paths:
           description: ''
     delete:
       operationId: api_courses_content_sections_destroy
-      description: CRUD operations for CourseContentSection.
-      summary: Delete content section
+      description: Delete a content section and its nested tabs/contents.
+      summary: Delete content section (Admin)
       parameters:
       - in: path
         name: id
@@ -3197,8 +3822,14 @@ paths:
   /api/courses/coupons/:
     get:
       operationId: api_courses_coupons_list
-      description: CRUD for Coupons.
-      summary: List coupons
+      description: "\n        **Admin Only**: Manage discount coupons.\n        \n\
+        \        **Filtering:**\n        - `?discount_type=percentage|fixed`: Filter\
+        \ by discount type\n        - `?is_active=true`: Active coupons only\n   \
+        \     - `?apply_to_all=true`: Universal coupons vs course-specific\n     \
+        \   - `?search=CODE123`: Search by coupon code\n        \n        **Frontend\
+        \ Note:** Public users should use `/api/courses/coupons/active/` endpoint.\n\
+        \        "
+      summary: List coupons (Admin)
       parameters:
       - in: query
         name: apply_to_all
@@ -3405,7 +4036,30 @@ paths:
   /api/courses/coupons/active/:
     get:
       operationId: api_courses_coupons_active_retrieve
-      description: Retrieve all currently valid and active coupons.
+      description: "\n        Retrieve all currently valid and active coupons.\n \
+        \       \n        **URL Pattern:** `/api/courses/coupons/active/`\n      \
+        \  \n        **Permissions:** Public (AllowAny)\n        \n        **Use Cases:**\n\
+        \        - Display available coupons to users\n        - Show promotional\
+        \ codes on homepage\n        - Coupon suggestion at checkout\n        \n \
+        \       **Filtering:**\n        - Only coupons with `is_active=True`\n   \
+        \     - Current date within `valid_from` to `valid_until` range\n        -\
+        \ Pagination enabled\n        \n        **Frontend Usage:**\n        ```javascript\n\
+        \        // Get all active coupons\n        const response = await fetch('/api/courses/coupons/active/');\n\
+        \        const { data } = await response.json();\n        \n        data.results.forEach(coupon\
+        \ => {\n          console.log(`Code: ${coupon.code}`);\n          console.log(`Discount:\
+        \ ${coupon.discount_value}${coupon.discount_type === 'percentage' ? '%' :\
+        \ ' USD'}`);\n          console.log(`Valid until: ${coupon.valid_until}`);\n\
+        \          \n          if (coupon.apply_to_all) {\n            console.log('Applies\
+        \ to all courses');\n          } else {\n            console.log(`Applies\
+        \ to: ${coupon.courses.length} courses`);\n          }\n        });\n    \
+        \    ```\n        \n        **Response Fields:**\n        - `code`: Coupon\
+        \ code to use\n        - `discount_type`: 'percentage' or 'fixed'\n      \
+        \  - `discount_value`: Discount amount or percentage\n        - `valid_from`:\
+        \ Start date\n        - `valid_until`: Expiration date\n        - `apply_to_all`:\
+        \ Boolean - applies to all courses\n        - `courses`: Array of applicable\
+        \ course slugs (if not apply_to_all)\n        - `usage_limit`: Maximum number\
+        \ of uses (null = unlimited)\n        - `times_used`: Current usage count\n\
+        \        "
       summary: Get active coupons
       tags:
       - Course - Coupons
@@ -3423,7 +4077,37 @@ paths:
   /api/courses/coupons/validate/:
     post:
       operationId: api_courses_coupons_validate_create
-      description: Validate a coupon code for a specific course and calculate discount.
+      description: "\n        Validate a coupon code for a specific course and calculate\
+        \ the discount.\n        \n        **URL Pattern:** `/api/courses/coupons/validate/`\
+        \ (POST)\n        \n        **Permissions:** Public (AllowAny)\n        \n\
+        \        **Use Cases:**\n        - Apply coupon code at checkout\n       \
+        \ - Display discount amount before payment\n        - Validate coupon before\
+        \ enrollment\n        \n        **Request Body:**\n        ```json\n     \
+        \   {\n          \"code\": \"SUMMER2024\",\n          \"course_slug\": \"\
+        django-web-development\"\n        }\n        ```\n        \n        **Response:**\n\
+        \        ```json\n        {\n          \"success\": true,\n          \"message\"\
+        : \"Coupon validated successfully\",\n          \"data\": {\n            \"\
+        original_price\": 199.99,\n            \"discount_amount\": 50.00,\n     \
+        \       \"final_price\": 149.99,\n            \"discount_type\": \"fixed\"\
+        ,\n            \"discount_value\": 50,\n            \"coupon_code\": \"SUMMER2024\"\
+        ,\n            \"message\": \"Coupon applied successfully! You save USD 50.00\"\
+        \n          }\n        }\n        ```\n        \n        **Frontend Usage:**\n\
+        \        ```javascript\n        // Validate coupon at checkout\n        const\
+        \ validateCoupon = async (code, courseSlug) => {\n          const response\
+        \ = await fetch('/api/courses/coupons/validate/', {\n            method: 'POST',\n\
+        \            headers: { 'Content-Type': 'application/json' },\n          \
+        \  body: JSON.stringify({ code, course_slug: courseSlug })\n          });\n\
+        \          \n          const { data } = await response.json();\n         \
+        \ if (response.ok) {\n            displayDiscount(data.discount_amount);\n\
+        \            updateTotal(data.final_price);\n          }\n        };\n   \
+        \     ```\n        \n        **Validation Rules:**\n        - Coupon must\
+        \ be active (`is_active=True`)\n        - Must be within validity dates (`valid_from`\
+        \ to `valid_until`)\n        - Must apply to the specified course (unless\
+        \ `apply_to_all=True`)\n        - Usage limit must not be exceeded (`usage_limit`)\n\
+        \        \n        **Error Cases:**\n        - Invalid coupon code: 400 error\n\
+        \        - Expired coupon: 400 error with \"expired\" message\n        - Coupon\
+        \ not applicable to course: 400 error\n        - Usage limit exceeded: 400\
+        \ error\n        "
       summary: Validate coupon code
       tags:
       - Course - Coupons
@@ -3453,8 +4137,15 @@ paths:
   /api/courses/details/:
     get:
       operationId: api_courses_details_list
-      description: Get all course detail pages with nested components.
-      summary: List all course details
+      description: "\n        **Admin Only**: Get all CourseDetail records with nested\
+        \ components.\n        \n        CourseDetail extends Course with hero sections,\
+        \ content organization, and marketing components.\n        Frontend typically\
+        \ accesses this via the main Course retrieve endpoint.\n        \n       \
+        \ **Use Cases:**\n        - Admin dashboard listing\n        - Bulk course\
+        \ detail management\n        - Content audit and review\n        \n      \
+        \  **Note:** Frontend should use `/api/courses/{slug}/` to get course details,\n\
+        \        not this endpoint directly.\n        "
+      summary: List all course details (Admin)
       parameters:
       - in: query
         name: course
@@ -3504,8 +4195,8 @@ paths:
           description: ''
     post:
       operationId: api_courses_details_create
-      description: CRUD operations for CourseDetail (hero sections).
-      summary: Create course detail
+      description: Create a new CourseDetail record linked to a Course.
+      summary: Create course detail (Admin)
       tags:
       - Course - Details
       requestBody:
@@ -3533,8 +4224,10 @@ paths:
   /api/courses/details/{id}/:
     get:
       operationId: api_courses_details_retrieve
-      description: CRUD operations for CourseDetail (hero sections).
-      summary: Retrieve course detail by ID
+      description: "\n        **Admin Only**: Get a specific CourseDetail record by\
+        \ its UUID.\n        \n        **Note:** Frontend should use `/api/courses/{slug}/`\
+        \ which includes\n        the nested course detail information.\n        "
+      summary: Retrieve course detail by ID (Admin)
       parameters:
       - in: path
         name: id
@@ -3558,8 +4251,8 @@ paths:
           description: ''
     put:
       operationId: api_courses_details_update
-      description: CRUD operations for CourseDetail (hero sections).
-      summary: Update course detail
+      description: Full update of a CourseDetail record.
+      summary: Update course detail (Admin)
       parameters:
       - in: path
         name: id
@@ -3594,8 +4287,8 @@ paths:
           description: ''
     patch:
       operationId: api_courses_details_partial_update
-      description: CRUD operations for CourseDetail (hero sections).
-      summary: Partially update course detail
+      description: Partial update of CourseDetail fields.
+      summary: Partially update course detail (Admin)
       parameters:
       - in: path
         name: id
@@ -3629,8 +4322,8 @@ paths:
           description: ''
     delete:
       operationId: api_courses_details_destroy
-      description: CRUD operations for CourseDetail (hero sections).
-      summary: Delete course detail
+      description: Delete a CourseDetail record.
+      summary: Delete course detail (Admin)
       parameters:
       - in: path
         name: id
@@ -3650,7 +4343,26 @@ paths:
   /api/courses/featured/:
     get:
       operationId: api_courses_featured_retrieve
-      description: Retrieve the latest 6 published courses.
+      description: "\n        Retrieve the latest 6 published courses for homepage/featured\
+        \ sections.\n        \n        **URL Pattern:** `/api/courses/featured/`\n\
+        \        \n        **Permissions:** Public (AllowAny)\n        \n        **Caching:**\
+        \ Response cached for 30 minutes for performance\n        \n        **Use\
+        \ Cases:**\n        - Homepage featured course carousel\n        - \"Latest\
+        \ Courses\" section\n        - Course highlights above the fold\n        \n\
+        \        **Response Structure:**\n        ```json\n        {\n          \"\
+        success\": true,\n          \"message\": \"Featured courses retrieved successfully\"\
+        ,\n          \"data\": {\n            \"results\": [\n              // Array\
+        \ of 6 most recent published courses\n            ]\n          }\n       \
+        \ }\n        ```\n        \n        **Frontend Usage:**\n        ```javascript\n\
+        \        // Get featured courses for homepage\n        const response = await\
+        \ fetch('/api/courses/featured/');\n        const { data } = await response.json();\n\
+        \        const featuredCourses = data.results;\n        \n        // Display\
+        \ in carousel/grid\n        featuredCourses.forEach(course => {\n        \
+        \  displayCourseCard(course.title, course.thumbnail, course.slug);\n     \
+        \   });\n        ```\n        \n        **Notes:**\n        - Always returns\
+        \ exactly 6 courses (or fewer if less than 6 are published)\n        - Sorted\
+        \ by creation date (newest first)\n        - Only includes active, published\
+        \ courses\n        "
       summary: Get featured/latest courses
       tags:
       - Course - Main
@@ -3668,10 +4380,43 @@ paths:
   /api/courses/home-categories/:
     get:
       operationId: api_courses_home_categories_retrieve
-      description: Return active categories and up to 10 courses per category for
-        home display. By default only courses with `show_in_home_tab=True` are returned.
-        Use `include_all=true` to include all published courses.
+      description: "\n        Return active categories each with up to 10 courses\
+        \ for homepage tabbed sections.\n        \n        **URL Pattern:** `/api/courses/home-categories/`\n\
+        \        \n        **Permissions:** Public (AllowAny)\n        \n        **Caching:**\
+        \ Response cached for 15 minutes\n        \n        **Query Parameters:**\n\
+        \        - `include_all=true`: Include all published courses (default: only\
+        \ courses with `show_in_home_tab=True`)\n        \n        **Use Cases:**\n\
+        \        - Homepage tabbed course sections by category\n        - Category-organized\
+        \ course browsing on landing page\n        - Dynamic homepage content sections\n\
+        \        \n        **Response Structure:**\n        ```json\n        {\n \
+        \         \"success\": true,\n          \"message\": \"Home categories with\
+        \ courses retrieved\",\n          \"data\": [\n            {\n           \
+        \   \"category\": {\n                \"id\": \"uuid\",\n                \"\
+        name\": \"Web Development\",\n                \"slug\": \"web-development\"\
+        ,\n                \"icon\": \"fa-code\"\n              },\n             \
+        \ \"courses\": [\n                // Up to 10 courses in this category\n \
+        \             ]\n            },\n            // ... more categories\n    \
+        \      ]\n        }\n        ```\n        \n        **Frontend Usage:**\n\
+        \        ```javascript\n        // Get categories with courses for tabbed\
+        \ homepage\n        const response = await fetch('/api/courses/home-categories/');\n\
+        \        const { data } = await response.json();\n        \n        // Render\
+        \ tabs for each category\n        data.forEach(section => {\n          createTab(section.category.name);\n\
+        \          section.courses.forEach(course => {\n            displayCourseCard(course);\n\
+        \          });\n        });\n        \n        // Include all courses (not\
+        \ just featured)\n        const allCourses = await fetch('/api/courses/home-categories/?include_all=true');\n\
+        \        ```\n        \n        **Filtering Logic:**\n        - Only active\
+        \ categories with active, published courses\n        - Categories with no\
+        \ matching courses are excluded from response\n        - Courses sorted by\
+        \ creation date (newest first)\n        - Maximum 10 courses per category\n\
+        \        "
       summary: Get categories with courses for home
+      parameters:
+      - in: query
+        name: include_all
+        schema:
+          type: boolean
+          default: false
+        description: Include all published courses instead of only courses with show_in_home_tab=True
       tags:
       - Course - Main
       security:
@@ -3690,8 +4435,16 @@ paths:
   /api/courses/instructors/:
     get:
       operationId: api_courses_instructors_retrieve
-      description: CRUD operations for CourseInstructor assignments.
-      summary: List course instructors
+      description: "\n        **Admin Only**: Manage instructor-to-course assignments.\n\
+        \        \n        Links teachers/instructors to courses and specific modules.\n\
+        \        \n        **Filtering:**\n        - `?course={uuid}`: Filter by course\
+        \ UUID\n        - `?teacher={uuid}`: Filter by teacher UUID\n        - `?instructor_type=lead|assistant`:\
+        \ Filter by instructor role\n        - `?is_active=true`: Active assignments\
+        \ only\n        \n        **Use Cases:**\n        - Assign instructors to\
+        \ courses\n        - Link instructors to specific modules\n        - Manage\
+        \ instructor roles (lead vs assistant)\n        \n        **Frontend:** Instructor\
+        \ info included in course detail response.\n        "
+      summary: List course instructor assignments (Admin)
       tags:
       - Course - Instructors
       security:
@@ -3703,8 +4456,13 @@ paths:
           description: No response body
     post:
       operationId: api_courses_instructors_create
-      description: CRUD operations for CourseInstructor assignments.
-      summary: Assign instructor to course
+      description: "\n        Create new instructor assignment to a course.\n    \
+        \    \n        **Required Fields:**\n        - `course`: Course UUID\n   \
+        \     - `teacher`: Teacher/Instructor UUID\n        - `instructor_type`: 'lead'\
+        \ or 'assistant'\n        \n        **Optional:**\n        - `modules`: Array\
+        \ of module UUIDs this instructor handles\n        - `assigned_date`: Assignment\
+        \ date (defaults to now)\n        "
+      summary: Assign instructor to course (Admin)
       tags:
       - Course - Instructors
       requestBody:
@@ -3728,8 +4486,8 @@ paths:
   /api/courses/instructors/{id}/:
     get:
       operationId: api_courses_instructors_retrieve_2
-      description: CRUD operations for CourseInstructor assignments.
-      summary: Retrieve course instructor
+      description: Get specific instructor assignment with linked modules.
+      summary: Retrieve instructor assignment (Admin)
       parameters:
       - in: path
         name: id
@@ -3749,8 +4507,8 @@ paths:
           description: No response body
     put:
       operationId: api_courses_instructors_update
-      description: CRUD operations for CourseInstructor assignments.
-      summary: Update instructor assignment
+      description: Full update of instructor assignment.
+      summary: Update instructor assignment (Admin)
       parameters:
       - in: path
         name: id
@@ -3781,8 +4539,8 @@ paths:
           description: No response body
     patch:
       operationId: api_courses_instructors_partial_update
-      description: CRUD operations for CourseInstructor assignments.
-      summary: Partially update instructor assignment
+      description: Update specific fields of instructor assignment.
+      summary: Partially update instructor assignment (Admin)
       parameters:
       - in: path
         name: id
@@ -3812,8 +4570,8 @@ paths:
           description: No response body
     delete:
       operationId: api_courses_instructors_destroy
-      description: CRUD operations for CourseInstructor assignments.
-      summary: Remove instructor from course
+      description: Delete instructor assignment from course.
+      summary: Remove instructor from course (Admin)
       parameters:
       - in: path
         name: id
@@ -3833,8 +4591,36 @@ paths:
   /api/courses/megamenu-nav/:
     get:
       operationId: api_courses_megamenu_nav_retrieve
-      description: Return categories with a list of course titles (and slugs) for
-        building site navigation.
+      description: "\n        Return categories with minimal course information for\
+        \ site navigation megamenu.\n        \n        **URL Pattern:** `/api/courses/megamenu-nav/`\n\
+        \        \n        **Permissions:** Public (AllowAny)\n        \n        **Caching:**\
+        \ Response cached for 1 hour (invalidated on Course/Category changes)\n  \
+        \      \n        **Use Cases:**\n        - Header megamenu dropdown navigation\n\
+        \        - Category-based course navigation\n        - Site-wide course directory\n\
+        \        \n        **Response Structure:**\n        ```json\n        {\n \
+        \         \"success\": true,\n          \"message\": \"Megamenu nav retrieved\"\
+        ,\n          \"data\": [\n            {\n              \"category\": {\n \
+        \               \"id\": \"uuid\",\n                \"name\": \"Web Development\"\
+        ,\n                \"slug\": \"web-development\"\n              },\n     \
+        \         \"courses\": [\n                {\n                  \"id\": \"\
+        uuid\",\n                  \"title\": \"Django Web Development\",\n      \
+        \            \"slug\": \"django-web-development\"\n                },\n  \
+        \              // ... up to 10 courses\n              ]\n            },\n\
+        \            // ... more categories\n          ]\n        }\n        ```\n\
+        \        \n        **Frontend Usage:**\n        ```javascript\n        //\
+        \ Build megamenu navigation\n        const response = await fetch('/api/courses/megamenu-nav/');\n\
+        \        const { data } = await response.json();\n        \n        // Create\
+        \ dropdown menu structure\n        data.forEach(section => {\n          const\
+        \ dropdown = createDropdown(section.category.name);\n          section.courses.forEach(course\
+        \ => {\n            dropdown.addLink(course.title, `/courses/${course.slug}`);\n\
+        \          });\n        });\n        ```\n        \n        **Filtering Logic:**\n\
+        \        - Only categories with `show_in_megamenu=True`\n        - Only courses\
+        \ with `show_in_megamenu=True`\n        - Active and published courses only\n\
+        \        - Maximum 10 courses per category\n        - Courses sorted by creation\
+        \ date (newest first)\n        \n        **Performance:**\n        - Highly\
+        \ optimized with prefetch_related to avoid N+1 queries\n        - Returns\
+        \ minimal data (only IDs, titles, and slugs)\n        - Aggressively cached\
+        \ for fast navigation rendering\n        "
       summary: Get megamenu navigation (category -> course titles)
       tags:
       - Course - Main
@@ -3854,8 +4640,14 @@ paths:
   /api/courses/modules/:
     get:
       operationId: api_courses_modules_retrieve
-      description: CRUD operations for CourseModule.
-      summary: List course modules
+      description: "\n        **Admin Only**: Manage course curriculum modules.\n\
+        \        \n        **Important:** Frontend should use `/api/courses/{slug}/modules/`\
+        \ instead.\n        This endpoint is for admin management only.\n        \n\
+        \        **Filtering:**\n        - `?course={uuid}`: Filter by CourseDetail\
+        \ UUID\n        - `?is_active=true`: Active modules only\n        \n     \
+        \   **Note:** Module UUIDs are used to filter live classes, assignments, and\
+        \ quizzes.\n        "
+      summary: List course modules (Admin)
       tags:
       - Course - Components
       security:
@@ -3867,8 +4659,8 @@ paths:
           description: No response body
     post:
       operationId: api_courses_modules_create
-      description: CRUD operations for CourseModule.
-      summary: Create course module
+      description: Add new module to course curriculum.
+      summary: Create course module (Admin)
       tags:
       - Course - Components
       requestBody:
@@ -3892,8 +4684,8 @@ paths:
   /api/courses/modules/{id}/:
     get:
       operationId: api_courses_modules_retrieve_2
-      description: CRUD operations for CourseModule.
-      summary: Retrieve course module
+      description: Get specific module with all details.
+      summary: Retrieve course module (Admin)
       parameters:
       - in: path
         name: id
@@ -3913,8 +4705,8 @@ paths:
           description: No response body
     put:
       operationId: api_courses_modules_update
-      description: CRUD operations for CourseModule.
-      summary: Update course module
+      description: Full update of course module.
+      summary: Update course module (Admin)
       parameters:
       - in: path
         name: id
@@ -3945,8 +4737,8 @@ paths:
           description: No response body
     patch:
       operationId: api_courses_modules_partial_update
-      description: CRUD operations for CourseModule.
-      summary: Partially update course module
+      description: Partial update of module fields.
+      summary: Partially update course module (Admin)
       parameters:
       - in: path
         name: id
@@ -3976,8 +4768,8 @@ paths:
           description: No response body
     delete:
       operationId: api_courses_modules_destroy
-      description: CRUD operations for CourseModule.
-      summary: Delete course module
+      description: Delete a course module.
+      summary: Delete course module (Admin)
       parameters:
       - in: path
         name: id
@@ -3997,8 +4789,13 @@ paths:
   /api/courses/prices/:
     get:
       operationId: api_courses_prices_list
-      description: CRUD for Course Pricing.
-      summary: List course prices
+      description: "\n        **Admin Only**: Manage course pricing records.\n   \
+        \     \n        **Filtering:**\n        - `?currency=USD|BDT`: Filter by currency\n\
+        \        - `?is_free=true`: Filter free courses\n        - `?is_active=true`:\
+        \ Active prices only\n        - `?installment_available=true`: Courses with\
+        \ installment options\n        \n        **Frontend Note:** Use course detail\
+        \ endpoint for public pricing info.\n        "
+      summary: List course prices (Admin)
       parameters:
       - in: query
         name: currency
@@ -4061,8 +4858,14 @@ paths:
           description: ''
     post:
       operationId: api_courses_prices_create
-      description: CRUD for Course Pricing.
-      summary: Create course price
+      description: "\n        Create new pricing for a course.\n        \n       \
+        \ **Required Fields:**\n        - `course`: Course UUID\n        - `base_price`:\
+        \ Original price\n        - `currency`: 'USD' or 'BDT'\n        \n       \
+        \ **Optional:**\n        - `discount_price`: Discounted price\n        - `is_free`:\
+        \ Mark as free course\n        - `installment_available`: Enable installment\
+        \ payments\n        - `installment_count`: Number of installments\n      \
+        \  "
+      summary: Create course price (Admin)
       tags:
       - Course - Pricing
       requestBody:
@@ -4090,8 +4893,8 @@ paths:
   /api/courses/prices/{id}/:
     get:
       operationId: api_courses_prices_retrieve
-      description: CRUD for Course Pricing.
-      summary: Retrieve course price
+      description: Get specific pricing record by UUID.
+      summary: Retrieve course price (Admin)
       parameters:
       - in: path
         name: id
@@ -4115,8 +4918,8 @@ paths:
           description: ''
     put:
       operationId: api_courses_prices_update
-      description: CRUD for Course Pricing.
-      summary: Update course price
+      description: Full update of course pricing.
+      summary: Update course price (Admin)
       parameters:
       - in: path
         name: id
@@ -4151,8 +4954,8 @@ paths:
           description: ''
     patch:
       operationId: api_courses_prices_partial_update
-      description: CRUD for Course Pricing.
-      summary: Partially update course price
+      description: Partial update of pricing fields.
+      summary: Partially update course price (Admin)
       parameters:
       - in: path
         name: id
@@ -4186,8 +4989,8 @@ paths:
           description: ''
     delete:
       operationId: api_courses_prices_destroy
-      description: CRUD for Course Pricing.
-      summary: Delete course price
+      description: Delete a course pricing record.
+      summary: Delete course price (Admin)
       parameters:
       - in: path
         name: id
@@ -4207,14 +5010,29 @@ paths:
   /api/courses/prices/course/{course_slug}/:
     get:
       operationId: api_courses_prices_course_retrieve
-      description: Retrieve pricing information for a specific course.
+      description: "\n        Retrieve pricing information for a specific course.\n\
+        \        \n        **URL Pattern:** `/api/courses/prices/course/{course_slug}/`\n\
+        \        \n        **Permissions:** Public (AllowAny)\n        \n        **Use\
+        \ Cases:**\n        - Display pricing on course detail page\n        - Check\
+        \ installment availability\n        - Calculate discounted prices\n      \
+        \  \n        **Frontend Usage:**\n        ```javascript\n        // Get pricing\
+        \ for Django course\n        const response = await fetch('/api/courses/prices/course/django-web-development/');\n\
+        \        const { data } = await response.json();\n        \n        console.log(`Regular:\
+        \ $${data.base_price}`);\n        if (data.discount_price) {\n          console.log(`Discounted:\
+        \ $${data.discount_price}`);\n        }\n        \n        if (data.installment_available)\
+        \ {\n          const installmentAmount = data.discount_price || data.base_price;\n\
+        \          const perMonth = installmentAmount / data.installment_count;\n\
+        \          console.log(`${data.installment_count} installments of $${perMonth}`);\n\
+        \        }\n        ```\n        \n        **Note:** Pricing is also included\
+        \ in course detail endpoint (`/api/courses/{slug}/`).\n        Use this endpoint\
+        \ when you need only pricing without full course details.\n        "
       summary: Get price by course slug
       parameters:
       - in: path
         name: course_slug
         schema:
           type: string
-        description: Slug of the course
+        description: Course slug identifier (e.g., 'django-web-development')
         required: true
       tags:
       - Course - Pricing
@@ -4232,8 +5050,14 @@ paths:
   /api/courses/section-tabs/:
     get:
       operationId: api_courses_section_tabs_retrieve
-      description: CRUD operations for CourseSectionTab (max 2 per section).
-      summary: List section tabs
+      description: "\n        **Admin Only**: Manage tabs within course content sections.\n\
+        \        \n        **Business Rule:** Maximum 2 tabs per content section.\n\
+        \        \n        Each tab can contain multiple media items (images/videos).\n\
+        \        \n        **Filtering:**\n        - `?section={uuid}`: Filter by\
+        \ content section UUID\n        - `?is_active=true`: Active tabs only\n  \
+        \      \n        **Frontend Note:** Tabs are accessed via nested structure\
+        \ in course detail.\n        "
+      summary: List section tabs (Admin)
       tags:
       - Course - Content
       security:
@@ -4245,8 +5069,8 @@ paths:
           description: No response body
     post:
       operationId: api_courses_section_tabs_create
-      description: CRUD operations for CourseSectionTab (max 2 per section).
-      summary: Create section tab
+      description: Create a new tab within a content section. Max 2 tabs per section.
+      summary: Create section tab (Admin)
       tags:
       - Course - Content
       requestBody:
@@ -4270,8 +5094,8 @@ paths:
   /api/courses/section-tabs/{id}/:
     get:
       operationId: api_courses_section_tabs_retrieve_2
-      description: CRUD operations for CourseSectionTab (max 2 per section).
-      summary: Retrieve section tab
+      description: Get a specific tab with its nested contents (images/videos).
+      summary: Retrieve section tab (Admin)
       parameters:
       - in: path
         name: id
@@ -4291,8 +5115,8 @@ paths:
           description: No response body
     put:
       operationId: api_courses_section_tabs_update
-      description: CRUD operations for CourseSectionTab (max 2 per section).
-      summary: Update section tab
+      description: Full update of a section tab.
+      summary: Update section tab (Admin)
       parameters:
       - in: path
         name: id
@@ -4323,8 +5147,8 @@ paths:
           description: No response body
     patch:
       operationId: api_courses_section_tabs_partial_update
-      description: CRUD operations for CourseSectionTab (max 2 per section).
-      summary: Partially update section tab
+      description: Partial update of tab fields.
+      summary: Partially update section tab (Admin)
       parameters:
       - in: path
         name: id
@@ -4354,8 +5178,8 @@ paths:
           description: No response body
     delete:
       operationId: api_courses_section_tabs_destroy
-      description: CRUD operations for CourseSectionTab (max 2 per section).
-      summary: Delete section tab
+      description: Delete a tab and its nested contents.
+      summary: Delete section tab (Admin)
       parameters:
       - in: path
         name: id
@@ -4375,8 +5199,12 @@ paths:
   /api/courses/side-sections/:
     get:
       operationId: api_courses_side_sections_retrieve
-      description: CRUD operations for SideImageSection.
-      summary: List side image sections
+      description: "\n        **Admin Only**: Manage side-by-side image/text sections.\n\
+        \        \n        These display content with accompanying images.\n     \
+        \   \n        **Filtering:** `?course={uuid}` - Filter by CourseDetail UUID\n\
+        \        \n        **Frontend:** Access via `/api/courses/{slug}/` in `detail.side_image_sections`\n\
+        \        "
+      summary: List side image sections (Admin)
       tags:
       - Course - Components
       security:
@@ -4388,8 +5216,8 @@ paths:
           description: No response body
     post:
       operationId: api_courses_side_sections_create
-      description: CRUD operations for SideImageSection.
-      summary: Create side image section
+      description: Add new side image section to course.
+      summary: Create side image section (Admin)
       tags:
       - Course - Components
       requestBody:
@@ -4413,8 +5241,8 @@ paths:
   /api/courses/side-sections/{id}/:
     get:
       operationId: api_courses_side_sections_retrieve_2
-      description: CRUD operations for SideImageSection.
-      summary: Retrieve side image section
+      description: Get specific side image section by UUID.
+      summary: Retrieve side image section (Admin)
       parameters:
       - in: path
         name: id
@@ -4434,8 +5262,8 @@ paths:
           description: No response body
     put:
       operationId: api_courses_side_sections_update
-      description: CRUD operations for SideImageSection.
-      summary: Update side image section
+      description: Full update of side image section.
+      summary: Update side image section (Admin)
       parameters:
       - in: path
         name: id
@@ -4466,8 +5294,8 @@ paths:
           description: No response body
     patch:
       operationId: api_courses_side_sections_partial_update
-      description: CRUD operations for SideImageSection.
-      summary: Partially update side image section
+      description: Partial update of side image section.
+      summary: Partially update side image section (Admin)
       parameters:
       - in: path
         name: id
@@ -4497,8 +5325,8 @@ paths:
           description: No response body
     delete:
       operationId: api_courses_side_sections_destroy
-      description: CRUD operations for SideImageSection.
-      summary: Delete side image section
+      description: Delete a side image section.
+      summary: Delete side image section (Admin)
       parameters:
       - in: path
         name: id
@@ -4518,8 +5346,12 @@ paths:
   /api/courses/success-stories/:
     get:
       operationId: api_courses_success_stories_retrieve
-      description: CRUD operations for SuccessStory.
-      summary: List success stories
+      description: "\n        **Admin Only**: Manage student success stories/testimonials.\n\
+        \        \n        Success stories showcase student achievements after completing\
+        \ courses.\n        \n        **Filtering:** `?course={uuid}` - Filter by\
+        \ CourseDetail UUID\n        \n        **Frontend:** Access via `/api/courses/{slug}/`\
+        \ in `detail.success_stories` array\n        "
+      summary: List success stories (Admin)
       tags:
       - Course - Components
       security:
@@ -4531,8 +5363,8 @@ paths:
           description: No response body
     post:
       operationId: api_courses_success_stories_create
-      description: CRUD operations for SuccessStory.
-      summary: Create success story
+      description: Add new student success story/testimonial.
+      summary: Create success story (Admin)
       tags:
       - Course - Components
       requestBody:
@@ -4556,8 +5388,8 @@ paths:
   /api/courses/success-stories/{id}/:
     get:
       operationId: api_courses_success_stories_retrieve_2
-      description: CRUD operations for SuccessStory.
-      summary: Retrieve success story
+      description: Get specific success story with student details.
+      summary: Retrieve success story (Admin)
       parameters:
       - in: path
         name: id
@@ -4577,8 +5409,8 @@ paths:
           description: No response body
     put:
       operationId: api_courses_success_stories_update
-      description: CRUD operations for SuccessStory.
-      summary: Update success story
+      description: Full update of success story.
+      summary: Update success story (Admin)
       parameters:
       - in: path
         name: id
@@ -4609,8 +5441,8 @@ paths:
           description: No response body
     patch:
       operationId: api_courses_success_stories_partial_update
-      description: CRUD operations for SuccessStory.
-      summary: Partially update success story
+      description: Partial update of success story.
+      summary: Partially update success story (Admin)
       parameters:
       - in: path
         name: id
@@ -4640,8 +5472,8 @@ paths:
           description: No response body
     delete:
       operationId: api_courses_success_stories_destroy
-      description: CRUD operations for SuccessStory.
-      summary: Delete success story
+      description: Delete a success story.
+      summary: Delete success story (Admin)
       parameters:
       - in: path
         name: id
@@ -4661,8 +5493,14 @@ paths:
   /api/courses/tabbed-content/:
     get:
       operationId: api_courses_tabbed_content_retrieve
-      description: CRUD operations for CourseTabbedContent (images/videos).
-      summary: List tabbed content items
+      description: "\n        **Admin Only**: Manage media items (images/videos) within\
+        \ section tabs.\n        \n        Each tab can have multiple content items\
+        \ displayed in order.\n        \n        **Filtering:**\n        - `?tab={uuid}`:\
+        \ Filter by tab UUID\n        - `?media_type=image|video`: Filter by media\
+        \ type\n        - `?is_active=true`: Active content only\n        \n     \
+        \   **Frontend Note:** Content items accessed via course detail nested structure.\n\
+        \        "
+      summary: List tabbed content items (Admin)
       tags:
       - Course - Content
       security:
@@ -4674,8 +5512,8 @@ paths:
           description: No response body
     post:
       operationId: api_courses_tabbed_content_create
-      description: CRUD operations for CourseTabbedContent (images/videos).
-      summary: Create content item
+      description: Add new image or video to a tab.
+      summary: Create content item (Admin)
       tags:
       - Course - Content
       requestBody:
@@ -4699,8 +5537,8 @@ paths:
   /api/courses/tabbed-content/{id}/:
     get:
       operationId: api_courses_tabbed_content_retrieve_2
-      description: CRUD operations for CourseTabbedContent (images/videos).
-      summary: Retrieve content item
+      description: Get a specific media item by UUID.
+      summary: Retrieve content item (Admin)
       parameters:
       - in: path
         name: id
@@ -4720,8 +5558,8 @@ paths:
           description: No response body
     put:
       operationId: api_courses_tabbed_content_update
-      description: CRUD operations for CourseTabbedContent (images/videos).
-      summary: Update content item
+      description: Full update of a media item.
+      summary: Update content item (Admin)
       parameters:
       - in: path
         name: id
@@ -4752,8 +5590,8 @@ paths:
           description: No response body
     patch:
       operationId: api_courses_tabbed_content_partial_update
-      description: CRUD operations for CourseTabbedContent (images/videos).
-      summary: Partially update content item
+      description: Partial update of media item fields.
+      summary: Partially update content item (Admin)
       parameters:
       - in: path
         name: id
@@ -4783,8 +5621,8 @@ paths:
           description: No response body
     delete:
       operationId: api_courses_tabbed_content_destroy
-      description: CRUD operations for CourseTabbedContent (images/videos).
-      summary: Delete content item
+      description: Delete a media item from a tab.
+      summary: Delete content item (Admin)
       parameters:
       - in: path
         name: id
@@ -4804,8 +5642,12 @@ paths:
   /api/courses/why-enrol/:
     get:
       operationId: api_courses_why_enrol_retrieve
-      description: CRUD operations for WhyEnrol sections.
-      summary: List why enrol sections
+      description: "\n        **Admin Only**: Manage enrollment reason sections.\n\
+        \        \n        These highlight key reasons to enroll in a course.\n  \
+        \      \n        **Filtering:** `?course={uuid}` - Filter by CourseDetail\
+        \ UUID\n        \n        **Frontend:** Access via `/api/courses/{slug}/`\
+        \ in `detail.why_enrol` array\n        "
+      summary: List why enrol sections (Admin)
       tags:
       - Course - Components
       security:
@@ -4817,8 +5659,8 @@ paths:
           description: No response body
     post:
       operationId: api_courses_why_enrol_create
-      description: CRUD operations for WhyEnrol sections.
-      summary: Create why enrol section
+      description: Add new enrollment reason to course detail.
+      summary: Create why enrol section (Admin)
       tags:
       - Course - Components
       requestBody:
@@ -4842,8 +5684,8 @@ paths:
   /api/courses/why-enrol/{id}/:
     get:
       operationId: api_courses_why_enrol_retrieve_2
-      description: CRUD operations for WhyEnrol sections.
-      summary: Retrieve why enrol section
+      description: Get a specific enrollment reason by UUID.
+      summary: Retrieve why enrol section (Admin)
       parameters:
       - in: path
         name: id
@@ -4863,8 +5705,8 @@ paths:
           description: No response body
     put:
       operationId: api_courses_why_enrol_update
-      description: CRUD operations for WhyEnrol sections.
-      summary: Update why enrol section
+      description: Full update of enrollment reason.
+      summary: Update why enrol section (Admin)
       parameters:
       - in: path
         name: id
@@ -4895,8 +5737,8 @@ paths:
           description: No response body
     patch:
       operationId: api_courses_why_enrol_partial_update
-      description: CRUD operations for WhyEnrol sections.
-      summary: Partially update why enrol section
+      description: Partial update of enrollment reason.
+      summary: Partially update why enrol section (Admin)
       parameters:
       - in: path
         name: id
@@ -4926,8 +5768,8 @@ paths:
           description: No response body
     delete:
       operationId: api_courses_why_enrol_destroy
-      description: CRUD operations for WhyEnrol sections.
-      summary: Delete why enrol section
+      description: Delete an enrollment reason.
+      summary: Delete why enrol section (Admin)
       parameters:
       - in: path
         name: id
@@ -6050,7 +6892,8 @@ paths:
   /api/enrollments/my_enrollments/:
     get:
       operationId: api_enrollments_my_enrollments_retrieve
-      description: Get all enrollments for the current authenticated user.
+      description: Get all enrollments for the current authenticated user. Use ?status=ongoing
+        or ?status=completed to filter.
       summary: Get my enrollments
       tags:
       - Course - Enrollments
@@ -7360,11 +8203,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/LiveClass'
           description: ''
-  /api/live-classes/{id}/mark_attendance/:
+  /api/live-classes/{id}/join/:
     post:
-      operationId: api_live_classes_mark_attendance_create
-      description: Mark student attendance for a live class
-      summary: Mark attendance
+      operationId: api_live_classes_join_create
+      description: Record student attendance when they join the live class (frontend
+        should call when opening the meeting URL)
+      summary: Record attendance on join
       parameters:
       - in: path
         name: id
@@ -7400,13 +8244,12 @@ paths:
                 SuccessResponse:
                   value:
                     success: true
-                    message: Attendance marked successfully
+                    message: Attendance recorded successfully
                     data:
                       id: att-123
                       live_class_id: 01e5b671-334c-48b3-b48e-c4da7b9289a9
                       student_name: Jane Smith
-                      attended_duration_minutes: 85
-                      marked_at: '2025-11-27T08:00:00Z'
+                      joined_at: '2025-11-27T08:00:00Z'
                   summary: Success Response
           description: ''
   /api/logout/:
@@ -9768,13 +10611,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/QuizRequest'
+              $ref: '#/components/schemas/QuizCreateUpdateRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/QuizRequest'
+              $ref: '#/components/schemas/QuizCreateUpdateRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/QuizRequest'
+              $ref: '#/components/schemas/QuizCreateUpdateRequest'
         required: true
       security:
       - jwtAuth: []
@@ -9784,7 +10627,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Quiz'
+                $ref: '#/components/schemas/QuizCreateUpdate'
           description: ''
   /api/quizzes/{id}/:
     get:
@@ -9829,13 +10672,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/QuizRequest'
+              $ref: '#/components/schemas/QuizCreateUpdateRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/QuizRequest'
+              $ref: '#/components/schemas/QuizCreateUpdateRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/QuizRequest'
+              $ref: '#/components/schemas/QuizCreateUpdateRequest'
         required: true
       security:
       - jwtAuth: []
@@ -9845,7 +10688,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Quiz'
+                $ref: '#/components/schemas/QuizCreateUpdate'
           description: ''
     patch:
       operationId: api_quizzes_partial_update
@@ -9865,13 +10708,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchedQuizRequest'
+              $ref: '#/components/schemas/PatchedQuizCreateUpdateRequest'
           application/x-www-form-urlencoded:
             schema:
-              $ref: '#/components/schemas/PatchedQuizRequest'
+              $ref: '#/components/schemas/PatchedQuizCreateUpdateRequest'
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/PatchedQuizRequest'
+              $ref: '#/components/schemas/PatchedQuizCreateUpdateRequest'
       security:
       - jwtAuth: []
       - bearerAuth: []
@@ -9880,7 +10723,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Quiz'
+                $ref: '#/components/schemas/QuizCreateUpdate'
           description: ''
     delete:
       operationId: api_quizzes_destroy
@@ -9988,6 +10831,226 @@ paths:
                           option_text: An immutable sequence
                           order: 2
                   summary: Success Response
+          description: ''
+  /api/resources/:
+    get:
+      operationId: api_resources_list
+      description: Get list of course resources/materials. Filter by module_id or
+        live_class_id.
+      summary: List course resources
+      parameters:
+      - in: query
+        name: live_class_id
+        schema:
+          type: string
+          format: uuid
+        description: Filter resources by live class
+      - in: query
+        name: module_id
+        schema:
+          type: string
+          format: uuid
+        description: Filter resources by module
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - in: query
+        name: resource_type
+        schema:
+          type: string
+        description: Filter by resource type (pdf, video, slide, code, document, link,
+          other)
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - Course - Resources
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CourseResource'
+          description: ''
+    post:
+      operationId: api_resources_create
+      description: Upload a new course resource (teachers/admin only)
+      summary: Upload course resource
+      tags:
+      - Course - Resources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseResourceCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CourseResourceCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CourseResourceCreateUpdateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseResourceCreateUpdate'
+          description: ''
+  /api/resources/{id}/:
+    get:
+      operationId: api_resources_retrieve
+      description: Get detailed information about a specific resource
+      summary: Get resource details
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Course Resource.
+        required: true
+      tags:
+      - Course - Resources
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseResource'
+          description: ''
+    put:
+      operationId: api_resources_update
+      description: Update an existing resource (teachers/admin only)
+      summary: Update course resource
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Course Resource.
+        required: true
+      tags:
+      - Course - Resources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseResourceCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CourseResourceCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CourseResourceCreateUpdateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseResourceCreateUpdate'
+          description: ''
+    patch:
+      operationId: api_resources_partial_update
+      description: Partially update a resource (teachers/admin only)
+      summary: Partially update resource
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Course Resource.
+        required: true
+      tags:
+      - Course - Resources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCourseResourceCreateUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedCourseResourceCreateUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedCourseResourceCreateUpdateRequest'
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseResourceCreateUpdate'
+          description: ''
+    delete:
+      operationId: api_resources_destroy
+      description: Delete a resource (teachers/admin only)
+      summary: Delete course resource
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Course Resource.
+        required: true
+      tags:
+      - Course - Resources
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/resources/{id}/download/:
+    get:
+      operationId: api_resources_download_retrieve
+      description: Download resource and increment download count
+      summary: Download resource
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this Course Resource.
+        required: true
+      tags:
+      - Course - Resources
+      security:
+      - jwtAuth: []
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseResource'
           description: ''
   /api/seo/:
     get:
@@ -11114,6 +12177,10 @@ components:
         course_id:
           type: string
           format: uuid
+        batch_id:
+          type: string
+          format: uuid
+          nullable: true
       required:
       - course_id
     AddToWishlistRequest:
@@ -11192,6 +12259,30 @@ components:
         submission_count:
           type: string
           readOnly: true
+        has_submitted:
+          type: string
+          readOnly: true
+        submission_status:
+          type: string
+          readOnly: true
+        submission_date:
+          type: string
+          readOnly: true
+        obtained_marks:
+          type: string
+          readOnly: true
+        can_submit:
+          type: string
+          readOnly: true
+        attachment_url:
+          type: string
+          readOnly: true
+        has_enrollment:
+          type: string
+          readOnly: true
+        batch_info:
+          type: string
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -11201,15 +12292,23 @@ components:
           format: date-time
           readOnly: true
       required:
+      - attachment_url
+      - batch_info
+      - can_submit
       - created_at
       - created_by_name
       - days_remaining
       - description
       - due_date
+      - has_enrollment
+      - has_submitted
       - id
       - is_overdue
+      - obtained_marks
       - order
       - submission_count
+      - submission_date
+      - submission_status
       - title
       - updated_at
     AssignmentCreateUpdate:
@@ -11736,9 +12835,7 @@ components:
           description: Unique UUID identifier for this brand.
         logo:
           type: string
-          format: uri
-          description: 'Brand logo image. Recommended size: 400x400px with transparent
-            background.'
+          readOnly: true
         is_active:
           type: boolean
           description: Uncheck to hide this brand from the website display.
@@ -11749,19 +12846,12 @@ components:
       type: object
       description: Serializer for Brand objects.
       properties:
-        logo:
-          type: string
-          format: binary
-          description: 'Brand logo image. Recommended size: 400x400px with transparent
-            background.'
         is_active:
           type: boolean
           description: Uncheck to hide this brand from the website display.
-      required:
-      - logo
     Cart:
       type: object
-      description: Serializer for shopping cart
+      description: Serializer for shopping cart with payment method grouping
       properties:
         id:
           type: string
@@ -11781,6 +12871,9 @@ components:
         installment_preview:
           type: string
           readOnly: true
+        payment_summary:
+          type: string
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -11795,6 +12888,7 @@ components:
       - installment_preview
       - item_count
       - items
+      - payment_summary
       - total
       - updated_at
     CartItem:
@@ -11809,6 +12903,14 @@ components:
           allOf:
           - $ref: '#/components/schemas/CartItemCourse'
           readOnly: true
+        batch:
+          type: string
+          format: uuid
+          nullable: true
+          description: Specific batch for enrollment (optional)
+        batch_info:
+          type: string
+          readOnly: true
         subtotal:
           type: string
           readOnly: true
@@ -11821,6 +12923,7 @@ components:
           format: date-time
           readOnly: true
       required:
+      - batch_info
       - course
       - created_at
       - id
@@ -11858,12 +12961,6 @@ components:
         has_discount:
           type: string
           readOnly: true
-        batch:
-          type: integer
-          maximum: 9223372036854775807
-          minimum: -9223372036854775808
-          format: int64
-          description: Batch number for versioning or grouping courses
       required:
       - discounted_price
       - has_discount
@@ -12517,6 +13614,208 @@ components:
       required:
       - code
       - course_id
+    CourseBatch:
+      type: object
+      description: Serializer for course batches (read-only, for listings).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        course:
+          type: string
+          format: uuid
+          description: The course this batch is running for
+        course_title:
+          type: string
+          readOnly: true
+        course_slug:
+          type: string
+          readOnly: true
+        batch_number:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Batch sequence number (1, 2, 3, etc.)
+        batch_name:
+          type: string
+          description: Optional custom batch name (e.g., 'Winter 2025', 'Weekend Batch')
+          maxLength: 100
+        slug:
+          type: string
+          readOnly: true
+          description: URL-friendly slug (auto-generated from course + batch number)
+          pattern: ^[-a-zA-Z0-9_]+$
+        display_name:
+          type: string
+          readOnly: true
+        start_date:
+          type: string
+          format: date
+          description: When this batch starts
+        end_date:
+          type: string
+          format: date
+          description: When this batch ends
+        enrollment_start_date:
+          type: string
+          format: date
+          nullable: true
+          description: When enrollment opens (optional, defaults to now)
+        enrollment_end_date:
+          type: string
+          format: date
+          nullable: true
+          description: When enrollment closes (optional, defaults to start_date)
+        max_students:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Maximum number of students allowed in this batch
+        enrolled_students:
+          type: integer
+          readOnly: true
+          description: Current number of enrolled students (auto-calculated)
+        available_seats:
+          type: integer
+          readOnly: true
+        is_full:
+          type: boolean
+          readOnly: true
+        custom_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          nullable: true
+          description: Custom price for this batch (optional, overrides course price)
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status18dEnum'
+          description: |-
+            Current status of this batch
+
+            * `upcoming` - Upcoming
+            * `enrollment_open` - Enrollment Open
+            * `running` - Running
+            * `completed` - Completed
+            * `cancelled` - Cancelled
+        is_active:
+          type: boolean
+          description: Whether this batch is active and visible
+        is_enrollment_open:
+          type: boolean
+          readOnly: true
+        has_installment:
+          type: string
+          readOnly: true
+        installment_preview:
+          type: string
+          readOnly: true
+        is_enrolled:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          description: Batch-specific description or notes (optional)
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - available_seats
+      - batch_number
+      - course
+      - course_slug
+      - course_title
+      - created_at
+      - display_name
+      - end_date
+      - enrolled_students
+      - has_installment
+      - id
+      - installment_preview
+      - is_enrolled
+      - is_enrollment_open
+      - is_full
+      - slug
+      - start_date
+      - updated_at
+    CourseBatchCreateUpdateRequest:
+      type: object
+      description: Serializer for creating/updating course batches.
+      properties:
+        course:
+          type: string
+          format: uuid
+          description: The course this batch is running for
+        batch_number:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Batch sequence number (1, 2, 3, etc.)
+        batch_name:
+          type: string
+          description: Optional custom batch name (e.g., 'Winter 2025', 'Weekend Batch')
+          maxLength: 100
+        start_date:
+          type: string
+          format: date
+          description: When this batch starts
+        end_date:
+          type: string
+          format: date
+          description: When this batch ends
+        enrollment_start_date:
+          type: string
+          format: date
+          nullable: true
+          description: When enrollment opens (optional, defaults to now)
+        enrollment_end_date:
+          type: string
+          format: date
+          nullable: true
+          description: When enrollment closes (optional, defaults to start_date)
+        max_students:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Maximum number of students allowed in this batch
+        custom_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          nullable: true
+          description: Custom price for this batch (optional, overrides course price)
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status18dEnum'
+          description: |-
+            Current status of this batch
+
+            * `upcoming` - Upcoming
+            * `enrollment_open` - Enrollment Open
+            * `running` - Running
+            * `completed` - Completed
+            * `cancelled` - Cancelled
+        is_active:
+          type: boolean
+          description: Whether this batch is active and visible
+        description:
+          type: string
+          description: Batch-specific description or notes (optional)
+      required:
+      - batch_number
+      - course
+      - end_date
+      - start_date
     CourseContentSection:
       type: object
       description: Serializer for course content sections.
@@ -12612,12 +13911,6 @@ components:
         category:
           type: string
           format: uuid
-        batch:
-          type: integer
-          maximum: 9223372036854775807
-          minimum: -9223372036854775808
-          format: int64
-          description: Batch number for versioning or grouping courses
         show_in_megamenu:
           type: boolean
           description: Whether to display this course in the megamenu
@@ -12666,12 +13959,6 @@ components:
         category:
           type: string
           format: uuid
-        batch:
-          type: integer
-          maximum: 9223372036854775807
-          minimum: -9223372036854775808
-          format: int64
-          description: Batch number for versioning or grouping courses
         show_in_megamenu:
           type: boolean
           description: Whether to display this course in the megamenu
@@ -12933,13 +14220,11 @@ components:
         is_purchased:
           type: string
           readOnly: true
-        batch:
-          type: integer
-          maximum: 9223372036854775807
-          minimum: -9223372036854775808
-          format: int64
-          description: Batch number for versioning or grouping courses
+        batches:
+          type: string
+          readOnly: true
       required:
+      - batches
       - category
       - created_at
       - detail
@@ -13120,13 +14405,11 @@ components:
         is_purchased:
           type: string
           readOnly: true
-        batch:
-          type: integer
-          maximum: 9223372036854775807
-          minimum: -9223372036854775808
-          format: int64
-          description: Batch number for versioning or grouping courses
+        active_batches:
+          type: string
+          readOnly: true
       required:
+      - active_batches
       - category
       - created_at
       - id
@@ -13151,6 +14434,9 @@ components:
         short_description:
           type: string
           description: Rich text description of the module
+        short_description_plain:
+          type: string
+          readOnly: true
         order:
           type: integer
           maximum: 9223372036854775807
@@ -13159,10 +14445,15 @@ components:
         is_active:
           type: boolean
           description: Whether this module is active and visible
+        start_date:
+          type: string
+          readOnly: true
       required:
       - id
       - order
       - short_description
+      - short_description_plain
+      - start_date
       - title
     CourseModuleCreateUpdateRequest:
       type: object
@@ -13298,6 +14589,9 @@ components:
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
           readOnly: true
+        installment_preview:
+          type: string
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -13313,6 +14607,7 @@ components:
       - effective_price
       - id
       - installment_amount
+      - installment_preview
       - is_discounted
       - savings
       - updated_at
@@ -13432,6 +14727,203 @@ components:
       required:
       - base_price
       - course
+    CourseResource:
+      type: object
+      description: Serializer for course resources/materials.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        module:
+          type: string
+          format: uuid
+          description: Module this resource belongs to
+        module_title:
+          type: string
+          readOnly: true
+        live_class:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'Optional: Link to specific live class'
+        live_class_title:
+          type: string
+          readOnly: true
+          nullable: true
+        title:
+          type: string
+          description: Resource title (e.g., 'Week 1 Slides', 'Python Basics Notes')
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+          description: Description of the resource
+        resource_type:
+          $ref: '#/components/schemas/ResourceTypeEnum'
+        resource_type_display:
+          type: string
+          readOnly: true
+        file:
+          type: string
+          format: uri
+          nullable: true
+          description: Upload file (PDF, ZIP, PPT, etc.)
+        file_url:
+          type: string
+          readOnly: true
+        external_url:
+          type: string
+          format: uri
+          nullable: true
+          description: External link (Google Drive, YouTube, etc.)
+          maxLength: 200
+        file_size:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: -9223372036854775808
+          format: int64
+          nullable: true
+          description: File size in bytes
+        file_size_display:
+          type: string
+          readOnly: true
+        download_count:
+          type: integer
+          readOnly: true
+          description: Number of times downloaded
+        order:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Display order within module
+        is_active:
+          type: boolean
+          description: Whether resource is visible to students
+        uploaded_by_name:
+          type: string
+          readOnly: true
+          nullable: true
+        can_download:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - can_download
+      - created_at
+      - download_count
+      - file_size_display
+      - file_url
+      - id
+      - live_class_title
+      - module
+      - module_title
+      - resource_type_display
+      - title
+      - updated_at
+      - uploaded_by_name
+    CourseResourceCreateUpdate:
+      type: object
+      description: Serializer for creating/updating course resources (teachers/admin).
+      properties:
+        module:
+          type: string
+          format: uuid
+          description: Module this resource belongs to
+        live_class:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'Optional: Link to specific live class'
+        title:
+          type: string
+          description: Resource title (e.g., 'Week 1 Slides', 'Python Basics Notes')
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+          description: Description of the resource
+        resource_type:
+          $ref: '#/components/schemas/ResourceTypeEnum'
+        file:
+          type: string
+          format: uri
+          nullable: true
+          description: Upload file (PDF, ZIP, PPT, etc.)
+        external_url:
+          type: string
+          format: uri
+          nullable: true
+          description: External link (Google Drive, YouTube, etc.)
+          maxLength: 200
+        order:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Display order within module
+        is_active:
+          type: boolean
+          description: Whether resource is visible to students
+      required:
+      - module
+      - title
+    CourseResourceCreateUpdateRequest:
+      type: object
+      description: Serializer for creating/updating course resources (teachers/admin).
+      properties:
+        module:
+          type: string
+          format: uuid
+          description: Module this resource belongs to
+        live_class:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'Optional: Link to specific live class'
+        title:
+          type: string
+          minLength: 1
+          description: Resource title (e.g., 'Week 1 Slides', 'Python Basics Notes')
+          maxLength: 200
+        description:
+          type: string
+          minLength: 1
+          nullable: true
+          description: Description of the resource
+        resource_type:
+          $ref: '#/components/schemas/ResourceTypeEnum'
+        file:
+          type: string
+          format: binary
+          nullable: true
+          description: Upload file (PDF, ZIP, PPT, etc.)
+        external_url:
+          type: string
+          format: uri
+          nullable: true
+          description: External link (Google Drive, YouTube, etc.)
+          maxLength: 200
+        order:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Display order within module
+        is_active:
+          type: boolean
+          description: Whether resource is visible to students
+      required:
+      - module
+      - title
     CourseSectionTab:
       type: object
       description: Serializer for course section tabs (max 2 per section).
@@ -14007,11 +15499,19 @@ components:
         course:
           type: string
           format: uuid
-          description: Course the student is enrolled in
+          description: Course the student is enrolled in (auto-set from batch)
         course_title:
           type: string
           readOnly: true
         course_slug:
+          type: string
+          readOnly: true
+        batch:
+          type: string
+          format: uuid
+          nullable: true
+          description: Course batch the student is enrolled in (primary reference)
+        batch_info:
           type: string
           readOnly: true
         order:
@@ -14056,6 +15556,8 @@ components:
           type: string
           readOnly: true
       required:
+      - batch
+      - batch_info
       - course
       - course_slug
       - course_title
@@ -14079,7 +15581,7 @@ components:
         course:
           type: string
           format: uuid
-          description: Course the student is enrolled in
+          description: Course the student is enrolled in (auto-set from batch)
         order:
           type: string
           format: uuid
@@ -14099,7 +15601,7 @@ components:
         course:
           type: string
           format: uuid
-          description: Course the student is enrolled in
+          description: Course the student is enrolled in (auto-set from batch)
         order:
           type: string
           format: uuid
@@ -14130,11 +15632,19 @@ components:
         course:
           type: string
           format: uuid
-          description: Course the student is enrolled in
+          description: Course the student is enrolled in (auto-set from batch)
         course_title:
           type: string
           readOnly: true
         course_slug:
+          type: string
+          readOnly: true
+        batch:
+          type: string
+          format: uuid
+          nullable: true
+          description: Course batch the student is enrolled in (primary reference)
+        batch_info:
           type: string
           readOnly: true
         order:
@@ -14181,15 +15691,25 @@ components:
         course_info:
           type: string
           readOnly: true
+        course_status:
+          type: string
+          readOnly: true
+        module_count:
+          type: string
+          readOnly: true
       required:
+      - batch
+      - batch_info
       - course
       - course_info
       - course_slug
+      - course_status
       - course_title
       - created_at
       - days_enrolled
       - id
       - is_completed_status
+      - module_count
       - order_number
       - progress_display
       - user
@@ -14206,7 +15726,12 @@ components:
         course:
           type: string
           format: uuid
-          description: Course the student is enrolled in
+          description: Course the student is enrolled in (auto-set from batch)
+        batch:
+          type: string
+          format: uuid
+          nullable: true
+          description: Course batch the student is enrolled in (primary reference)
         order:
           type: string
           format: uuid
@@ -14233,6 +15758,7 @@ components:
           nullable: true
           description: When the student completed the course
       required:
+      - batch
       - course
       - user
     EnrollmentUpdate:
@@ -14847,10 +16373,7 @@ components:
           maxLength: 255
         banner_image:
           type: string
-          format: uri
-          nullable: true
-          description: 'Hero background image. Recommended size: 1920x1080px for best
-            quality.'
+          readOnly: true
         is_active:
           type: boolean
           description: Uncheck to hide this hero section from the website.
@@ -14867,6 +16390,7 @@ components:
           format: date-time
           readOnly: true
       required:
+      - banner_image
       - created_at
       - id
       - page_name
@@ -14913,12 +16437,6 @@ components:
           description: URL/link for the secondary button (max 255 chars). Can be relative
             (/contact) or absolute.
           maxLength: 255
-        banner_image:
-          type: string
-          format: binary
-          nullable: true
-          description: 'Hero background image. Recommended size: 1920x1080px for best
-            quality.'
         is_active:
           type: boolean
           description: Uncheck to hide this hero section from the website.
@@ -15166,6 +16684,15 @@ components:
         has_recording:
           type: string
           readOnly: true
+        attendance_marked:
+          type: string
+          readOnly: true
+        has_enrollment:
+          type: string
+          readOnly: true
+        batch_info:
+          type: string
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -15175,8 +16702,11 @@ components:
           format: date-time
           readOnly: true
       required:
+      - attendance_marked
+      - batch_info
       - can_join
       - created_at
+      - has_enrollment
       - has_recording
       - id
       - instructor_email
@@ -15853,6 +17383,14 @@ components:
           type: string
           format: uuid
           description: Course being purchased
+        batch:
+          type: string
+          format: uuid
+          nullable: true
+          description: Specific batch for enrollment (optional)
+        batch_info:
+          type: string
+          readOnly: true
         course_title:
           type: string
           readOnly: true
@@ -15881,6 +17419,7 @@ components:
           format: date-time
           readOnly: true
       required:
+      - batch_info
       - course
       - course_slug
       - course_title
@@ -15896,6 +17435,11 @@ components:
           type: string
           format: uuid
           description: Course being purchased
+        batch:
+          type: string
+          format: uuid
+          nullable: true
+          description: Specific batch for enrollment (optional)
         price:
           type: string
           format: decimal
@@ -15921,6 +17465,11 @@ components:
           type: string
           format: uuid
           description: Course being purchased
+        batch:
+          type: string
+          format: uuid
+          nullable: true
+          description: Specific batch for enrollment (optional)
         price:
           type: string
           format: decimal
@@ -16567,6 +18116,9 @@ components:
       - name
     PaginatedBlogCategoryList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16587,6 +18139,9 @@ components:
             $ref: '#/components/schemas/BlogCategory'
     PaginatedBlogList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16607,6 +18162,9 @@ components:
             $ref: '#/components/schemas/Blog'
     PaginatedCategoryList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16627,6 +18185,9 @@ components:
             $ref: '#/components/schemas/Category'
     PaginatedContactMessageList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16647,6 +18208,9 @@ components:
             $ref: '#/components/schemas/ContactMessage'
     PaginatedCouponList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16665,8 +18229,34 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Coupon'
+    PaginatedCourseBatchList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CourseBatch'
     PaginatedCourseContentSectionList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16687,6 +18277,9 @@ components:
             $ref: '#/components/schemas/CourseContentSection'
     PaginatedCourseDetailList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16707,6 +18300,9 @@ components:
             $ref: '#/components/schemas/CourseDetail'
     PaginatedCourseListList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16727,6 +18323,9 @@ components:
             $ref: '#/components/schemas/CourseList'
     PaginatedCourseModuleList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16747,6 +18346,9 @@ components:
             $ref: '#/components/schemas/CourseModule'
     PaginatedCoursePriceList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16767,6 +18369,9 @@ components:
             $ref: '#/components/schemas/CoursePrice'
     PaginatedEmployeeList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16787,6 +18392,9 @@ components:
             $ref: '#/components/schemas/Employee'
     PaginatedEnrollmentList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16807,6 +18415,9 @@ components:
             $ref: '#/components/schemas/Enrollment'
     PaginatedHeroSectionList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16827,6 +18438,9 @@ components:
             $ref: '#/components/schemas/HeroSection'
     PaginatedOrderItemList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16847,6 +18461,9 @@ components:
             $ref: '#/components/schemas/OrderItem'
     PaginatedOrderListList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16867,6 +18484,9 @@ components:
             $ref: '#/components/schemas/OrderList'
     PaginatedSkillList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -16887,6 +18507,9 @@ components:
             $ref: '#/components/schemas/Skill'
     PaginatedUserProfileList:
       type: object
+      required:
+      - count
+      - results
       properties:
         count:
           type: integer
@@ -17102,11 +18725,6 @@ components:
       type: object
       description: Serializer for Brand objects.
       properties:
-        logo:
-          type: string
-          format: binary
-          description: 'Brand logo image. Recommended size: 400x400px with transparent
-            background.'
         is_active:
           type: boolean
           description: Uncheck to hide this brand from the website display.
@@ -17268,6 +18886,71 @@ components:
           type: string
           format: date-time
           description: When this coupon expires
+    PatchedCourseBatchCreateUpdateRequest:
+      type: object
+      description: Serializer for creating/updating course batches.
+      properties:
+        course:
+          type: string
+          format: uuid
+          description: The course this batch is running for
+        batch_number:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Batch sequence number (1, 2, 3, etc.)
+        batch_name:
+          type: string
+          description: Optional custom batch name (e.g., 'Winter 2025', 'Weekend Batch')
+          maxLength: 100
+        start_date:
+          type: string
+          format: date
+          description: When this batch starts
+        end_date:
+          type: string
+          format: date
+          description: When this batch ends
+        enrollment_start_date:
+          type: string
+          format: date
+          nullable: true
+          description: When enrollment opens (optional, defaults to now)
+        enrollment_end_date:
+          type: string
+          format: date
+          nullable: true
+          description: When enrollment closes (optional, defaults to start_date)
+        max_students:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Maximum number of students allowed in this batch
+        custom_price:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+          nullable: true
+          description: Custom price for this batch (optional, overrides course price)
+        status:
+          allOf:
+          - $ref: '#/components/schemas/Status18dEnum'
+          description: |-
+            Current status of this batch
+
+            * `upcoming` - Upcoming
+            * `enrollment_open` - Enrollment Open
+            * `running` - Running
+            * `completed` - Completed
+            * `cancelled` - Cancelled
+        is_active:
+          type: boolean
+          description: Whether this batch is active and visible
+        description:
+          type: string
+          description: Batch-specific description or notes (optional)
     PatchedCourseContentSectionCreateUpdateRequest:
       type: object
       description: Serializer for creating/updating content sections.
@@ -17297,12 +18980,6 @@ components:
         category:
           type: string
           format: uuid
-        batch:
-          type: integer
-          maximum: 9223372036854775807
-          minimum: -9223372036854775808
-          format: int64
-          description: Batch number for versioning or grouping courses
         show_in_megamenu:
           type: boolean
           description: Whether to display this course in the megamenu
@@ -17493,6 +19170,51 @@ components:
           format: int64
           nullable: true
           description: Number of installments allowed
+    PatchedCourseResourceCreateUpdateRequest:
+      type: object
+      description: Serializer for creating/updating course resources (teachers/admin).
+      properties:
+        module:
+          type: string
+          format: uuid
+          description: Module this resource belongs to
+        live_class:
+          type: string
+          format: uuid
+          nullable: true
+          description: 'Optional: Link to specific live class'
+        title:
+          type: string
+          minLength: 1
+          description: Resource title (e.g., 'Week 1 Slides', 'Python Basics Notes')
+          maxLength: 200
+        description:
+          type: string
+          minLength: 1
+          nullable: true
+          description: Description of the resource
+        resource_type:
+          $ref: '#/components/schemas/ResourceTypeEnum'
+        file:
+          type: string
+          format: binary
+          nullable: true
+          description: Upload file (PDF, ZIP, PPT, etc.)
+        external_url:
+          type: string
+          format: uri
+          nullable: true
+          description: External link (Google Drive, YouTube, etc.)
+          maxLength: 200
+        order:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Display order within module
+        is_active:
+          type: boolean
+          description: Whether resource is visible to students
     PatchedCourseSectionTabCreateUpdateRequest:
       type: object
       description: Serializer for creating/updating section tabs (max 2 per section).
@@ -17928,12 +19650,6 @@ components:
           description: URL/link for the secondary button (max 255 chars). Can be relative
             (/contact) or absolute.
           maxLength: 255
-        banner_image:
-          type: string
-          format: binary
-          nullable: true
-          description: 'Hero background image. Recommended size: 1920x1080px for best
-            quality.'
         is_active:
           type: boolean
           description: Uncheck to hide this hero section from the website.
@@ -18207,10 +19923,12 @@ components:
           description: Privacy Policy Content
         is_active:
           type: boolean
-    PatchedQuizRequest:
+    PatchedQuizCreateUpdateRequest:
       type: object
-      description: Serializer for quizzes within a module.
       properties:
+        module:
+          type: string
+          format: uuid
         title:
           type: string
           minLength: 1
@@ -18858,6 +20576,27 @@ components:
         attempt_count:
           type: string
           readOnly: true
+        attempts_used:
+          type: string
+          readOnly: true
+        can_attempt:
+          type: string
+          readOnly: true
+        best_score:
+          type: string
+          readOnly: true
+        last_attempt_date:
+          type: string
+          readOnly: true
+        is_completed:
+          type: string
+          readOnly: true
+        has_enrollment:
+          type: string
+          readOnly: true
+        batch_info:
+          type: string
+          readOnly: true
         questions:
           type: array
           items:
@@ -18873,10 +20612,17 @@ components:
           readOnly: true
       required:
       - attempt_count
+      - attempts_used
+      - batch_info
+      - best_score
+      - can_attempt
       - created_at
       - created_by_name
+      - has_enrollment
       - id
       - is_available
+      - is_completed
+      - last_attempt_date
       - question_count
       - questions
       - title
@@ -18991,6 +20737,124 @@ components:
         * `in_progress` - In Progress
         * `submitted` - Submitted
         * `graded` - Graded
+    QuizCreateUpdate:
+      type: object
+      properties:
+        module:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+          description: Instructions and overview for the quiz
+        total_marks:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        passing_marks:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        duration_minutes:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Time limit for the quiz in minutes
+        difficulty:
+          $ref: '#/components/schemas/DifficultyEnum'
+        max_attempts:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Maximum number of attempts allowed
+        show_correct_answers:
+          type: boolean
+          description: Show correct answers after submission
+        randomize_questions:
+          type: boolean
+          description: Randomize question order for each attempt
+        available_from:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the quiz becomes available
+        available_until:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the quiz closes
+        is_active:
+          type: boolean
+      required:
+      - module
+      - title
+    QuizCreateUpdateRequest:
+      type: object
+      properties:
+        module:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          minLength: 1
+          nullable: true
+          description: Instructions and overview for the quiz
+        total_marks:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        passing_marks:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+        duration_minutes:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Time limit for the quiz in minutes
+        difficulty:
+          $ref: '#/components/schemas/DifficultyEnum'
+        max_attempts:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 0
+          format: int64
+          description: Maximum number of attempts allowed
+        show_correct_answers:
+          type: boolean
+          description: Show correct answers after submission
+        randomize_questions:
+          type: boolean
+          description: Randomize question order for each attempt
+        available_from:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the quiz becomes available
+        available_until:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the quiz closes
+        is_active:
+          type: boolean
+      required:
+      - module
+      - title
     QuizQuestion:
       type: object
       description: Serializer for quiz questions.
@@ -19210,6 +21074,24 @@ components:
           minLength: 1
       required:
       - email
+    ResourceTypeEnum:
+      enum:
+      - pdf
+      - video
+      - slide
+      - code
+      - document
+      - link
+      - other
+      type: string
+      description: |-
+        * `pdf` - PDF Document
+        * `video` - Video
+        * `slide` - Presentation Slides
+        * `code` - Code/Project Files
+        * `document` - Document
+        * `link` - External Link
+        * `other` - Other
     RobotsMetaEnum:
       enum:
       - index, follow
@@ -19418,6 +21300,20 @@ components:
       required:
       - platform
       - url
+    Status18dEnum:
+      enum:
+      - upcoming
+      - enrollment_open
+      - running
+      - completed
+      - cancelled
+      type: string
+      description: |-
+        * `upcoming` - Upcoming
+        * `enrollment_open` - Enrollment Open
+        * `running` - Running
+        * `completed` - Completed
+        * `cancelled` - Cancelled
     Status399Enum:
       enum:
       - draft
@@ -20294,12 +22190,6 @@ components:
         has_discount:
           type: string
           readOnly: true
-        batch:
-          type: integer
-          maximum: 9223372036854775807
-          minimum: -9223372036854775808
-          format: int64
-          description: Batch number for versioning or grouping courses
       required:
       - discounted_price
       - has_discount

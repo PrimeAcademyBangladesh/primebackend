@@ -284,10 +284,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS settings (if your API is accessed by a frontend)
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    # "http://45.85.250.92",  # Commented for local testing - will be updated with new URL
-    "https://prime-academy-bd.vercel.app",  # Production frontend
+    "http://localhost:5173",        # Local frontend (Vite dev server)
+    "http://127.0.0.1:5173",        # Local frontend (alternative)
+    "http://45.85.250.92",          # Production frontend
+    "http://45.85.250.92:8080",     # Production API (if needed for same-origin requests)
+    "https://prime-academy-bd.vercel.app",  # Production frontend (Vercel)
 ]
 
 # Allow credentials for session-based cart (required for guest users)
@@ -305,11 +306,11 @@ CSRF_COOKIE_NAME = 'csrftoken'
 
 
 CSRF_TRUSTED_ORIGINS = [
-    # "http://45.85.250.92",  # Commented for local testing - will be updated with new URL
-    # "http://45.85.250.92:8080",  # Commented for local testing
+    "http://45.85.250.92",  # Production frontend
+    "http://45.85.250.92:8080",  # Production API
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "https://prime-academy-bd.vercel.app",  # Production frontend
+    "https://prime-academy-bd.vercel.app",  # Production frontend (Vercel)
 ]
 
 # Email backend configuration (REQUIRED for mandatory verification)
