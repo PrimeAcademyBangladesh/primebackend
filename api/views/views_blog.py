@@ -14,6 +14,7 @@ from api.utils.pagination import StandardResultsSetPagination
 from api.utils.response_utils import api_response
 from api.utils.cache_utils import cache_response, CACHE_KEY_BLOG_LIST, CACHE_KEY_BLOG_DETAIL
 from api.views.views_base import BaseAdminViewSet
+from rest_framework.parsers import MultiPartParser, FormParser
 
 
 @extend_schema_view(
@@ -31,6 +32,7 @@ class BlogCategoryViewSet(BaseAdminViewSet):
     permission_classes = [IsStaff]
     slug_field = "slug"
     slug_lookup_only_actions = ["retrieve"]
+    
     
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -66,7 +68,8 @@ class BlogViewSet(BaseAdminViewSet):
     permission_classes = [IsStaff]
     slug_field = "slug"
     slug_lookup_only_actions = ["retrieve"]
-
+    parser_classes = (MultiPartParser, FormParser)
+    
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = BlogFilter
     search_fields = ["title", "excerpt", "content"]

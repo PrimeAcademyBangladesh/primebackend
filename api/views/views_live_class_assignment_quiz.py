@@ -10,6 +10,7 @@ from django.db.models import Count, Q
 from django.db import models
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
+from rest_framework.parsers import MultiPartParser, ParseError
 
 from api.models.models_module import (
     LiveClass,
@@ -1418,6 +1419,7 @@ class CourseResourceViewSet(viewsets.ModelViewSet):
     from api.models.models_module import CourseResource
     queryset = CourseResource.objects.all()
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = (MultiPartParser, ParseError)
     
     def get_serializer_class(self):
         """Use different serializers for read vs write operations"""

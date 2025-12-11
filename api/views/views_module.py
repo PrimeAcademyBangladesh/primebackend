@@ -12,7 +12,7 @@ from api.permissions import IsCourseManager, IsStudentOwner, IsTeacherOrAdmin
 from api.serializers.serializers_course import CourseModuleSerializer
 from api.utils.pagination import StandardResultsSetPagination
 from api.utils.response_utils import api_response
-
+from rest_framework.parsers import FormParser, MultiPartParser
 
 # ========== Teacher Module Management ViewSet ==========
 
@@ -75,6 +75,7 @@ class TeacherModuleViewSet(viewsets.ModelViewSet):
     permission_classes = [IsCourseManager]
     pagination_class = StandardResultsSetPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    parser_classes = (MultiPartParser, FormParser)
     search_fields = ['title', 'short_description']
     ordering_fields = ['order', 'created_at']
     ordering = ['order']

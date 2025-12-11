@@ -16,7 +16,6 @@ class HeroSlideTextSerializer(serializers.ModelSerializer):
 class HeroSectionSerializer(serializers.ModelSerializer):
     """Serializer for HeroSection with nested slides."""
     slides = HeroSlideTextSerializer(many=True)
-    banner_image = serializers.SerializerMethodField()
 
     class Meta:
         model = HeroSection

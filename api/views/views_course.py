@@ -8,7 +8,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import filters, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-
+from rest_framework.parsers import MultiPartParser, FormParser
 # Models
 from api.models.models_course import (
     Category,
@@ -466,6 +466,7 @@ class CourseViewSet(BaseAdminViewSet):
     )
     serializer_class = CourseListSerializer
     pagination_class = StandardResultsSetPagination
+    parser_classes = (MultiPartParser, FormParser)
     permission_classes = [IsCourseManager]
     slug_field = "slug"
     slug_lookup_only_actions = ["retrieve"]
@@ -563,6 +564,10 @@ class CourseViewSet(BaseAdminViewSet):
         # If staff or purchased user, bypass cache entirely
         if is_staff_user or is_purchased:
             response = super().retrieve(request, *args, **kwargs)
+            # If the called view already returned an `api_response`-shaped payload,
+            # return it directly to avoid double-wrapping.
+            if isinstance(response.data, dict) and "success" in response.data and "data" in response.data:
+                return response
             return api_response(True, f"{self.get_model_name()} retrieved successfully", response.data)
 
         # Anonymous/guest path: use cache
@@ -588,6 +593,10 @@ class CourseViewSet(BaseAdminViewSet):
                 'status_code': response.status_code,
             }
             cache.set(cache_key, cache_data, 1800)
+
+        # Avoid wrapping an already-formatted api_response payload again.
+        if isinstance(response.data, dict) and "success" in response.data and "data" in response.data:
+            return response
 
         return api_response(True, f"{self.get_model_name()} retrieved successfully", response.data)
 
@@ -1846,6 +1855,7 @@ class CourseTabbedContentViewSet(BaseAdminViewSet):
     serializer_class = CourseTabbedContentSerializer
     permission_classes = [IsStaff]
     pagination_class = StandardResultsSetPagination
+    parser_classes = (MultiPartParser, FormParser)
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -2152,6 +2162,7 @@ class SideImageSectionViewSet(BaseAdminViewSet):
     serializer_class = SideImageSectionSerializer
     permission_classes = [IsStaff]
     pagination_class = StandardResultsSetPagination
+    parser_classes = (MultiPartParser, FormParser)
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -2224,6 +2235,7 @@ class SuccessStoryViewSet(BaseAdminViewSet):
     serializer_class = SuccessStorySerializer
     permission_classes = [IsStaff]
     pagination_class = StandardResultsSetPagination
+    parser_classes = (MultiPartParser, FormParser)
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,

@@ -8,7 +8,7 @@ from api.serializers.serializers_employee import (DepartmentSerializer,
                                                   EmployeeSerializer)
 from api.utils.pagination import StandardResultsSetPagination
 from api.views.views_base import BaseAdminViewSet
-
+from rest_framework.parsers import MultiPartParser, FormParser
 
 @extend_schema(
     tags=["Employee"],
@@ -25,6 +25,7 @@ class DepartmentViewSet(BaseAdminViewSet):
     serializer_class = DepartmentSerializer
     # Provide admin-friendly listing: pagination, filtering and search
     pagination_class = StandardResultsSetPagination
+    parser_classes = (MultiPartParser, FormParser)
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["is_active"]
     search_fields = ["name"]
