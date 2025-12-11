@@ -8,6 +8,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from rest_framework import filters, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.parsers import MultiPartParser, FormParser
 # Models
 from api.models.models_course import (
@@ -1696,6 +1697,7 @@ class CourseContentSectionViewSet(BaseAdminViewSet):
         .all()
     )
     serializer_class = CourseContentSectionSerializer
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     permission_classes = [IsStaff]
     pagination_class = StandardResultsSetPagination
     filter_backends = [

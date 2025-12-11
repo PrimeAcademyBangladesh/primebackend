@@ -9,7 +9,7 @@ from api.serializers.serializers_service import (
     PageServiceSerializer)
 from api.utils.response_utils import api_response
 from api.views.views_base import BaseAdminViewSet
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 @extend_schema(
     tags=["Services Sections"],
@@ -22,7 +22,7 @@ class PageServiceViewSet(BaseAdminViewSet):
 
     queryset = PageService.objects.all()
     serializer_class = PageServiceSerializer
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     lookup_field = 'slug'
 
 
@@ -37,7 +37,7 @@ class ContentSectionViewSet(BaseAdminViewSet):
 
     queryset = ContentSection.objects.select_related('page').all()
     serializer_class = ContentSectionListSerializer
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     
     def get_serializer_class(self):
         """Use different serializers for read vs write operations"""
