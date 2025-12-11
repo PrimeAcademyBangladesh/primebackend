@@ -2003,6 +2003,21 @@ class CourseModuleViewSet(BaseAdminViewSet):
     ordering_fields = ["order", "created_at"]
     ordering = ["course", "order"]
 
+    def get_queryset(self):
+        """Override to allow filtering by Course ID/slug via 'course_id' or 'course_slug' params."""
+        queryset = super().get_queryset()
+        
+        # Allow filtering by Course ID/slug
+        course_id = self.request.query_params.get('course_id')
+        course_slug = self.request.query_params.get('course_slug')
+        
+        if course_id:
+            queryset = queryset.filter(course__course__id=course_id)
+        elif course_slug:
+            queryset = queryset.filter(course__course__slug=course_slug)
+        
+        return queryset
+
     def get_serializer_class(self):
         if self.action in ["create", "update", "partial_update"]:
             return CourseModuleCreateUpdateSerializer

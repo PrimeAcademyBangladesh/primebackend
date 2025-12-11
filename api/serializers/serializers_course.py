@@ -941,27 +941,53 @@ class WhyEnrolCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerialize
 class CourseModuleCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     """Serializer for creating/updating course modules.
     
-    IMPORTANT: Use 'course_detail' field with CourseDetail UUID.
-    Get CourseDetail UUID from: GET /api/courses/details/?course=YOUR_COURSE_UUID
+    Accepts 'course' field with Course UUID or slug.
+    Automatically maps Course to its CourseDetail.
     """
     html_fields = ['short_description']
-    course_detail = serializers.PrimaryKeyRelatedField(
-        queryset=CourseDetail.objects.all(),
-        source='course',
-        help_text='UUID of CourseDetail (not Course). Get from /api/courses/details/'
+    course = serializers.CharField(
+        write_only=True,
+        help_text='Course UUID or slug. Will automatically map to CourseDetail.'
     )
     
     class Meta:
         model = CourseModule
-        fields = ['course_detail', 'title', 'short_description', 'order', 'is_active']
+        fields = ['course', 'title', 'short_description', 'order', 'is_active']
+        validators = []  # Disable auto validators to handle unique_together manually
+    
+    def validate_course(self, value):
+        """Validate and map Course ID/slug to CourseDetail."""
+        from api.models.models_course import Course
+        import uuid
+        
+        if not value:
+            raise serializers.ValidationError('This field is required.')
+        
+        # Try to determine if it's a UUID or slug
+        try:
+            # Try parsing as UUID first
+            uuid.UUID(value)
+            course_obj = Course.objects.get(id=value)
+        except (ValueError, Course.DoesNotExist):
+            # If not a UUID, try as slug
+            try:
+                course_obj = Course.objects.get(slug=value)
+            except Course.DoesNotExist:
+                raise serializers.ValidationError(
+                    f'Course with identifier "{value}" not found.'
+                )
+        
+        # Get or create CourseDetail for this Course
+        course_detail_obj, created = CourseDetail.objects.get_or_create(course=course_obj)
+        return course_detail_obj
     
     def validate(self, data):
         """Validate order uniqueness per course."""
-        course = data.get('course')
+        course_detail = data.get('course')
         order = data.get('order')
         
-        if course and order is not None:
-            query = CourseModule.objects.filter(course=course, order=order)
+        if course_detail and order is not None:
+            query = CourseModule.objects.filter(course=course_detail, order=order)
             if self.instance:
                 query = query.exclude(pk=self.instance.pk)
             
