@@ -692,7 +692,7 @@ class CourseBatch(TimeStampedModel):
         ]
     
     def save(self, *args, **kwargs):
-        """Auto-generate slug from course slug + batch number."""
+        """Auto-generate slug and update status based on dates."""
         if not self.slug:
             base_slug = f"{self.course.slug}-batch-{self.batch_number}"
             self.slug = base_slug
@@ -703,7 +703,40 @@ class CourseBatch(TimeStampedModel):
                 self.slug = f"{base_slug}-{counter}"
                 counter += 1
         
+        # Auto-update status based on dates
+        self._update_status()
+        
         super().save(*args, **kwargs)
+    
+    def _update_status(self):
+        """Update batch status based on current date and enrollment status."""
+        from django.utils import timezone
+        now = timezone.now().date()
+        
+        # Don't auto-update if manually set to cancelled
+        if self.status == 'cancelled':
+            return
+        
+        # Check if completed
+        if self.end_date and now > self.end_date:
+            self.status = 'completed'
+        # Check if running
+        elif self.start_date and now >= self.start_date and now <= self.end_date:
+            self.status = 'running'
+        # Check if enrollment is open
+        elif self.is_active and self._check_enrollment_open(now):
+            self.status = 'enrollment_open'
+        # Otherwise upcoming
+        else:
+            self.status = 'upcoming'
+    
+    def _check_enrollment_open(self, now):
+        """Helper to check if enrollment is open for a given date."""
+        enrollment_start = self.enrollment_start_date or self.created_at.date() if self.created_at else now
+        enrollment_end = self.enrollment_end_date or self.start_date
+        
+        return (now >= enrollment_start and now <= enrollment_end and 
+                self.enrolled_students < self.max_students)
     
     def clean(self):
         """Validate batch dates."""

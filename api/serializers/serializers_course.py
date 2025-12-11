@@ -515,6 +515,13 @@ class CourseBatchMinimalSerializer(serializers.ModelSerializer):
 class CourseBatchCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating course batches."""
     
+    # Make fields optional for updates (required=False allows partial updates)
+    max_students = serializers.IntegerField(required=False, min_value=1)
+    status = serializers.ChoiceField(
+        choices=CourseBatch.BATCH_STATUS_CHOICES, 
+        required=False
+    )
+    
     class Meta:
         model = CourseBatch
         fields = [
@@ -531,6 +538,12 @@ class CourseBatchCreateUpdateSerializer(serializers.ModelSerializer):
             'is_active',
             'description',
         ]
+        extra_kwargs = {
+            'course': {'required': False},
+            'batch_number': {'required': False},
+            'start_date': {'required': False},
+            'end_date': {'required': False},
+        }
     
     def validate(self, data):
         """Validate batch data."""
