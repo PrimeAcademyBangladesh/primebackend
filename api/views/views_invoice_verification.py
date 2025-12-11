@@ -14,7 +14,7 @@ from api.models.models_order import Order
 
 
 @extend_schema(
-    tags=["Orders"],
+    tags=["Orders Invoice Verify"],
     summary="Verify invoice by order number (Public)",
     description="""
     Public endpoint to verify invoice authenticity via QR code scanning.

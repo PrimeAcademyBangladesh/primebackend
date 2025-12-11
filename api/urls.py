@@ -73,6 +73,9 @@ from api.views.views_export import (
     export_revenue_analytics_csv, export_revenue_analytics_pdf
 )
 from api.views.views_free_enrollment import enroll_free_course
+from api.views.views_invoice_verification import verify_invoice
+
+
 
 router = DefaultRouter()
 
@@ -379,4 +382,7 @@ urlpatterns = router.urls + [
         name="policy-pages-by-name",
     ),
     path('enroll-free/', enroll_free_course, name='enroll_free_course'),
+    
+    path('orders/verify/<str:order_number>', verify_invoice, name='verify_invoice'),
+    
 ]
