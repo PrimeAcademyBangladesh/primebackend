@@ -77,14 +77,14 @@ class HeroSectionSerializer(serializers.ModelSerializer):
 
 class BrandSerializer(serializers.ModelSerializer):
     """Serializer for Brand objects."""
-    logo = serializers.SerializerMethodField()
+    logo_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Brand
-        fields = ["id", "logo",  "is_active"]
-        read_only_fields = ["id"]
+        fields = ["id", "logo", "logo_url", "is_active"]
+        read_only_fields = ["id", "logo_url"]
 
-    def get_logo(self, obj):
+    def get_logo_url(self, obj):
         if obj.logo:
             url = obj.logo.url
             site_base = getattr(settings, "SITE_BASE_URL", None)
