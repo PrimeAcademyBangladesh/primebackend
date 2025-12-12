@@ -7,7 +7,7 @@ from api.serializers.serializers_home import (BrandSerializer,
                                               HeroSectionSerializer)
 from api.utils.pagination import StandardResultsSetPagination
 from api.views.views_base import BaseAdminViewSet
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 @extend_schema(
     tags=["Home"],
@@ -26,7 +26,7 @@ class HeroSectionViewSet(BaseAdminViewSet):
     filterset_fields = ["is_active", "page_name"]
     search_fields = ["title"]
     ordering_fields = ["created_at", "order"]
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
 
 
 @extend_schema(
@@ -39,6 +39,6 @@ class BrandViewSet(BaseAdminViewSet):
     """Brand Management"""
     queryset = Brand.objects.all()
     serializer_class = BrandSerializer
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
 
 

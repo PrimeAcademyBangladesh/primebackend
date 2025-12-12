@@ -14,7 +14,7 @@ from api.permissions import IsAdmin
 from api.serializers.serializers_footer import FooterSerializer
 from api.utils.response_utils import api_response
 from api.utils.resposne_return import APIResponseSerializer
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 CACHE_KEY = "footer_api_response"
 CACHE_TIMEOUT = 60 * 30  # 30 minutes
@@ -92,7 +92,7 @@ class FooterPublicView(RetrieveAPIView):
 class FooterAdminView(CreateAPIView, UpdateAPIView, DestroyAPIView):
     serializer_class = FooterSerializer
     permission_classes = [IsAdmin]
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     
     def get_object(self):
         footer = Footer.objects.first()

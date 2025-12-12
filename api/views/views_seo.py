@@ -11,7 +11,7 @@ from api.serializers.serializers_seo import (PageSEOCreateUpdateSerializer,
                                              PageSEOSerializer)
 from api.utils.response_utils import api_response
 from api.views.views_base import BaseAdminViewSet
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 
 @extend_schema(tags=["SEO Management"])
@@ -23,7 +23,7 @@ class PageSEOViewSet(BaseAdminViewSet):
     queryset = PageSEO.objects.all()
     slug_field = "page_name"
     slug_lookup_only_actions = ["retrieve", "update", "partial_update", "destroy"]
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     permission_classes = [IsStaff]
 
     def get_serializer_class(self):

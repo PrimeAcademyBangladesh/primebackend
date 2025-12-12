@@ -467,7 +467,7 @@ class CourseViewSet(BaseAdminViewSet):
     )
     serializer_class = CourseListSerializer
     pagination_class = StandardResultsSetPagination
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     permission_classes = [IsCourseManager]
     slug_field = "slug"
     slug_lookup_only_actions = ["retrieve"]
@@ -1857,7 +1857,7 @@ class CourseTabbedContentViewSet(BaseAdminViewSet):
     serializer_class = CourseTabbedContentSerializer
     permission_classes = [IsStaff]
     pagination_class = StandardResultsSetPagination
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -2164,7 +2164,7 @@ class SideImageSectionViewSet(BaseAdminViewSet):
     serializer_class = SideImageSectionSerializer
     permission_classes = [IsStaff]
     pagination_class = StandardResultsSetPagination
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -2237,7 +2237,7 @@ class SuccessStoryViewSet(BaseAdminViewSet):
     serializer_class = SuccessStorySerializer
     permission_classes = [IsStaff]
     pagination_class = StandardResultsSetPagination
-    parser_classes = (MultiPartParser, FormParser)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
