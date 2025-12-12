@@ -16,6 +16,7 @@ class HeroSlideTextSerializer(serializers.ModelSerializer):
 class HeroSectionSerializer(serializers.ModelSerializer):
     """Serializer for HeroSection with nested slides."""
     slides = HeroSlideTextSerializer(many=True)
+    banner_image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = HeroSection
@@ -29,14 +30,15 @@ class HeroSectionSerializer(serializers.ModelSerializer):
             "button2_text",
             "button2_url",
             "banner_image",
+            "banner_image_url",
             "is_active",
             "slides",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "banner_image_url", "created_at", "updated_at"]
 
-    def get_banner_image(self, obj):
+    def get_banner_image_url(self, obj):
         if obj.banner_image:
             url = obj.banner_image.url
             site_base = getattr(settings, "SITE_BASE_URL", None)
@@ -77,6 +79,7 @@ class HeroSectionSerializer(serializers.ModelSerializer):
 
 class BrandSerializer(serializers.ModelSerializer):
     """Serializer for Brand objects."""
+    logo = serializers.ImageField(required=False)
     logo_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
