@@ -553,7 +553,7 @@ class CourseViewSet(BaseAdminViewSet):
 
         # Determine if requester should see full list
         user = getattr(request, 'user', None)
-        is_staff_user = bool(user and getattr(user, 'is_staff', False)) or bool(user and getattr(user, 'is_superuser', False))
+        is_staff_user = self.is_staff_user(user)
         is_purchased = False
         if user and user.is_authenticated and not is_staff_user:
             try:
