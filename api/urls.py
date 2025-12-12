@@ -33,8 +33,7 @@ from api.views.views_course import (
     KeyBenefitViewSet, SideImageSectionViewSet, SuccessStoryViewSet,
     CourseInstructorViewSet
 )
-from api.views.views_custom_payment import (CustomPaymentViewSet,
-                                            EventRegistrationViewSet)
+from api.views.views_custom_payment import (CustomPaymentViewSet,)
 from api.views.views_dashboard import (course_details, dashboard_overview,
                                        earnings_details, student_details)
 from api.views.views_employee import DepartmentViewSet, EmployeeViewSet
@@ -46,7 +45,7 @@ from api.views.views_order import (EnrollmentViewSet, OrderItemViewSet,
 from api.views.views_our_values import (ValueTabContentViewSet,
                                         ValueTabSectionViewSet,
                                         ValueTabViewSet)
-from api.views.views_payment import (PaymentInitiateView, payment_webhook,
+from api.views.views_payment import (InstallmentPaymentInitiateView, InstallmentSummaryView, PaymentInitiateView, payment_webhook,
                                      payment_success_redirect, payment_fail_redirect,
                                      payment_cancel_redirect, verify_payment)
 from api.views.views_policy import PolicyPageViewSet
@@ -116,7 +115,6 @@ router.register(r'orders', OrderViewSet, basename='order')
 router.register(r'order-items', OrderItemViewSet, basename='orderitem')
 router.register(r'enrollments', EnrollmentViewSet, basename='enrollment')
 router.register(r'custom-payments', CustomPaymentViewSet, basename='custompayment')
-router.register(r'event-registrations', EventRegistrationViewSet, basename='eventregistration')
 
 # Module System - Teacher routes
 router.register(r'modules/teacher', TeacherModuleViewSet, basename='teacher-module')
@@ -311,6 +309,12 @@ urlpatterns = router.urls + [
     path("payment/cancel/", payment_cancel_redirect, name="payment-cancel-redirect"),
     # Verification endpoint for frontend
     path("payment/verify/", verify_payment, name="payment-verify"),
+    
+    
+    # COURSE INSTALLMENT RELATED API
+    
+    path('installments/initiate/', InstallmentPaymentInitiateView.as_view(), name='installment-initiate'),
+    path('installments/summary/<uuid:order_id>/', InstallmentSummaryView.as_view(), name='installment-summary'),
     
     # =============================================
     # CKEditor Image Upload Endpoint

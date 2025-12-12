@@ -145,11 +145,6 @@ class Blog(TimeStampedModel, OptimizedImageModel):
     def save(self, *args, **kwargs):
         self.slug = slugify(self.title)
 
-        if self.status == "published" and self.published_at is None:
-            self.published_at = timezone.now()
-        elif self.status == "draft":
-            self.published_at = None
-
         # Auto-generate structured_data when not provided so editors can override
         if not self.structured_data:
             try:

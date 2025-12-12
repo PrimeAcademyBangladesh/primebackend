@@ -81,10 +81,25 @@ class BlogViewSet(BaseAdminViewSet):
         """List blogs - cached for 10 minutes."""
         return super().list(request, *args, **kwargs)
     
-    @cache_response(timeout=1800, key_prefix=CACHE_KEY_BLOG_DETAIL)
     def retrieve(self, request, *args, **kwargs):
-        """Retrieve blog detail - cached for 30 minutes."""
-        return super().retrieve(request, *args, **kwargs)
+        """Retrieve blog detail.
+        
+        Staff users bypass cache to see updates immediately.
+        Public users get cached response for performance.
+        """
+        user = getattr(request, 'user', None)
+        is_staff_user = self.is_staff_user(user)
+        
+        # Staff users bypass cache to see latest changes
+        if is_staff_user:
+            return super().retrieve(request, *args, **kwargs)
+        
+        # Public users get cached response (decorator already imported at top)
+        @cache_response(timeout=1800, key_prefix=CACHE_KEY_BLOG_DETAIL)
+        def cached_retrieve(request, *args, **kwargs):
+            return super(BlogViewSet, self).retrieve(request, *args, **kwargs)
+        
+        return cached_retrieve(request, *args, **kwargs)
 
     @cache_response(timeout=900, key_prefix='blog_latest')
     @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny])

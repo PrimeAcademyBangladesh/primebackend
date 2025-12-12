@@ -14,9 +14,13 @@ from api.models.models_pricing import Coupon
 
 class OrderInstallmentSerializer(serializers.ModelSerializer):
     """Serializer for order installments."""
+
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     is_overdue = serializers.SerializerMethodField()
-    
+    remaining_amount = serializers.SerializerMethodField()
+    days_until_due = serializers.SerializerMethodField()
+    can_accept_payment = serializers.SerializerMethodField()
+    is_paid = serializers.SerializerMethodField()
     class Meta:
         model = OrderInstallment
         fields = [
@@ -30,15 +34,59 @@ class OrderInstallmentSerializer(serializers.ModelSerializer):
             'paid_at',
             'payment_id',
             'payment_method',
+           
+            # Helper fields (new)
             'is_overdue',
+            'remaining_amount',
+            'days_until_due',
+            'can_accept_payment',
+            'is_paid',
+            
             'notes',
+            'extra_data',
             'created_at',
         ]
-        read_only_fields = ['id', 'status_display', 'is_overdue', 'created_at']
+        read_only_fields = [
+            'id',
+            'status_display',
+            'is_overdue',
+            'remaining_amount',
+            'days_until_due',
+            'can_accept_payment',
+            'is_paid',
+            'created_at',
+        ]
     
     def get_is_overdue(self, obj):
         """Check if installment is overdue."""
         return obj.status == 'pending' and timezone.now() > obj.due_date
+    
+    # ========= Helper Field Serializers ==========
+
+    def get_is_overdue(self, obj):
+        return obj.is_overdue_now()
+
+    def get_remaining_amount(self, obj):
+        return obj.remaining_amount()
+
+    def get_days_until_due(self, obj):
+        return obj.days_until_due()
+
+    def get_can_accept_payment(self, obj):
+        return obj.can_accept_payment()
+
+    def get_is_paid(self, obj):
+        return obj.is_paid()
+
+    # ========= Safe extra_data update ==========
+    def update(self, instance, validated_data):
+        extra_data = validated_data.pop("extra_data", None)
+        instance = super().update(instance, validated_data)
+
+        if extra_data:
+            instance.update_extra_data(extra_data)
+
+        return instance
 
 
 class OrderInstallmentPaymentSerializer(serializers.Serializer):

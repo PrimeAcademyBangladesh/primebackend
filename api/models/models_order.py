@@ -45,7 +45,7 @@ class Order(TimeStampedModel):
         help_text="Unique order number (auto-generated)"
     )
     user = models.ForeignKey(
-        'api.CustomUser',  # Use string reference
+        'api.CustomUser',
         on_delete=models.CASCADE, 
         related_name="orders",
         help_text="User who placed this order"
@@ -84,9 +84,8 @@ class Order(TimeStampedModel):
         help_text="Currency code (BDT, USD, etc.)"
     )
 
-    # Coupon
     coupon = models.ForeignKey(
-        'api.Coupon',  # Use string reference
+        'api.Coupon',
         on_delete=models.SET_NULL, 
         null=True, 
         blank=True,
@@ -99,7 +98,6 @@ class Order(TimeStampedModel):
         help_text="Snapshot of coupon code at time of order"
     )
 
-    # Status and payment
     status = models.CharField(
         max_length=20, 
         choices=STATUS_CHOICES, 
@@ -124,7 +122,6 @@ class Order(TimeStampedModel):
         help_text="Payment gateway status response"
     )
 
-    # Timestamps (created_at and updated_at inherited from TimeStampedModel)
     completed_at = models.DateTimeField(
         null=True, 
         blank=True,
@@ -169,7 +166,6 @@ class Order(TimeStampedModel):
         help_text="Billing postal/ZIP code"
     )
     
-    # Installment payment tracking
     is_installment = models.BooleanField(
         default=False,
         help_text="Whether this order uses installment payment"
@@ -189,7 +185,6 @@ class Order(TimeStampedModel):
         help_text="Due date for next installment payment"
     )
     
-    # Custom payment option
     is_custom_payment = models.BooleanField(
         default=False,
         help_text="Whether this is a custom payment (not course-based)"
@@ -199,7 +194,6 @@ class Order(TimeStampedModel):
         help_text="Description of custom payment (e.g., 'Workshop fee', 'Consultation')"
     )
     
-    # Admin notes
     notes = models.TextField(
         blank=True,
         help_text="Internal notes (visible to staff only)"
@@ -265,16 +259,12 @@ class Order(TimeStampedModel):
     
     def mark_as_completed(self):
         """Mark order as completed and create enrollments."""
-        # Ensure order is marked completed and completed_at is set
         if self.status != 'completed':
             self.status = 'completed'
             self.completed_at = timezone.now()
             self.save()
 
         # Create enrollments for all courses in this order.
-        # Even if the order was already marked completed previously, we may
-        # not have created enrollments (e.g., earlier error). Ensure enrollments
-        # exist for each OrderItem. Use get_or_create to avoid duplicates.
         for item in self.items.all():
             Enrollment.objects.get_or_create(
                 user=self.user,
@@ -328,6 +318,7 @@ class OrderInstallment(TimeStampedModel):
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
     order = models.ForeignKey(
         Order,
         on_delete=models.CASCADE,
@@ -380,6 +371,12 @@ class OrderInstallment(TimeStampedModel):
         help_text="Whether this installment is active"
     )
     
+    extra_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Any Etxra info metadata (session keys, etc.)"
+    )  
+      
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Order Installment"
         verbose_name_plural = "Order Installments"
@@ -428,6 +425,55 @@ class OrderInstallment(TimeStampedModel):
             self.save()
             return True
         return False
+    
+    # ========== PAYMENT HELPER METHODS ==========
+    
+    def can_accept_payment(self):
+        """Check if this installment can accept payment."""
+        return self.status in ['pending', 'overdue'] and self.is_active
+    
+    def remaining_amount(self):
+        """Get remaining amount to be paid."""
+        return self.amount if self.status != 'paid' else Decimal('0.00')
+    
+    def is_overdue_now(self):
+        """Check if installment is currently overdue (without saving)."""
+        return self.status in ['pending', 'overdue'] and timezone.now() > self.due_date
+    
+    def days_until_due(self):
+        """Calculate days until due date (negative if overdue)."""
+        delta = self.due_date - timezone.now()
+        return delta.days
+    
+    def is_paid(self):
+        """Check if installment is paid."""
+        return self.status == 'paid'
+    
+    
+    # ========== EXTRA_DATA HELPER METHODS ==========
+    
+    def get_extra_data(self, key, default=None):
+        """Safely get value from extra_data."""
+        if not self.extra_data:
+            return default
+        return self.extra_data.get(key, default)
+    
+    def set_extra_data(self, key, value, save=True):
+        """Safely set value in extra_data."""
+        if not self.extra_data:
+            self.extra_data = {}
+        self.extra_data[key] = value
+        if save:
+            self.save(update_fields=['extra_data'])
+    
+    def update_extra_data(self, data_dict, save=True):
+        """Update multiple extra_data keys at once."""
+        if not self.extra_data:
+            self.extra_data = {}
+        self.extra_data.update(data_dict)
+        if save:
+            self.save(update_fields=['extra_data'])
+    
     
     def __str__(self):
         return f"Installment {self.installment_number}/{self.order.installment_plan} - {self.order.order_number}"
@@ -528,10 +574,10 @@ class Enrollment(TimeStampedModel):
     
     # NEW: Primary enrollment reference (batch-based enrollment)
     batch = models.ForeignKey(
-        'api.CourseBatch',  # Use string reference
+        'api.CourseBatch',
         on_delete=models.CASCADE,
         related_name="enrollments",
-        null=True,  # Nullable for backward compatibility with existing enrollments
+        null=True,
         blank=True,
         help_text="Course batch the student is enrolled in (primary reference)"
     )
@@ -585,8 +631,7 @@ class Enrollment(TimeStampedModel):
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Enrollment"
         verbose_name_plural = "Enrollments"
-        # Updated: User can enroll in multiple batches of the same course
-        unique_together = [("user", "batch")]  # One enrollment per user per batch
+        unique_together = [("user", "batch")]
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=['user', 'is_active']),
@@ -635,3 +680,6 @@ class Enrollment(TimeStampedModel):
         if self.batch:
             return f"{self.user.get_full_name or self.user.email} enrolled in {self.batch.get_display_name()}"
         return f"{self.user.get_full_name or self.user.email} enrolled in {self.course.title}"
+
+
+

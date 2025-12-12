@@ -1,5 +1,5 @@
 """
-Security and integration tests for CustomPayment and EventRegistration.
+Security and integration tests for CustomPayment.
 Tests role-based access control, object-level permissions, and business logic.
 """
 
@@ -13,12 +13,11 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.test import APIRequestFactory
 
 from api.models.models_course import Category, Course
-from api.models.models_custom_payment import CustomPayment, EventRegistration
+from api.models.models_custom_payment import CustomPayment
 from api.models.models_order import Enrollment
 from api.models.models_pricing import CoursePrice
 from api.permissions import IsStaff, IsStudent
-from api.views.views_custom_payment import (CustomPaymentViewSet,
-                                            EventRegistrationViewSet)
+from api.views.views_custom_payment import (CustomPaymentViewSet,)
 
 User = get_user_model()
 
@@ -280,220 +279,6 @@ class CustomPaymentSecurityTestCase(TestCase):
         
         self.assertIsNotNone(self.payment1.cancelled_at)
 
-
-class EventRegistrationSecurityTestCase(TestCase):
-    """Test security features for EventRegistration model."""
-    
-    def setUp(self):
-        """Create test data."""
-        # Create users
-        self.user1 = User.objects.create_user(
-            email='user1_evt@example.com',
-            password='testpass123',
-            role='student',
-            first_name='User',
-            last_name='One',
-            phone='01700000011'
-        )
-        
-        self.user2 = User.objects.create_user(
-            email='user2_evt@example.com',
-            password='testpass123',
-            role='student',
-            first_name='User',
-            last_name='Two',
-            phone='01700000012'
-        )
-        
-        self.staff = User.objects.create_user(
-            email='staff_evt@example.com',
-            password='testpass123',
-            role='staff',
-            first_name='Staff',
-            last_name='User',
-            phone='01700000013'
-        )
-        
-        # Create event registrations
-        event_date = timezone.now() + timedelta(days=7)
-        
-        self.registration1 = EventRegistration.objects.create(
-            user=self.user1,
-            event_type='workshop',
-            event_name='Python Advanced Workshop',
-            event_date=event_date,
-            event_location='Dhaka Office',
-            ticket_type='Early Bird',
-            number_of_tickets=1,
-            price_per_ticket=Decimal('1500.00'),
-            contact_name='User One',
-            contact_email='user1_evt@example.com',
-            status='completed'
-        )
-        
-        self.registration2 = EventRegistration.objects.create(
-            user=self.user2,
-            created_by=self.staff,
-            event_type='seminar',
-            event_name='AI/ML Seminar',
-            event_date=event_date,
-            event_location='Virtual',
-            ticket_type='General',
-            number_of_tickets=2,
-            price_per_ticket=Decimal('500.00'),
-            contact_name='User Two',
-            contact_email='user2_evt@example.com',
-            status='pending'
-        )
-        
-        self.factory = APIRequestFactory()
-    
-    # Permission Tests
-    
-    def test_students_can_create_event_registration(self):
-        """Students should be able to create event registrations."""
-        request = self.factory.post('/api/event-registrations/')
-        request.user = self.user1
-        
-        viewset = EventRegistrationViewSet()
-        viewset.request = request
-        viewset.action = 'create'
-        
-        permissions = viewset.get_permissions()
-        has_permission = all(perm.has_permission(request, viewset) for perm in permissions)
-        self.assertTrue(has_permission)
-    
-    def test_user_sees_only_own_registrations(self):
-        """Users should only see their own event registrations."""
-        request = self.factory.get('/api/event-registrations/')
-        request.user = self.user1
-        
-        viewset = EventRegistrationViewSet()
-        viewset.request = request
-        viewset.action = 'list'
-        queryset = viewset.get_queryset()
-        
-        self.assertEqual(queryset.count(), 1)
-        self.assertEqual(queryset.first(), self.registration1)
-        self.assertNotIn(self.registration2, queryset)
-    
-    def test_staff_sees_all_registrations(self):
-        """Staff should see all event registrations."""
-        request = self.factory.get('/api/event-registrations/')
-        request.user = self.staff
-        
-        viewset = EventRegistrationViewSet()
-        viewset.request = request
-        viewset.action = 'list'
-        viewset.format_kwarg = None  # Add this
-        queryset = viewset.get_queryset()
-        
-        self.assertGreaterEqual(queryset.count(), 2)  # At least the 2 we created
-    
-    def test_only_staff_can_update_registration(self):
-        """Only staff should be able to update event registrations."""
-        request = self.factory.patch(f'/api/event-registrations/{self.registration1.id}/')
-        request.user = self.user1
-        
-        viewset = EventRegistrationViewSet()
-        viewset.request = request
-        viewset.action = 'update'
-        
-        permissions = viewset.get_permissions()
-        has_permission = all(perm.has_permission(request, viewset) for perm in permissions)
-        self.assertFalse(has_permission)
-        
-        # Staff can update
-        request.user = self.staff
-        has_permission = all(perm.has_permission(request, viewset) for perm in permissions)
-        self.assertTrue(has_permission)
-    
-    # Business Logic Tests
-    
-    def test_registration_number_auto_generated(self):
-        """Registration number should be auto-generated in EVT format."""
-        registration = EventRegistration.objects.create(
-            user=self.user1,
-            event_type='workshop',
-            event_name='Test Event',
-            event_date=timezone.now() + timedelta(days=1),
-            number_of_tickets=1,
-            price_per_ticket=Decimal('1000.00'),
-            contact_name='Test User',
-            contact_email='test@example.com'
-        )
-        
-        self.assertTrue(registration.registration_number.startswith('EVT-'))
-        self.assertEqual(len(registration.registration_number), 18)  # EVT-YYYYMMDD-XXXXX
-    
-    def test_total_amount_auto_calculated(self):
-        """Total amount should be auto-calculated from price × tickets."""
-        self.assertEqual(
-            self.registration1.total_amount,
-            self.registration1.price_per_ticket * self.registration1.number_of_tickets
-        )
-        
-        self.assertEqual(
-            self.registration2.total_amount,
-            Decimal('500.00') * 2
-        )
-    
-    def test_mark_attendance(self):
-        """mark_attendance should set is_attended and attended_at."""
-        self.assertFalse(self.registration1.is_attended)
-        self.assertIsNone(self.registration1.attended_at)
-        
-        self.registration1.mark_attendance()
-        self.registration1.refresh_from_db()
-        
-        self.assertTrue(self.registration1.is_attended)
-        self.assertIsNotNone(self.registration1.attended_at)
-    
-    def test_mark_as_completed(self):
-        """mark_as_completed should update status and completed_at."""
-        self.assertEqual(self.registration2.status, 'pending')
-        self.assertIsNone(self.registration2.completed_at)
-        
-        self.registration2.mark_as_completed()
-        self.registration2.refresh_from_db()
-        
-        self.assertEqual(self.registration2.status, 'completed')
-        self.assertIsNotNone(self.registration2.completed_at)
-    
-    def test_created_by_tracks_admin_when_admin_initiated(self):
-        """EventRegistration should track admin when admin creates it."""
-        self.assertIsNone(self.registration1.created_by)  # Self-registered
-        self.assertEqual(self.registration2.created_by, self.staff)  # Admin-registered
-    
-    def test_completed_at_auto_set(self):
-        """completed_at should be auto-set when status becomes completed."""
-        registration = EventRegistration.objects.create(
-            user=self.user1,
-            event_type='webinar',
-            event_name='Test Webinar',
-            event_date=timezone.now() + timedelta(days=1),
-            number_of_tickets=1,
-            price_per_ticket=Decimal('0.00'),
-            contact_name='Test',
-            contact_email='test@example.com',
-            status='pending'
-        )
-        
-        self.assertIsNone(registration.completed_at)
-        
-        registration.status = 'completed'
-        registration.save()
-        
-        self.assertIsNotNone(registration.completed_at)
-    
-    def test_cancelled_at_auto_set(self):
-        """cancelled_at should be auto-set when status becomes cancelled."""
-        self.assertIsNone(self.registration1.cancelled_at)
-        
-        self.registration1.status = 'cancelled'
-        self.registration1.save()
-        
-        self.assertIsNotNone(self.registration1.cancelled_at)
 
 
 class CustomPaymentIntegrationTestCase(TestCase):

@@ -424,6 +424,7 @@ class WhyEnrol(OptimizedImageModel):
     text = CKEditor5Field(
         help_text="Rich text content explaining why to enroll"
     )
+    
     is_active = models.BooleanField(
         default=True,
         help_text="Whether this why enrol section is active and visible"
