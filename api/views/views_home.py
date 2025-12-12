@@ -39,6 +39,6 @@ class BrandViewSet(BaseAdminViewSet):
     """Brand Management"""
     queryset = Brand.objects.all()
     serializer_class = BrandSerializer
-    parser_classes = (MultiPartParser, FormParser, JSONParser)
+    parser_classes = (MultiPartParser, FormParser)
 
 
