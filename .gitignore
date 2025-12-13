@@ -81,7 +81,7 @@ wheels/
 *.egg 
 *.manifest 
 *.spec 
-
+data.json
 # Installer logs 
 pip-log.txt 
 pip-delete-this-directory.txt 
