@@ -192,6 +192,12 @@ class Employee(TimeStampedModel, OptimizedImageModel):
         null=True,
         help_text="Name of employee’s spouse (optional).",
     )
+    spouse_contact_phone = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Spouse Contact name.",
+    )
     emergency_contact_name = models.CharField(
         max_length=100,
         blank=True,

@@ -113,6 +113,7 @@ class EmployeeAdmin(admin.ModelAdmin):
         ("Emergency Contact", {
             "fields": (
                 "spouse_name",
+                "spouse_contact_phone",
                 "emergency_contact_name",
                 "alternative_contact_phone",
             ),

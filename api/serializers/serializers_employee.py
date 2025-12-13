@@ -44,6 +44,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "salary",
             "nid_no",
             "spouse_name",
+            "spouse_contact_phone",
             "emergency_contact_name",
             "alternative_contact_phone",
             "employee_image",
