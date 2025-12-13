@@ -13,8 +13,8 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 @extend_schema(
     tags=["Employee"],
     summary="Employee Department Resources",
-    responses=EmployeeSerializer,
-    request=EmployeeSerializer,
+    responses=DepartmentSerializer,
+    request=DepartmentSerializer,
 )
 class DepartmentViewSet(BaseAdminViewSet):
     """
