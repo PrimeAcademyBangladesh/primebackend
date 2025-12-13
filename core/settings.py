@@ -338,6 +338,9 @@ else:
 # SECURE_BROWSER_XSS_FILTER = True
 # SECURE_CONTENT_TYPE_NOSNIFF = True
 
+# Allow same-origin framing for admin previews (change for production as needed)
+X_FRAME_OPTIONS = 'SAMEORIGIN'
+
 
 if os.getenv("ENVIRONMENT", "development") == "development":
     SITE_BASE_URL = "http://127.0.0.1:8000"
@@ -371,12 +374,14 @@ PAYMENT_TOKEN_TTL = int(os.getenv("PAYMENT_TOKEN_TTL", 900))  # 15 minutes
 
 SEO_CONFIG = {
     "SITE_NAME": "Prime Academy",
-    "ORGANIZATION_LOGO_URL": f"{FRONTEND_URL}/static/images/logo.png",
+    "ORGANIZATION_LOGO_URL": f"{FRONTEND_URL}/assets/prime-academy-logo-full-dark.png",
     "DEFAULT_TWITTER_SITE": "@PrimeAcademy",
     "ORGANIZATION_SOCIAL_PROFILES": [
-        "https://www.facebook.com/primeacademy",
-        "https://www.twitter.com/primeacademy",
-        "https://www.linkedin.com/company/primeacademy",
+        "https://www.facebook.com/PrimeAcademyBD",
+        "https://www.instagram.com/theprimeacademy_bangladesh",
+        "https://www.linkedin.com/company/prime-academy-bangladesh",
+        "https://www.tiktok.com/@theprimeacademy",
+        "https://www.youtube.com/@bdprimeacademy"
     ],
 }
 
