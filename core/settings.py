@@ -286,7 +286,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",        # Local frontend (Vite dev server)
     "http://127.0.0.1:5173",        # Local frontend (alternative)
-    "http://45.85.250.92",          # Production frontend
+    "http://45.85.250.92",      # Production frontend
     "http://45.85.250.92:8080",     # Production API (if needed for same-origin requests)
     "https://prime-academy-bd.vercel.app",  # Production frontend (Vercel)
 ]
