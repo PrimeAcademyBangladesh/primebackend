@@ -65,7 +65,7 @@ class CourseTabbedContentSerializer(HTMLFieldsMixin, serializers.ModelSerializer
 
 
 class CourseSectionTabSerializer(serializers.ModelSerializer):
-    """Serializer for course section tabs (max 2 per section)."""
+    """Serializer for course section tabs."""
     contents = serializers.SerializerMethodField()
     
     class Meta:
@@ -826,42 +826,31 @@ class CourseContentSectionCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 class CourseSectionTabCreateUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for creating/updating section tabs (max 2 per section)."""
+    """Serializer for creating/updating section tabs."""
     
     class Meta:
         model = CourseSectionTab
         fields = ['section', 'tab_name', 'order', 'is_active']
     
-    def validate_order(self, value):
-        """Validate order is 0 or 1 (max 2 tabs)."""
-        if value not in [0, 1]:
-            raise serializers.ValidationError('Tab order must be 0 or 1 (maximum 2 tabs per section).')
-        return value
-    
     def validate(self, data):
-        """Validate max 2 tabs per section."""
+        """Validate order uniqueness per section.
+
+        Allows any non-negative integer for `order`. Ensures no duplicate order
+        exists for the same section (except when updating the same instance).
+        """
         section = data.get('section')
         order = data.get('order')
-        
-        if section:
-            # Check tab count limit
-            query = CourseSectionTab.objects.filter(section=section)
+
+        if section and order is not None:
+            query = CourseSectionTab.objects.filter(section=section, order=order)
             if self.instance:
                 query = query.exclude(pk=self.instance.pk)
-            
-            if query.count() >= 2 and not self.instance:
+
+            if query.exists():
                 raise serializers.ValidationError({
-                    'section': 'Each section can have maximum 2 tabs.'
+                    'order': f'A tab with order {order} already exists in this section.'
                 })
-            
-            # Check order uniqueness
-            if order is not None:
-                order_query = query.filter(order=order)
-                if order_query.exists():
-                    raise serializers.ValidationError({
-                        'order': f'A tab with order {order} already exists in this section.'
-                    })
-        
+
         return data
 
 

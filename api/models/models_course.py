@@ -211,7 +211,7 @@ class CourseContentSection(models.Model):
 
 
 class CourseSectionTab(models.Model):
-    """Sub-tabs within a course content section. Maximum 2 tabs per section."""
+    """Sub-tabs within a course content section."""
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     section = models.ForeignKey(
@@ -236,15 +236,8 @@ class CourseSectionTab(models.Model):
         ordering = ["section", "order"]
         unique_together = ["section", "order"]
 
-    # def clean(self):
-    #     """Validate maximum 2 tabs per section"""
-    #     from django.core.exceptions import ValidationError
-    #     if self.section_id:
-    #         existing_tabs = CourseSectionTab.objects.filter(section=self.section).exclude(pk=self.pk)
-    #         if existing_tabs.count() >= 2:
-    #             raise ValidationError("Each section can have maximum 2 tabs.")
-    #         if self.order > 1:
-    #             raise ValidationError("Tab order must be 0 or 1 (maximum 2 tabs).")
+    # Note: previous validation restricting tabs to a maximum of 2 was removed.
+    # If you need to reintroduce limits, implement clean()/validators here.
 
     def __str__(self):
         return f"{self.section.section_name} - {self.tab_name}"

@@ -70,28 +70,27 @@ class CourseTabbedContentInline(nested_admin.NestedStackedInline):
 
 
 class CourseSectionTabInline(nested_admin.NestedStackedInline):
-    """Inline for sub-tabs within a content section (max 2 tabs per section)."""
+    """Inline for sub-tabs within a content section."""
     model = CourseSectionTab
     formset = RequireOneFormSet
     extra = 0  # Don't show extra empty forms - use "Add another" button instead
-    max_num = 2  # Maximum 2 tabs per section
     fields = ['order', 'tab_name', 'is_active']
     show_change_link = False
     verbose_name = "Tab"
-    verbose_name_plural = "Tabs (Maximum 2 per section)"
+    verbose_name_plural = "Tabs"
     ordering = ['order']
     inlines = [CourseTabbedContentInline]
 
 
 class CourseContentSectionInline(nested_admin.NestedStackedInline):
-    """Inline for main content sections (each can have up to 2 tabs)."""
+    """Inline for main content sections."""
     model = CourseContentSection
     formset = RequireOneFormSet
     extra = 0  # Don't show extra empty forms - use "Add another" button instead
     fields = ['order', 'section_name', 'is_active']
     show_change_link = False
     verbose_name = "Content Section"
-    verbose_name_plural = "Content Sections (Add unlimited sections, each with up to 2 tabs)"
+    verbose_name_plural = "Content Sections (Add unlimited sections)"
     ordering = ['order']
     inlines = [CourseSectionTabInline]
 

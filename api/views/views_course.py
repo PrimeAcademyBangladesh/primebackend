@@ -1645,7 +1645,7 @@ class CourseDetailViewSet(BaseAdminViewSet):
         **Admin Only**: Manage course content sections.
         
         Content sections organize course detail page content into logical groups.
-        Each section can have up to 2 tabs with multiple media items.
+        Each section can have multiple tabs with media items.
         
         **Use Cases:**
         - Admin content management
@@ -1724,15 +1724,13 @@ class CourseContentSectionViewSet(BaseAdminViewSet):
         summary="List section tabs (Admin)",
         description="""
         **Admin Only**: Manage tabs within course content sections.
-        
-        **Business Rule:** Maximum 2 tabs per content section.
-        
+
         Each tab can contain multiple media items (images/videos).
-        
+
         **Filtering:**
         - `?section={uuid}`: Filter by content section UUID
         - `?is_active=true`: Active tabs only
-        
+
         **Frontend Note:** Tabs are accessed via nested structure in course detail.
         """,
         responses={200: None},
@@ -1746,7 +1744,7 @@ class CourseContentSectionViewSet(BaseAdminViewSet):
     ),
     create=extend_schema(
         summary="Create section tab (Admin)",
-        description="Create a new tab within a content section. Max 2 tabs per section.",
+        description="Create a new tab within a content section.",
         responses={201: None},
         tags=["Course - Content"]
     ),
@@ -1770,7 +1768,7 @@ class CourseContentSectionViewSet(BaseAdminViewSet):
     ),
 )
 class CourseSectionTabViewSet(BaseAdminViewSet):
-    """CRUD operations for CourseSectionTab (max 2 per section)."""
+    """CRUD operations for CourseSectionTab."""
 
     queryset = (
         CourseSectionTab.objects.select_related("section__course__course")
