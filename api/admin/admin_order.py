@@ -5,10 +5,12 @@ from django.db.models import Count, Sum
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import format_html
+import json
+import traceback
 
 from api.admin.base_admin import BaseModelAdmin
 from api.models.models_order import (Enrollment, Order, OrderInstallment,
-                                     OrderItem)
+                                     OrderItem, PaymentTransaction)
 
 # ========== Inline for OrderInstallments ==========
 
@@ -758,3 +760,149 @@ class OrderInstallmentAdmin(BaseModelAdmin):
             f'{count} installment(s) marked as overdue.'
         )
     check_overdue.short_description = 'Check for overdue installments'
+
+
+@admin.register(PaymentTransaction)
+class PaymentTransactionAdmin(admin.ModelAdmin):
+    list_display = ('internal_payment_id', 'gateway_transaction_id', 'status', 'amount', 'created_at')
+    list_filter = ('status', 'created_at', 'payment_method')
+    search_fields = ('internal_payment_id', 'gateway_transaction_id', 'request_id')
+    readonly_fields = ('id', 'created_at', 'gateway_response', 'admin_actions_help')
+    ordering = ('-created_at',)
+    actions = ['verify_with_gateway', 'reprocess_transaction']
+
+    fieldsets = (
+        ('Transaction', {
+            'fields': (
+                'internal_payment_id',
+                'gateway_transaction_id',
+                'payment_method',
+                'amount',
+                'status',
+                'created_at',
+                'gateway_response',
+            )
+        }),
+        ('Admin Actions', {
+            'fields': ('admin_actions_help',),
+            'description': 'Actions are idempotent: run "Verify with gateway" to heuristically settle from stored response; run "Re-run processing" to re-apply idempotent settlement. Both can be run multiple times but prefer Verify first.'
+        }),
+    )
+
+    def gateway_response(self, obj):
+        """Pretty-print the stored gateway response JSON for easier manual inspection."""
+        if not obj or not obj.gateway_response:
+            return '-'
+        try:
+            pretty = json.dumps(obj.gateway_response, ensure_ascii=False, indent=2)
+        except Exception:
+            pretty = str(obj.gateway_response)
+        return format_html('<pre style="white-space: pre-wrap; max-width: 900px;">{}</pre>', pretty)
+    gateway_response.short_description = 'Gateway Response (pretty)'
+
+    def admin_actions_help(self, obj=None):
+        """Explain the admin actions and safety considerations for staff.
+
+        This appears on the transaction change view as a readonly helper.
+        """
+        text = (
+            '<div style="max-width:900px">'
+            '<strong>Admin Actions</strong><br>'
+            '• <strong>Verify with gateway (heuristic)</strong>: inspects the stored <code>gateway_response</code> for success markers and attempts to settle the linked installment using idempotent model logic. This does <em>not</em> call external gateways.<br>'
+            '• <strong>Re-run processing (idempotent)</strong>: re-applies the idempotent settlement logic (calls <code>mark_as_paid</code>) and will safely skip already-settled installments.<br>'
+            '<em>Recommendation:</em> Run <strong>Verify</strong> first; use <strong>Re-run processing</strong> if needed. Both actions add audit details to the transaction record and increment retry counters on errors.'
+            '</div>'
+        )
+        return format_html(text)
+    admin_actions_help.short_description = 'Actions & Safety Notes'
+
+    def verify_with_gateway(self, request, queryset):
+        """Heuristic verification: inspect `gateway_response` for success markers and apply idempotent settlement.
+
+        This does NOT call external gateways; it attempts to interpret stored responses and
+        mark installments paid using existing idempotent model logic. Safe to run multiple times.
+        """
+        success_keywords = ('success', 'verified', 'settled', 'completed', 'paid')
+        processed = 0
+        errors = 0
+        for tx in queryset.select_related('installment'):
+            try:
+                if tx.status in ('verified', 'settled'):
+                    continue
+
+                payload = tx.gateway_response or {}
+                payload_str = json.dumps(payload).lower() if payload else ''
+
+                if any(k in payload_str for k in success_keywords):
+                    try:
+                        tx.installment.mark_as_paid(
+                            payment_id=tx.internal_payment_id,
+                            payment_method=tx.payment_method,
+                            gateway_transaction_id=tx.gateway_transaction_id,
+                        )
+                        tx.status = 'settled'
+                        tx.verified_at = timezone.now()
+                        tx.settled_at = timezone.now()
+                        tx.save(update_fields=['status', 'verified_at', 'settled_at'])
+                        processed += 1
+                    except Exception as e:
+                        tx.retry_count = (tx.retry_count or 0) + 1
+                        tx.error_message = (tx.error_message or '') + f"\nverify error: {e}"
+                        tx.save(update_fields=['retry_count', 'error_message'])
+                        errors += 1
+                else:
+                    tx.error_message = (tx.error_message or '') + '\nverify: gateway_response does not indicate success'
+                    tx.save(update_fields=['error_message'])
+            except Exception:
+                try:
+                    tx.retry_count = (tx.retry_count or 0) + 1
+                    tx.error_message = (tx.error_message or '') + f"\nunexpected verify error: {traceback.format_exc()}"
+                    tx.save(update_fields=['retry_count', 'error_message'])
+                except Exception:
+                    pass
+                errors += 1
+
+        self.message_user(request, f'Verify completed: {processed} settled, {errors} errors')
+    verify_with_gateway.short_description = 'Verify with gateway (heuristic, safe/idempotent)'
+
+    def reprocess_transaction(self, request, queryset):
+        """Attempt to re-run the idempotent processing for selected transactions.
+
+        This is safe to run multiple times because `mark_as_paid` and transaction
+        creation are idempotent / guarded against duplicates.
+        """
+        processed = 0
+        errors = 0
+        for tx in queryset.select_related('installment'):
+            try:
+                if tx.installment.status == 'paid':
+                    continue
+
+                try:
+                    tx.installment.mark_as_paid(
+                        payment_id=tx.internal_payment_id,
+                        payment_method=tx.payment_method,
+                        gateway_transaction_id=tx.gateway_transaction_id,
+                    )
+                    tx.status = 'settled'
+                    tx.verified_at = timezone.now()
+                    tx.settled_at = timezone.now()
+                    tx.save(update_fields=['status', 'verified_at', 'settled_at'])
+                    processed += 1
+                except Exception as e:
+                    tx.retry_count = (tx.retry_count or 0) + 1
+                    tx.error_message = (tx.error_message or '') + f"\nreprocess error: {e}"
+                    tx.save(update_fields=['retry_count', 'error_message'])
+                    errors += 1
+
+            except Exception:
+                try:
+                    tx.retry_count = (tx.retry_count or 0) + 1
+                    tx.error_message = (tx.error_message or '') + f"\nunexpected reprocess error: {traceback.format_exc()}"
+                    tx.save(update_fields=['retry_count', 'error_message'])
+                except Exception:
+                    pass
+                errors += 1
+
+        self.message_user(request, f'Reprocess completed: {processed} settled, {errors} errors')
+    reprocess_transaction.short_description = 'Re-run processing (idempotent)'

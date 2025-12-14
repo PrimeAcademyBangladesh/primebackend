@@ -7,8 +7,10 @@ import uuid
 from decimal import Decimal
 
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import IntegrityError, models, transaction
+from django.db.models import F
 from django.utils import timezone
+
 
 from api.utils.helper_models import TimeStampedModel
 
@@ -307,6 +309,60 @@ class Order(TimeStampedModel):
         return f"Order {self.order_number} - {self.user.get_full_name or self.user.email}"
 
 
+
+
+class PaymentTransaction(models.Model):
+    """Idempotent payment log - prevents duplicate charges"""
+    
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('verified', 'Verified'),
+        ('settled', 'Settled'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+        ('refunded', 'Refunded'),
+        ('duplicate', 'Duplicate'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    installment = models.ForeignKey(
+        'OrderInstallment',
+        on_delete=models.CASCADE,
+        related_name='payment_transactions'
+    )
+    gateway_transaction_id = models.CharField(max_length=255, unique=True, db_index=True)
+    internal_payment_id = models.CharField(max_length=255, unique=True, db_index=True)
+    payment_method = models.CharField(max_length=50)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=3, default='BDT')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+    gateway_response = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True)
+    request_id = models.CharField(max_length=255, blank=True, db_index=True)
+    retry_count = models.PositiveIntegerField(default=0)
+    
+    class Meta:
+        verbose_name = "Payment Transaction"
+        verbose_name_plural = "Payment Transactions"
+        ordering = ['-created_at']
+        unique_together = [('installment', 'gateway_transaction_id')]
+        indexes = [
+            models.Index(fields=['gateway_transaction_id']),
+            models.Index(fields=['internal_payment_id']),
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['installment', 'status']),
+            models.Index(fields=['request_id']),
+        ]
+    
+    def __str__(self):
+        return f"{self.internal_payment_id} - {self.status}"
+
+
+
+
 class OrderInstallment(TimeStampedModel):
     """Track individual installment payments for orders."""
     
@@ -374,7 +430,7 @@ class OrderInstallment(TimeStampedModel):
     extra_data = models.JSONField(
         default=dict,
         blank=True,
-        help_text="Any Etxra info metadata (session keys, etc.)"
+        help_text="Any Extra info metadata (session keys, etc.)"
     )  
       
     class Meta(TimeStampedModel.Meta):
@@ -388,35 +444,94 @@ class OrderInstallment(TimeStampedModel):
             models.Index(fields=['status']),
         ]
     
-    def mark_as_paid(self, payment_id='', payment_method=''):
-        """Mark this installment as paid and update order."""
+    @transaction.atomic
+    def mark_as_paid(self, payment_id='', payment_method='', gateway_transaction_id=''):
+        """Mark installment as paid with duplicate control."""
+        
+        # Validate inputs
+        if not payment_id or not isinstance(payment_id, str):
+            raise ValueError("payment_id must be non-empty string")
+        
+        payment_id = payment_id.strip()
+        if not payment_id or len(payment_id) > 255:
+            raise ValueError("Invalid payment_id")
+        
+        if not gateway_transaction_id:
+            raise ValueError("gateway_transaction_id is required")
+        
+        # Check duplicate
+        if OrderInstallment.objects.filter(
+            payment_id=payment_id
+        ).exclude(id=self.id).exists():
+            raise ValueError(f"Duplicate payment_id: {payment_id}")
+        
+        # Update installment
         if self.status != 'paid':
             self.status = 'paid'
             self.paid_at = timezone.now()
             self.payment_id = payment_id
             self.payment_method = payment_method
-            self.save()
+            self.save(update_fields=['status', 'paid_at', 'payment_id', 'payment_method'])
             
-            # Update order's installments_paid count
-            self.order.installments_paid += 1
+            # Atomic increment
+            Order.objects.filter(id=self.order.id).update(
+                installments_paid=F('installments_paid') + 1
+            )
             
-            # Check if this was the last installment
+            # Refresh and check if fully paid
+            self.order.refresh_from_db(fields=['installments_paid'])
+            
             if self.order.is_fully_paid():
                 self.order.mark_as_completed()
             else:
-                # Update next installment date
-                try:
-                    next_installment = OrderInstallment.objects.filter(
-                        order=self.order,
-                        status='pending'
-                    ).order_by('installment_number').first()
+                self._update_next_installment_date()    
+        
+    # @transaction.atomic
+    # def mark_as_paid(self, payment_id='', payment_method=''):
+    #     """Mark this installment as paid and update order."""
+        
+    #     # Validate payment_id is not empty if updating
+    #     if not payment_id:
+    #         raise ValueError("payment_id cannot be empty")
+        
+    #     # Check for duplicate payment IDs (security: prevent double-charging)
+    #     if OrderInstallment.objects.filter(
+    #         payment_id=payment_id
+    #     ).exclude(id=self.id).exists():
+    #         raise ValueError(f"Duplicate payment_id: {payment_id}")
+        
+    #     if self.status != 'paid':
+    #         self.status = 'paid'
+    #         self.paid_at = timezone.now()
+    #         self.payment_id = payment_id
+    #         self.payment_method = payment_method
+    #         self.save()
+            
+    #         # Update order's installments_paid count
+    #         # self.order.installments_paid += 1 # Wrong way
+    #         self.order.installments_paid = F('installments_paid') + 1
+    #         self.order.save(update_fields=['installments_paid'])
+            
+    #         # Refresh to get actual value for subsequent checks
+    #         self.order.refresh_from_db(fields=['installments_paid'])
+            
+    #         # Check if this was the last installment
+    #         if self.order.is_fully_paid():
+    #             self.order.mark_as_completed()
+    #         else:
+    #             # Update next installment date
+    #             try:
+    #                 next_installment = OrderInstallment.objects.filter(
+    #                     order=self.order,
+    #                     status='pending'
+    #                 ).order_by('installment_number').first()
                     
-                    if next_installment:
-                        self.order.next_installment_date = next_installment.due_date
-                except OrderInstallment.DoesNotExist:
-                    self.order.next_installment_date = None
+    #                 if next_installment:
+    #                     self.order.next_installment_date = next_installment.due_date
+    #             except OrderInstallment.DoesNotExist:
+    #                 self.order.next_installment_date = None
                 
-                self.order.save()
+    #             self.order.save()
     
     def check_overdue(self):
         """Check if installment is overdue and update status."""
@@ -475,6 +590,59 @@ class OrderInstallment(TimeStampedModel):
             self.save(update_fields=['extra_data'])
     
     
+    def _update_next_installment_date(self):
+        """Update next installment date efficiently."""
+        next_due = OrderInstallment.objects.filter(
+            order=self.order,
+            status='pending'
+        ).order_by('installment_number').values_list('due_date', flat=True).first()
+        
+        Order.objects.filter(id=self.order.id).update(
+            next_installment_date=next_due
+        )
+    
+    @classmethod
+    @transaction.atomic
+    def create_payment_transaction(
+        cls,
+        installment,
+        gateway_transaction_id,
+        payment_method,
+        amount,
+        gateway_response=None,
+        request_id=None
+    ):
+        """Create or get payment transaction (idempotent)."""
+        
+        try:
+            payment = PaymentTransaction.objects.get(
+                gateway_transaction_id=gateway_transaction_id
+            )
+            return (payment, False)  # Already exists
+        
+        except PaymentTransaction.DoesNotExist:
+            internal_id = f"PAY-{installment.order.order_number}-{installment.installment_number}-{uuid.uuid4().hex[:8]}"
+            
+            try:
+                payment = PaymentTransaction.objects.create(
+                    installment=installment,
+                    gateway_transaction_id=gateway_transaction_id,
+                    internal_payment_id=internal_id,
+                    payment_method=payment_method,
+                    amount=amount,
+                    currency='BDT',
+                    gateway_response=gateway_response or {},
+                    request_id=request_id,
+                    status='pending'
+                )
+                return (payment, True)  # New payment created
+            
+            except IntegrityError:
+                payment = PaymentTransaction.objects.get(
+                    gateway_transaction_id=gateway_transaction_id
+                )
+                return (payment, False)
+        
     def __str__(self):
         return f"Installment {self.installment_number}/{self.order.installment_plan} - {self.order.order_number}"
 
