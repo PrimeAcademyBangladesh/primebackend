@@ -223,7 +223,7 @@ class CourseSectionTab(models.Model):
     )
     order = models.PositiveIntegerField(
         default=0,
-        help_text="Tab order (0 or 1, max 2 tabs per section)"
+        help_text="Tab order such as 1 , 2, 3 ..."
     )
     is_active = models.BooleanField(
         default=True,
@@ -236,15 +236,15 @@ class CourseSectionTab(models.Model):
         ordering = ["section", "order"]
         unique_together = ["section", "order"]
 
-    def clean(self):
-        """Validate maximum 2 tabs per section"""
-        from django.core.exceptions import ValidationError
-        if self.section_id:
-            existing_tabs = CourseSectionTab.objects.filter(section=self.section).exclude(pk=self.pk)
-            if existing_tabs.count() >= 2:
-                raise ValidationError("Each section can have maximum 2 tabs.")
-            if self.order > 1:
-                raise ValidationError("Tab order must be 0 or 1 (maximum 2 tabs).")
+    # def clean(self):
+    #     """Validate maximum 2 tabs per section"""
+    #     from django.core.exceptions import ValidationError
+    #     if self.section_id:
+    #         existing_tabs = CourseSectionTab.objects.filter(section=self.section).exclude(pk=self.pk)
+    #         if existing_tabs.count() >= 2:
+    #             raise ValidationError("Each section can have maximum 2 tabs.")
+    #         if self.order > 1:
+    #             raise ValidationError("Tab order must be 0 or 1 (maximum 2 tabs).")
 
     def __str__(self):
         return f"{self.section.section_name} - {self.tab_name}"
