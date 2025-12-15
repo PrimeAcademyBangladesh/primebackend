@@ -579,21 +579,3 @@ CKEDITOR_5_FILE_UPLOAD_PERMISSION = "staff"
 # File size limits (optional)
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
-
-
-
-if DEBUG:
-    INSTALLED_APPS += ['debug_toolbar']
-
-    MIDDLEWARE = [
-        'debug_toolbar.middleware.DebugToolbarMiddleware',
-        *MIDDLEWARE,
-    ]
-
-    INTERNAL_IPS = ['127.0.0.1']
-
-    DEBUG_TOOLBAR_CONFIG = {
-        **globals().get('DEBUG_TOOLBAR_CONFIG', {}),
-        "SHOW_COLLAPSED": True,
-        "SQL_WARNING_THRESHOLD": 50,  # ms
-    }
