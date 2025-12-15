@@ -22,6 +22,7 @@ from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.http import HttpResponseRedirect
 from django.db import models as dj_models
+from django.db.models import Count
 
 from api.admin.base_admin import BaseModelAdmin
 from api.models.models_course import (Category, Course, CourseDetail,
@@ -29,9 +30,6 @@ from api.models.models_course import (Category, Course, CourseDetail,
                                       SideImageSection, SuccessStory, WhyEnrol,
                                       CourseContentSection, CourseSectionTab, CourseTabbedContent)
 from api.models.models_pricing import Coupon, CoursePrice
-from api.models.models_module import LiveClass, Assignment, Quiz
-# OLD: from api.models.models_progress import ModuleQuiz, ModuleAssignment
-# Use NEW system: Quiz, Assignment, LiveClass from models_module.py
 
 # ========== Custom Formsets ==========
 
@@ -298,6 +296,16 @@ class CategoryAdmin(admin.ModelAdmin):
 @admin.register(Course)
 class CourseAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
     """Main course admin with nested details and pricing."""
+    from django.db.models import Count
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # Load related pricing and category to avoid per-row queries in list_display
+        # Annotate module/course counts if you display them elsewhere
+        return qs.select_related('category').prefetch_related('pricing').annotate(
+            modules_count=Count('modules')  # optional: remove if model relation different
+    )
+    
     list_display = (
         'title',
         'category',

@@ -42,10 +42,6 @@ class Category(TimeStampedModel):
             models.Index(fields=['is_active']),
         ]
     
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(self.name)
-        super(Category, self).save(*args, **kwargs)
         
     def save(self, *args, **kwargs):
         self.slug = slugify(self.name)
@@ -127,10 +123,9 @@ class Course(TimeStampedModel, OptimizedImageModel):
             'max_upload_mb': 5
         }
     }
-
+       
     def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(self.title)
+        self.slug = slugify(self.name)
         super().save(*args, **kwargs)
 
     class Meta(TimeStampedModel.Meta, OptimizedImageModel.Meta):
@@ -235,9 +230,6 @@ class CourseSectionTab(models.Model):
         verbose_name_plural = "Course Section Tabs"
         ordering = ["section", "order"]
         unique_together = ["section", "order"]
-
-    # Note: previous validation restricting tabs to a maximum of 2 was removed.
-    # If you need to reintroduce limits, implement clean()/validators here.
 
     def __str__(self):
         return f"{self.section.section_name} - {self.tab_name}"
@@ -360,17 +352,33 @@ class CourseTabbedContent(TimeStampedModel, OptimizedImageModel):
         return f"{self.tab.tab_name} - {self.title}"
     
     def clean(self):
-        """Validate video URL format when provided"""
-        from django.core.exceptions import ValidationError
         super().clean()
+        from django.core.exceptions import ValidationError
+
+        errors = {}
+
+        if self.media_type == 'video':
+            if not self.video_url:
+                errors['video_url'] = 'Video URL is required'
+            if not self.video_provider:
+                errors['video_provider'] = 'Video provider is required'
+            if not self.video_thumbnail:
+                errors['video_thumbnail'] = 'Video thumbnail is required'
+
+            if self.video_url and self.video_provider:
+                if not self.validate_video_url():
+                    errors['video_url'] = f'Invalid {self.video_provider} URL format.'
+
+        if self.media_type == 'image':
+            if not self.image:
+                errors['image'] = 'Image is required'
+
+            if self.video_url and not self.video_provider:
+                errors['video_provider'] = 'Video provider is required when video URL is set'
+
+        if errors:
+            raise ValidationError(errors)
         
-        # Only validate video URL format if video URL is provided
-        if self.video_url and self.video_provider:
-            if not self.validate_video_url():
-                raise ValidationError({
-                    'video_url': f'Invalid {self.video_provider} URL format.'
-                })
-    
     def validate_video_url(self):
         """Validate video URL based on provider"""
         from api.utils.video_utils import validate_video_url
@@ -382,22 +390,25 @@ class CourseTabbedContent(TimeStampedModel, OptimizedImageModel):
         return extract_video_id(self.video_provider, self.video_url)
     
     def save(self, *args, **kwargs):
-        # Extract video ID if video URL is provided
+        self.full_clean()
+
         if self.video_url and self.video_provider:
-            self.video_id = self.extract_video_id()
+            try:
+                self.video_id = self.extract_video_id()
+            except Exception:
+                self.video_id = None
         else:
             self.video_id = None
-        
-        # If media type is image with video URL, keep both image and video fields
-        # If media type is image without video URL, clear video fields except video_url/provider/id
+
         if self.media_type == 'image':
-            # Always clear video thumbnail for image type (not needed)
             self.video_thumbnail = None
-        
-        # If media type is video, image can be used as poster/fallback (optional)
-        # Don't clear image field for video type
-        
+
+            if not self.video_url:
+                self.video_provider = None
+                self.video_id = None
+
         super().save(*args, **kwargs)
+
     
     @property
     def has_video(self):
@@ -489,7 +500,7 @@ class CourseInstructor(models.Model):
         help_text="The course this instructor teaches"
     )
     teacher = models.ForeignKey(
-        'api.CustomUser',  # String reference to avoid circular import
+        'api.CustomUser',
         related_name="teaching_courses",
         on_delete=models.CASCADE,
         limit_choices_to={'role': 'teacher'},
@@ -547,6 +558,13 @@ class CourseInstructor(models.Model):
         else:
             self.is_lead_instructor = False
         super().save(*args, **kwargs)
+        
+    def get_assigned_modules(self):
+        """Get modules this instructor teaches or all course modules if none specified."""
+        if self.modules.exists():
+            return self.modules.all()
+        # Return all modules from the course's detail
+        return self.course.detail.modules.all()
 
     def __str__(self):
         module_count = self.modules.count() if self.pk else 0
@@ -678,6 +696,7 @@ class CourseBatch(TimeStampedModel):
         verbose_name_plural = "Course Batches"
         ordering = ['-start_date', 'batch_number']
         unique_together = ['course', 'batch_number']
+        
         indexes = [
             models.Index(fields=['course', 'status', 'is_active']),
             models.Index(fields=['start_date', 'status']),
@@ -687,6 +706,9 @@ class CourseBatch(TimeStampedModel):
     
     def save(self, *args, **kwargs):
         """Auto-generate slug and update status based on dates."""
+        if not self.pk or 'status' not in kwargs.get('update_fields', []):
+            self._update_status()
+            
         if not self.slug:
             base_slug = f"{self.course.slug}-batch-{self.batch_number}"
             self.slug = base_slug
@@ -701,6 +723,7 @@ class CourseBatch(TimeStampedModel):
         self._update_status()
         
         super().save(*args, **kwargs)
+        
     
     def _update_status(self):
         """Update batch status based on current date and enrollment status."""

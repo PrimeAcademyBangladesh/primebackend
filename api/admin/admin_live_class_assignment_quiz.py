@@ -318,10 +318,12 @@ class LiveClassAdmin(BaseModelAdmin):
     status_display.admin_order_field = "status"
 
     def attendance_count(self, obj):
-        """Display attendance count."""
+        """Display attendance count using prefetched cache."""
         if obj.pk:
-            total = obj.attendances.count()
-            attended = obj.attendances.filter(attended=True).count()
+            attendances = list(obj.attendances.all())
+            total = len(attendances)
+            attended = sum(1 for a in attendances if a.attended)
+            
             if total > 0:
                 percentage = (attended / total) * 100
                 percentage_str = "{:.0f}%".format(float(percentage))
@@ -343,21 +345,26 @@ class LiveClassAdmin(BaseModelAdmin):
     has_recording.admin_order_field = "recording_url"
 
     def get_statistics(self, obj):
-        """Display live class statistics."""
+        """Display live class statistics using prefetched cache."""
         if obj.pk:
-            total_students = obj.attendances.count()
-            attended = obj.attendances.filter(attended=True).count()
+            attendances = list(obj.attendances.all())
+            total_students = len(attendances)
+            
+            attended_list = [a for a in attendances if a.attended]
+            attended = len(attended_list)
+            
             attendance_rate = (
                 (attended / total_students * 100) if total_students > 0 else 0
             )
-            avg_duration = (
-                obj.attendances.filter(attended=True).aggregate(
-                    avg=Avg("duration_minutes")
-                )["avg"]
-                or 0
-            )
+            
+            if attended_list:
+                avg_duration = sum(
+                    a.duration_minutes for a in attended_list 
+                    if a.duration_minutes
+                ) / len(attended_list)
+            else:
+                avg_duration = 0
 
-            # Pre-format numbers BEFORE format_html
             attendance_rate_fmt = f"{attendance_rate:.1f}%"
             avg_duration_fmt = f"{avg_duration:.0f}"
 
@@ -380,6 +387,7 @@ class LiveClassAdmin(BaseModelAdmin):
         return "Save to see statistics"
 
     get_statistics.short_description = "Statistics"
+
 
     actions = ["mark_as_completed", "mark_as_cancelled"]
 
@@ -419,6 +427,18 @@ class AssignmentSubmissionInline(admin.TabularInline):
 @admin.register(Assignment)
 class AssignmentAdmin(BaseModelAdmin):
     """Admin for managing assignments."""
+
+    def get_queryset(self, request):
+        """Optimize queryset to eliminate N+1 queries."""
+        qs = super().get_queryset(request)
+        return qs.select_related(
+            'module',
+            'module__course',
+            'module__course__course',
+            'created_by',
+        ).prefetch_related(
+            'submissions',
+        )
 
     list_display = [
         "title",
@@ -581,11 +601,12 @@ class AssignmentAdmin(BaseModelAdmin):
     due_date_display.admin_order_field = "due_date"
 
     def submission_stats(self, obj):
-        """Display submission statistics."""
+        """Display submission statistics using prefetched cache."""
         if obj.pk:
-            total = obj.submissions.count()
-            graded = obj.submissions.filter(status="graded").count()
-            pending = obj.submissions.filter(status="pending").count()
+            submissions = list(obj.submissions.all())
+            total = len(submissions)
+            graded = sum(1 for s in submissions if s.status == 'graded')
+            pending = sum(1 for s in submissions if s.status == 'pending')
 
             return format_html(
                 '<div style="line-height: 1.4;">'

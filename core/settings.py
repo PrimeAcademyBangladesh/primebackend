@@ -65,7 +65,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     # Reject requests where user was deleted/disabled after token issued
-    "api.middleware.RejectDeletedOrDisabledUserMiddleware",
+    "api.middleware.RejectDisabledUserMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -579,3 +579,21 @@ CKEDITOR_5_FILE_UPLOAD_PERMISSION = "staff"
 # File size limits (optional)
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+
+if DEBUG:
+    INSTALLED_APPS += ['debug_toolbar']
+
+    MIDDLEWARE = [
+        'debug_toolbar.middleware.DebugToolbarMiddleware',
+        *MIDDLEWARE,
+    ]
+
+    INTERNAL_IPS = ['127.0.0.1']
+
+    DEBUG_TOOLBAR_CONFIG = {
+        **globals().get('DEBUG_TOOLBAR_CONFIG', {}),
+        "SHOW_COLLAPSED": True,
+        "SQL_WARNING_THRESHOLD": 50,  # ms
+    }
