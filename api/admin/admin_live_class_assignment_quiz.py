@@ -57,7 +57,6 @@ class QuizQuestionInline(nested_admin.NestedStackedInline):
         "order",
         "question_type",
         "question_text",
-        "question_image",
         "marks",
         "correct_answer_text",
         "explanation",
@@ -78,7 +77,6 @@ class QuizQuestionInline(nested_admin.NestedStackedInline):
                         "order",
                         "question_type",
                         "question_text",
-                        "question_image",
                         "marks",
                         "is_active",
                     )
@@ -323,7 +321,7 @@ class LiveClassAdmin(BaseModelAdmin):
             attendances = list(obj.attendances.all())
             total = len(attendances)
             attended = sum(1 for a in attendances if a.attended)
-            
+
             if total > 0:
                 percentage = (attended / total) * 100
                 percentage_str = "{:.0f}%".format(float(percentage))
@@ -349,18 +347,17 @@ class LiveClassAdmin(BaseModelAdmin):
         if obj.pk:
             attendances = list(obj.attendances.all())
             total_students = len(attendances)
-            
+
             attended_list = [a for a in attendances if a.attended]
             attended = len(attended_list)
-            
+
             attendance_rate = (
                 (attended / total_students * 100) if total_students > 0 else 0
             )
-            
+
             if attended_list:
                 avg_duration = sum(
-                    a.duration_minutes for a in attended_list 
-                    if a.duration_minutes
+                    a.duration_minutes for a in attended_list if a.duration_minutes
                 ) / len(attended_list)
             else:
                 avg_duration = 0
@@ -387,7 +384,6 @@ class LiveClassAdmin(BaseModelAdmin):
         return "Save to see statistics"
 
     get_statistics.short_description = "Statistics"
-
 
     actions = ["mark_as_completed", "mark_as_cancelled"]
 
@@ -432,12 +428,12 @@ class AssignmentAdmin(BaseModelAdmin):
         """Optimize queryset to eliminate N+1 queries."""
         qs = super().get_queryset(request)
         return qs.select_related(
-            'module',
-            'module__course',
-            'module__course__course',
-            'created_by',
+            "module",
+            "module__course",
+            "module__course__course",
+            "created_by",
         ).prefetch_related(
-            'submissions',
+            "submissions",
         )
 
     list_display = [
@@ -605,8 +601,8 @@ class AssignmentAdmin(BaseModelAdmin):
         if obj.pk:
             submissions = list(obj.submissions.all())
             total = len(submissions)
-            graded = sum(1 for s in submissions if s.status == 'graded')
-            pending = sum(1 for s in submissions if s.status == 'pending')
+            graded = sum(1 for s in submissions if s.status == "graded")
+            pending = sum(1 for s in submissions if s.status == "pending")
 
             return format_html(
                 '<div style="line-height: 1.4;">'
@@ -824,7 +820,7 @@ class AssignmentSubmissionAdmin(BaseModelAdmin):
 @admin.register(Quiz)
 class QuizAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
     """Admin for managing quizzes with nested questions."""
-    
+
     inlines = [QuizQuestionInline]
 
     def get_queryset(self, request):
@@ -837,7 +833,7 @@ class QuizAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
             "questions__options",
             "attempts",
         )
-        
+
     list_display = [
         "title",
         "course_name",
@@ -1085,7 +1081,7 @@ class QuizQuestionAdmin(BaseModelAdmin):
             "Question Details",
             {"fields": ("quiz", "order", "question_type", "is_active")},
         ),
-        ("Content", {"fields": ("question_text", "question_image", "marks")}),
+        ("Content", {"fields": ("question_text", "marks")}),
         (
             "Answer",
             {
@@ -1249,7 +1245,8 @@ class QuizAttemptAdmin(BaseModelAdmin):
         percentage_fmt = f"{percentage:.1f}"  # No % sign here
         passing_percentage = (
             (obj.quiz.passing_marks / obj.quiz.total_marks) * 100
-            if obj.quiz.total_marks > 0 else 0
+            if obj.quiz.total_marks > 0
+            else 0
         )
 
         color = "#2e7d32" if percentage >= passing_percentage else "#d32f2f"

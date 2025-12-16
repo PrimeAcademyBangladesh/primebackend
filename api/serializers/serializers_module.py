@@ -2,6 +2,7 @@
 
 from rest_framework import serializers
 from django.utils import timezone
+from decimal import Decimal
 
 from api.models.models_module import (
     LiveClass,
@@ -504,7 +505,7 @@ class AssignmentGradeSerializer(serializers.Serializer):
     """Serializer for teacher to grade assignment."""
 
     marks_obtained = serializers.DecimalField(
-        max_digits=6, decimal_places=2, min_value=0
+        max_digits=6, decimal_places=2, min_value=Decimal('0')
     )
     feedback = serializers.CharField(required=False, allow_blank=True)
     status = serializers.ChoiceField(choices=["graded", "resubmit"], default="graded")
@@ -556,7 +557,6 @@ class QuizQuestionSerializer(serializers.ModelSerializer):
             "id",
             "question_text",
             "question_type",
-            "question_image",
             "marks",
             "order",
             "correct_answer_text",
