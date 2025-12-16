@@ -688,6 +688,11 @@ class QuizCreateUpdateSerializer(serializers.ModelSerializer):
             "available_until",
             "is_active",
         ]
+        
+    def validate_batch(self, value):
+        if not value:
+            raise serializers.ValidationError("Batch is required to create a quiz.")
+        return value
 
 
 class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
