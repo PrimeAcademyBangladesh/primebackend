@@ -56,13 +56,15 @@ from api.views.views_module import (
     StudentModuleViewSet
 )
 from api.views.views_live_class_assignment_quiz import (
+    CourseResourceViewSet,
     LiveClassViewSet,
     AssignmentViewSet,
     AssignmentSubmissionViewSet,
     QuizViewSet,
+    QuizQuestionViewSet,
     QuizAttemptViewSet,
-    CourseResourceViewSet
 )
+
 from api.views.views_export import (
     export_students_csv, export_students_pdf,
     export_employees_csv, export_employees_pdf,
@@ -126,8 +128,17 @@ router.register(r'modules/student', StudentModuleViewSet, basename='student-modu
 router.register(r'live-classes', LiveClassViewSet, basename='live-class')
 router.register(r'assignments', AssignmentViewSet, basename='assignment')
 router.register(r'assignment-submissions', AssignmentSubmissionViewSet, basename='assignment-submission')
+
+
+# Quizzes (student + teacher)
 router.register(r'quizzes', QuizViewSet, basename='quiz')
+
+# Quiz questions (teacher/admin only)
+router.register(r'quiz-questions', QuizQuestionViewSet, basename='quiz-question')
+
+# Quiz attempts (student only, read-only)
 router.register(r'quiz-attempts', QuizAttemptViewSet, basename='quiz-attempt')
+
 
 # Course Resources (Teacher-uploaded materials)
 router.register(r'resources', CourseResourceViewSet, basename='course-resource')
