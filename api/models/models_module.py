@@ -439,15 +439,7 @@ class QuizQuestion(models.Model):
         choices=QUESTION_TYPE_CHOICES,
         default='mcq'
     )
-    
-    # Image for question
-    question_image = models.ImageField(
-        upload_to='quizzes/questions/',
-        blank=True,
-        null=True,
-        help_text="Optional image for the question"
-    )
-    
+        
     marks = models.PositiveIntegerField(
         default=1,
         help_text="Points for this question"
@@ -456,7 +448,6 @@ class QuizQuestion(models.Model):
         help_text="Display order of the question"
     )
     
-    # For short answer/essay type
     correct_answer_text = models.TextField(
         blank=True,
         help_text="Expected answer for short answer questions"
@@ -557,7 +548,6 @@ class QuizAttempt(models.Model):
         default='in_progress'
     )
     
-    # Scoring
     marks_obtained = models.DecimalField(
         max_digits=6,
         decimal_places=2,
@@ -597,14 +587,12 @@ class QuizAnswer(models.Model):
         on_delete=models.CASCADE
     )
     
-    # For MCQ
     selected_options = models.ManyToManyField(
         QuizQuestionOption,
         blank=True,
         help_text="Selected answer options (for MCQ)"
     )
     
-    # For text-based answers
     answer_text = models.TextField(
         blank=True,
         help_text="Text answer (for short answer/essay questions)"

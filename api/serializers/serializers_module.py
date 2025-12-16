@@ -593,6 +593,7 @@ class QuizSerializer(serializers.ModelSerializer):
         model = Quiz
         fields = [
             "id",
+            "batch",
             "title",
             "description",
             "total_marks",
@@ -704,7 +705,6 @@ class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
             "quiz",
             "question_text",
             "question_type",
-            "question_image",
             "marks",
             "order",
             "correct_answer_text",

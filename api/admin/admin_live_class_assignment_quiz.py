@@ -821,12 +821,23 @@ class AssignmentSubmissionAdmin(BaseModelAdmin):
 
 
 # ========== Quiz Admin ==========
-
-
 @admin.register(Quiz)
 class QuizAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
     """Admin for managing quizzes with nested questions."""
+    
+    inlines = [QuizQuestionInline]
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related(
+            "module",
+            "created_by",
+        ).prefetch_related(
+            "questions",
+            "questions__options",
+            "attempts",
+        )
+        
     list_display = [
         "title",
         "course_name",
@@ -1236,7 +1247,12 @@ class QuizAttemptAdmin(BaseModelAdmin):
         """Display percentage with color."""
         percentage = float(obj.percentage)
         percentage_fmt = f"{percentage:.1f}"  # No % sign here
-        color = "#2e7d32" if percentage >= obj.quiz.passing_marks else "#d32f2f"
+        passing_percentage = (
+            (obj.quiz.passing_marks / obj.quiz.total_marks) * 100
+            if obj.quiz.total_marks > 0 else 0
+        )
+
+        color = "#2e7d32" if percentage >= passing_percentage else "#d32f2f"
 
         return format_html(
             '<span style="color: {}; font-weight: bold;">{}%</span>',
