@@ -10,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.parsers import MultiPartParser, FormParser
+
 # Models
 from api.models.models_course import (
     Category,
@@ -484,23 +485,23 @@ class CourseViewSet(BaseAdminViewSet):
 
     def get_permissions(self):
         """Return permission classes based on action.
-        
+
         Custom actions can define their own permission_classes which will
         override the viewset-level permissions.
         """
         # Check if this action has custom permission_classes in its decorator
-        if hasattr(self, 'action') and self.action is not None:
+        if hasattr(self, "action") and self.action is not None:
             try:
                 # Get the action method
                 action_method = getattr(self, self.action, None)
-                if action_method and hasattr(action_method, 'kwargs'):
+                if action_method and hasattr(action_method, "kwargs"):
                     # Check if the action has permission_classes defined
-                    action_permissions = action_method.kwargs.get('permission_classes')
+                    action_permissions = action_method.kwargs.get("permission_classes")
                     if action_permissions is not None:
                         return [permission() for permission in action_permissions]
             except (AttributeError, KeyError, TypeError):
                 pass
-        
+
         # Fall back to viewset-level permissions
         return super().get_permissions()
 
@@ -520,9 +521,11 @@ class CourseViewSet(BaseAdminViewSet):
         """
         queryset = super().get_queryset()
 
-        user = getattr(self.request, 'user', None)
+        user = getattr(self.request, "user", None)
         if user and user.is_authenticated:
-            enrollment_qs = Enrollment.objects.filter(user=user, course=OuterRef('pk'), is_active=True)
+            enrollment_qs = Enrollment.objects.filter(
+                user=user, course=OuterRef("pk"), is_active=True
+            )
             queryset = queryset.annotate(is_purchased=Exists(enrollment_qs))
 
         return queryset
@@ -552,13 +555,16 @@ class CourseViewSet(BaseAdminViewSet):
         instance = self.get_object()
 
         # Determine if requester should see full list
-        user = getattr(request, 'user', None)
+        user = getattr(request, "user", None)
         is_staff_user = self.is_staff_user(user)
         is_purchased = False
         if user and user.is_authenticated and not is_staff_user:
             try:
                 from api.models.models_order import Enrollment
-                is_purchased = Enrollment.objects.filter(user=user, course=instance, is_active=True).exists()
+
+                is_purchased = Enrollment.objects.filter(
+                    user=user, course=instance, is_active=True
+                ).exists()
             except Exception:
                 is_purchased = False
 
@@ -567,39 +573,59 @@ class CourseViewSet(BaseAdminViewSet):
             response = super().retrieve(request, *args, **kwargs)
             # If the called view already returned an `api_response`-shaped payload,
             # return it directly to avoid double-wrapping.
-            if isinstance(response.data, dict) and "success" in response.data and "data" in response.data:
+            if (
+                isinstance(response.data, dict)
+                and "success" in response.data
+                and "data" in response.data
+            ):
                 return response
-            return api_response(True, f"{self.get_model_name()} retrieved successfully", response.data)
+            return api_response(
+                True, f"{self.get_model_name()} retrieved successfully", response.data
+            )
 
         # Anonymous/guest path: use cache
         # Build cache key consistent with cache_utils.generate_cache_key
         query_params = sorted(request.GET.items())
-        cache_key = generate_cache_key(CACHE_KEY_COURSE_DETAIL, request.path, *[f"{k}={v}" for k, v in query_params])
+        cache_key = generate_cache_key(
+            CACHE_KEY_COURSE_DETAIL,
+            request.path,
+            *[f"{k}={v}" for k, v in query_params],
+        )
 
         cached_data = cache.get(cache_key)
         if cached_data is not None:
             return api_response(
-                cached_data['success'],
-                cached_data['message'],
-                cached_data['data'],
+                cached_data["success"],
+                cached_data["message"],
+                cached_data["data"],
             )
 
         # Not cached: call view and store
         response = super().retrieve(request, *args, **kwargs)
-        if hasattr(response, 'data') and hasattr(response, 'status_code') and response.status_code == 200:
+        if (
+            hasattr(response, "data")
+            and hasattr(response, "status_code")
+            and response.status_code == 200
+        ):
             cache_data = {
-                'success': response.data.get('success', True),
-                'message': response.data.get('message', ''),
-                'data': response.data.get('data', {}),
-                'status_code': response.status_code,
+                "success": response.data.get("success", True),
+                "message": response.data.get("message", ""),
+                "data": response.data.get("data", {}),
+                "status_code": response.status_code,
             }
             cache.set(cache_key, cache_data, 1800)
 
         # Avoid wrapping an already-formatted api_response payload again.
-        if isinstance(response.data, dict) and "success" in response.data and "data" in response.data:
+        if (
+            isinstance(response.data, dict)
+            and "success" in response.data
+            and "data" in response.data
+        ):
             return response
 
-        return api_response(True, f"{self.get_model_name()} retrieved successfully", response.data)
+        return api_response(
+            True, f"{self.get_model_name()} retrieved successfully", response.data
+        )
 
     @extend_schema(
         summary="Get courses by category",
@@ -1012,72 +1038,9 @@ class CourseViewSet(BaseAdminViewSet):
         return api_response(True, "Megamenu nav retrieved", payload)
 
     @extend_schema(
-        summary="Get modules for a course",
-        description="""
-        Get all modules for a specific course by course slug.
-        
-        **URL Pattern:** `/api/courses/{course_slug}/modules/`
-        
-        **Permissions:** Public (AllowAny)
-        
-        **Use Cases:**
-        - Display course curriculum/syllabus
-        - Module navigation in course player
-        - Filter live classes/assignments/quizzes by module
-        
-        **Response Structure:**
-        Each module includes:
-        - `id`: Module UUID (use this for filtering content)
-        - `title`: Module name
-        - `description`: Module description
-        - `order`: Display order (sorted)
-        - `duration`: Estimated duration
-        - `is_active`: Visibility status
-        - `is_sample`: Whether module is available for preview
-        
-        **Frontend Usage:**
-        ```javascript
-        // Get all modules for Django course
-        const response = await fetch('/api/courses/django-web-development/modules/');
-        const { data } = await response.json();
-        
-        // Display module list
-        data.forEach(module => {
-          console.log(`${module.order}. ${module.title}`);
-          console.log(`Duration: ${module.duration}`);
-        });
-        
-        // Filter live classes by module
-        const moduleId = data[0].id;
-        const classes = await fetch(`/api/live-classes/?module=${moduleId}`);
-        
-        // Filter assignments by module
-        const assignments = await fetch(`/api/assignments/?module=${moduleId}`);
-        
-        // Filter quizzes by module
-        const quizzes = await fetch(`/api/quizzes/?module=${moduleId}`);
-        ```
-        
-        **Important:**
-        - Returns only active modules (`is_active=True`)
-        - Modules are sorted by `order` field
-        - Module UUIDs are required for filtering related content (classes, assignments, quizzes)
-        - Sample modules (`is_sample=True`) are visible to all users
-        
-        **Error Handling:**
-        - Returns 404 if course not found or not published
-        """,
-        parameters=[
-            OpenApiParameter(
-                name="course_slug",
-                type=str,
-                location=OpenApiParameter.PATH,
-                description="Course slug identifier (e.g., 'django-web-development')",
-                required=True,
-            )
-        ],
-        responses={200: CourseModuleSerializer(many=True)},
-        tags=["Course - Main"],
+        summary="List modules for a course",
+        description="Returns all active modules for a course using course slug.",
+        tags=["Course - Modules"],
     )
     @action(
         detail=False,
@@ -1086,30 +1049,39 @@ class CourseViewSet(BaseAdminViewSet):
         url_path="(?P<course_slug>[^/.]+)/modules",
     )
     def modules(self, request, course_slug=None):
-        """Get all modules for a specific course by slug."""
+        """
+        Public curriculum endpoint.
+        Used to render course syllabus / module list.
+        """
         try:
-            course = Course.objects.select_related('detail').get(
+            course = Course.objects.select_related("detail").get(
                 slug=course_slug,
                 is_active=True,
-                status='published'
+                status="published",
             )
         except Course.DoesNotExist:
-            return api_response(False, "Course not found", None, status.HTTP_404_NOT_FOUND)
-        
+            return api_response(
+                False,
+                "Course not found",
+                None,
+                status.HTTP_404_NOT_FOUND,
+            )
+
         modules = CourseModule.objects.filter(
-            course=course.detail,
-            is_active=True
-        ).order_by('order')
-        
-        serializer = CourseModuleSerializer(modules, many=True)
-        return api_response(
-            True,
-            f"Modules for course '{course.title}' retrieved successfully",
-            serializer.data,
-            status.HTTP_200_OK
+            course=course.detail, is_active=True
+        ).order_by("order")
+
+        serializer = CourseModuleSerializer(
+            modules,
+            many=True,
+            context={"request": request},
         )
 
-    # Note: megamenu and compact megamenu endpoints removed per request.
+        return api_response(
+            True,
+            "Modules retrieved successfully",
+            serializer.data,
+        )
 
 
 # ========== Course Price ViewSet ==========
@@ -1173,7 +1145,7 @@ class CourseViewSet(BaseAdminViewSet):
         summary="Delete course price (Admin)",
         description="Delete a course pricing record.",
         responses={204: None},
-        tags=["Course - Pricing"]
+        tags=["Course - Pricing"],
     ),
 )
 class CoursePriceViewSet(BaseAdminViewSet):
@@ -1577,28 +1549,28 @@ class CouponViewSet(BaseAdminViewSet):
         **Note:** Frontend should use `/api/courses/{slug}/` which includes
         the nested course detail information.
         """,
-        tags=["Course - Details"]
+        tags=["Course - Details"],
     ),
     create=extend_schema(
         summary="Create course detail (Admin)",
         description="Create a new CourseDetail record linked to a Course.",
-        tags=["Course - Details"]
+        tags=["Course - Details"],
     ),
     update=extend_schema(
         summary="Update course detail (Admin)",
         description="Full update of a CourseDetail record.",
-        tags=["Course - Details"]
+        tags=["Course - Details"],
     ),
     partial_update=extend_schema(
         summary="Partially update course detail (Admin)",
         description="Partial update of CourseDetail fields.",
-        tags=["Course - Details"]
+        tags=["Course - Details"],
     ),
     destroy=extend_schema(
         summary="Delete course detail (Admin)",
         description="Delete a CourseDetail record.",
         responses={204: None},
-        tags=["Course - Details"]
+        tags=["Course - Details"],
     ),
 )
 class CourseDetailViewSet(BaseAdminViewSet):
@@ -1659,27 +1631,27 @@ class CourseDetailViewSet(BaseAdminViewSet):
         - `?is_active=true`: Active sections only
         - `?course={uuid}`: Filter by CourseDetail UUID
         """,
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     retrieve=extend_schema(
         summary="Retrieve content section (Admin)",
         description="Get a specific content section by UUID with nested tabs and contents.",
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     create=extend_schema(
         summary="Create content section (Admin)",
         description="Create a new content section for a course detail page.",
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     update=extend_schema(
         summary="Update content section (Admin)",
         description="Full update of a content section.",
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     partial_update=extend_schema(
         summary="Partially update content section (Admin)",
         description="Partial update of content section fields.",
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     destroy=extend_schema(
         summary="Delete content section (Admin)",
@@ -1734,25 +1706,25 @@ class CourseContentSectionViewSet(BaseAdminViewSet):
         **Frontend Note:** Tabs are accessed via nested structure in course detail.
         """,
         responses={200: None},
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     retrieve=extend_schema(
         summary="Retrieve section tab (Admin)",
         description="Get a specific tab with its nested contents (images/videos).",
         responses={200: None},
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     create=extend_schema(
         summary="Create section tab (Admin)",
         description="Create a new tab within a content section.",
         responses={201: None},
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     update=extend_schema(
         summary="Update section tab (Admin)",
         description="Full update of a section tab.",
         responses={200: None},
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     partial_update=extend_schema(
         summary="Partially update section tab (Admin)",
@@ -1764,7 +1736,7 @@ class CourseContentSectionViewSet(BaseAdminViewSet):
         summary="Delete section tab (Admin)",
         description="Delete a tab and its nested contents.",
         responses={204: None},
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
 )
 class CourseSectionTabViewSet(BaseAdminViewSet):
@@ -1825,13 +1797,13 @@ class CourseSectionTabViewSet(BaseAdminViewSet):
         summary="Create content item (Admin)",
         description="Add new image or video to a tab.",
         responses={201: None},
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     update=extend_schema(
         summary="Update content item (Admin)",
         description="Full update of a media item.",
         responses={200: None},
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
     partial_update=extend_schema(
         summary="Partially update content item (Admin)",
@@ -1843,7 +1815,7 @@ class CourseSectionTabViewSet(BaseAdminViewSet):
         summary="Delete content item (Admin)",
         description="Delete a media item from a tab.",
         responses={204: None},
-        tags=["Course - Content"]
+        tags=["Course - Content"],
     ),
 )
 class CourseTabbedContentViewSet(BaseAdminViewSet):
@@ -1963,37 +1935,37 @@ class WhyEnrolViewSet(BaseAdminViewSet):
         **Note:** Module UUIDs are used to filter live classes, assignments, and quizzes.
         """,
         responses={200: None},
-        tags=["Course - Components"],
+        tags=["Course - Modules"],
     ),
     retrieve=extend_schema(
         summary="Retrieve course module (Admin)",
         description="Get specific module with all details.",
         responses={200: None},
-        tags=["Course - Components"],
+        tags=["Course - Modules"],
     ),
     create=extend_schema(
         summary="Create course module (Admin)",
         description="Add new module to course curriculum.",
         responses={201: None},
-        tags=["Course - Components"],
+        tags=["Course - Modules"],
     ),
     update=extend_schema(
         summary="Update course module (Admin)",
         description="Full update of course module.",
         responses={200: None},
-        tags=["Course - Components"],
+        tags=["Course - Modules"],
     ),
     partial_update=extend_schema(
         summary="Partially update course module (Admin)",
         description="Partial update of module fields.",
         responses={200: None},
-        tags=["Course - Components"],
+        tags=["Course - Modules"],
     ),
     destroy=extend_schema(
         summary="Delete course module (Admin)",
         description="Delete a course module.",
         responses={204: None},
-        tags=["Course - Components"],
+        tags=["Course - Modules"],
     ),
 )
 class CourseModuleViewSet(BaseAdminViewSet):
@@ -2016,16 +1988,16 @@ class CourseModuleViewSet(BaseAdminViewSet):
     def get_queryset(self):
         """Override to allow filtering by Course ID/slug via 'course_id' or 'course_slug' params."""
         queryset = super().get_queryset()
-        
+
         # Allow filtering by Course ID/slug
-        course_id = self.request.query_params.get('course_id')
-        course_slug = self.request.query_params.get('course_slug')
-        
+        course_id = self.request.query_params.get("course_id")
+        course_slug = self.request.query_params.get("course_slug")
+
         if course_id:
             queryset = queryset.filter(course__course__id=course_id)
         elif course_slug:
             queryset = queryset.filter(course__course__slug=course_slug)
-        
+
         return queryset
 
     def get_serializer_class(self):
@@ -2050,7 +2022,7 @@ class CourseModuleViewSet(BaseAdminViewSet):
         **Frontend:** Access via `/api/courses/{slug}/` in `detail.benefits` array
         """,
         responses={200: None},
-        tags=["Course - Components"]
+        tags=["Course - Components"],
     ),
     retrieve=extend_schema(
         summary="Retrieve key benefit (Admin)",
@@ -2350,6 +2322,7 @@ class CourseInstructorViewSet(BaseAdminViewSet):
 
 # ========== Course Batch ViewSet ==========
 
+
 @extend_schema_view(
     list=extend_schema(
         summary="List all course batches",
@@ -2375,11 +2348,25 @@ class CourseInstructorViewSet(BaseAdminViewSet):
         responses={200: CourseBatchSerializer(many=True)},
         tags=["Course - Batches"],
         parameters=[
-            OpenApiParameter(name='course', type=str, description='Filter by course UUID'),
-            OpenApiParameter(name='status', type=str, description='Filter by batch status'),
-            OpenApiParameter(name='is_active', type=bool, description='Filter by active status'),
-            OpenApiParameter(name='search', type=str, description='Search in batch name, course title, description'),
-            OpenApiParameter(name='ordering', type=str, description='Order by: start_date, batch_number, created_at (prefix - for desc)'),
+            OpenApiParameter(
+                name="course", type=str, description="Filter by course UUID"
+            ),
+            OpenApiParameter(
+                name="status", type=str, description="Filter by batch status"
+            ),
+            OpenApiParameter(
+                name="is_active", type=bool, description="Filter by active status"
+            ),
+            OpenApiParameter(
+                name="search",
+                type=str,
+                description="Search in batch name, course title, description",
+            ),
+            OpenApiParameter(
+                name="ordering",
+                type=str,
+                description="Order by: start_date, batch_number, created_at (prefix - for desc)",
+            ),
         ],
     ),
     retrieve=extend_schema(
@@ -2449,7 +2436,7 @@ class CourseInstructorViewSet(BaseAdminViewSet):
 )
 class CourseBatchViewSet(BaseAdminViewSet):
     """CRUD operations for Course Batches.
-    
+
     Students enroll in course batches, not courses directly.
     Each batch represents a time-bound offering of a course.
     """
@@ -2503,10 +2490,10 @@ class CourseBatchViewSet(BaseAdminViewSet):
         tags=["Course - Batches"],
         parameters=[
             OpenApiParameter(
-                name='course_slug',
+                name="course_slug",
                 type=str,
                 location=OpenApiParameter.PATH,
-                description='Course slug (e.g., django-web-development)'
+                description="Course slug (e.g., django-web-development)",
             ),
         ],
     )
@@ -2518,7 +2505,7 @@ class CourseBatchViewSet(BaseAdminViewSet):
     )
     def by_course(self, request, course_slug=None):
         """Get all batches for a specific course by course slug.
-        
+
         Usage: GET /api/courses/batches/by-course/django-bootcamp/
         """
         try:
@@ -2527,19 +2514,19 @@ class CourseBatchViewSet(BaseAdminViewSet):
             return api_response(
                 success=False,
                 message="Course not found",
-                status_code=status.HTTP_404_NOT_FOUND
+                status_code=status.HTTP_404_NOT_FOUND,
             )
-        
+
         batches = self.queryset.filter(course=course, is_active=True)
         serializer = self.get_serializer(batches, many=True)
-        
+
         return api_response(
             success=True,
             message="Course batches retrieved successfully",
             data=serializer.data,
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )
-    
+
     @extend_schema(
         summary="Get batches with open enrollment",
         description="""Get all batches currently accepting enrollments across all courses.
@@ -2576,33 +2563,34 @@ class CourseBatchViewSet(BaseAdminViewSet):
     )
     def enrollment_open(self, request):
         """Get all batches currently accepting enrollments.
-        
+
         Usage: GET /api/courses/batches/enrollment-open/
         """
         from django.utils import timezone
+
         now = timezone.now().date()
-        
+
         # Get batches with open enrollment
-        batches = self.queryset.filter(
-            is_active=True,
-            status__in=['enrollment_open', 'upcoming'],
-        ).exclude(
-            status='cancelled'
-        ).exclude(
-            status='completed'
+        batches = (
+            self.queryset.filter(
+                is_active=True,
+                status__in=["enrollment_open", "upcoming"],
+            )
+            .exclude(status="cancelled")
+            .exclude(status="completed")
         )
-        
+
         # Filter by enrollment dates and capacity
         open_batches = []
         for batch in batches:
             if batch.is_enrollment_open:
                 open_batches.append(batch)
-        
+
         serializer = self.get_serializer(open_batches, many=True)
-        
+
         return api_response(
             success=True,
             message="Open enrollment batches retrieved successfully",
             data=serializer.data,
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )

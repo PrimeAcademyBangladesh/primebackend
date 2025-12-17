@@ -1,10 +1,12 @@
 """
 Views for Live Classes, Assignments, and Quizzes
 """
+from api.permissions import IsStudent
 import uuid
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Count, Q
@@ -13,9 +15,10 @@ from drf_spectacular.utils import (
     extend_schema,
     OpenApiExample,
 )
-
+from django.db.models import Prefetch
+from api.models.models_course import Course
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-
+from api.models.models_course import CourseModule
 from api.models.models_module import (
     LiveClass,
     LiveClassAttendance,
@@ -31,7 +34,8 @@ from api.serializers.serializers_module import (
     LiveClassSerializer,
     LiveClassCreateUpdateSerializer,
     LiveClassAttendanceSerializer,
-    AssignmentSerializer,
+    AssignmentListSerializer,
+    AssignmentStudentSerializer,
     AssignmentCreateUpdateSerializer,
     AssignmentSubmissionSerializer,
     AssignmentSubmissionCreateSerializer,
@@ -42,6 +46,7 @@ from api.serializers.serializers_module import (
     QuizQuestionCreateUpdateSerializer,
     QuizAttemptSerializer,
     QuizAnswerSerializer,
+    CourseModuleStudentStudyPlanSerializer,
 )
 from api.permissions import IsTeacherOrAdmin
 from api.utils.response_utils import api_response
@@ -96,8 +101,6 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         if module_id:
             # Validate UUID format
             try:
-                import uuid
-
                 uuid.UUID(str(module_id))
                 queryset = queryset.filter(module_id=module_id)
             except (ValueError, AttributeError):
@@ -200,215 +203,103 @@ class LiveClassViewSet(viewsets.ModelViewSet):
 
 
 class AssignmentViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for Assignments
-
-    Endpoints:
-    - GET /api/assignments/ - List assignments
-    - GET /api/assignments/{id}/ - Get assignment details
-    - POST /api/assignments/ - Create assignment (teachers/admin only)
-    - PUT /api/assignments/{id}/ - Update assignment (teachers/admin only)
-    - DELETE /api/assignments/{id}/ - Delete assignment (teachers/admin only)
-    - POST /api/assignments/{id}/submit/ - Submit assignment
-    - GET /api/assignments/{id}/my-submission/ - Get student's submission
-    - GET /api/assignments/{id}/submissions/ - Get all submissions (teachers only)
-    """
-
-    queryset = (
-        Assignment.objects.select_related("module")
-        .annotate(submission_count=Count("submissions"))
-        .order_by("title")
-    )
     permission_classes = [permissions.IsAuthenticated]
 
+    queryset = Assignment.objects.select_related(
+        "module",
+        "batch"
+    ).order_by("due_date")
+
+    # ---------------- SERIALIZER SWITCH ----------------
+
     def get_serializer_class(self):
-        """Use different serializers for different actions"""
         if self.action in ["create", "update", "partial_update"]:
             return AssignmentCreateUpdateSerializer
-        return AssignmentSerializer
+
+        if self.action == "retrieve":
+            return AssignmentStudentSerializer
+
+        return AssignmentListSerializer
+
+    # ---------------- PERMISSIONS ----------------
 
     def get_permissions(self):
-        """Teachers and admin can create/update/delete"""
-        if self.action in [
-            "create",
-            "update",
-            "partial_update",
-            "destroy",
-            "submissions",
-        ]:
+        if self.action in ["create", "update", "partial_update", "destroy"]:
             return [IsTeacherOrAdmin()]
         return [permissions.IsAuthenticated()]
 
+    # ---------------- QUERYSET ----------------
+
     def get_queryset(self):
-        """Filter by module_id if provided and exclude assignments with empty content"""
-        queryset = super().get_queryset()
-        module_id = self.request.query_params.get("module_id")
-        if module_id:
-            # Validate UUID format
-            try:
-                import uuid
+        user = self.request.user
 
-                uuid.UUID(str(module_id))
-                queryset = queryset.filter(module_id=module_id)
-            except (ValueError, AttributeError):
-                # Return empty queryset for invalid UUID
-                return queryset.none()
+        # Teacher/Admin → see all
+        if hasattr(user, "is_teacher") and user.is_teacher:
+            return self.queryset
 
-        # Filter out assignments with empty title or description
-        queryset = queryset.exclude(
-            Q(title__isnull=True)
-            | Q(title="")
-            | Q(description__isnull=True)
-            | Q(description="")
+        # Student → only their batch + course
+        enrollment = (
+            Enrollment.objects
+            .filter(user=user, is_active=True)
+            .select_related("batch", "course")
+            .first()
         )
 
-        return queryset
+        if not enrollment:
+            return Assignment.objects.none()
 
-    def list(self, request, *args, **kwargs):
-        """List assignments with wrapped response"""
-        try:
-            queryset = self.filter_queryset(self.get_queryset())
-            serializer = self.get_serializer(queryset, many=True)
-            return api_response(
-                success=True,
-                message="Assignments retrieved successfully",
-                data=serializer.data,
-                status_code=status.HTTP_200_OK,
-            )
-        except Exception as e:
-            # Gracefully handle errors - return empty array
-            return api_response(
-                success=True,
-                message="Assignments retrieved successfully",
-                data=[],
-                status_code=status.HTTP_200_OK,
-            )
+        return self.queryset.filter(
+            batch=enrollment.batch,
+            module__course=enrollment.course
+        )
+
+    # ---------------- ACTIONS ----------------
 
     @action(detail=True, methods=["post"])
     def submit(self, request, pk=None):
-        """
-        Submit assignment
-
-        Body (multipart/form-data or JSON): {
-            "submission_text": "My answer text",
-            "submission_file": <file>,
-            "submission_url": "https://github.com/..."
-        }
-
-        At least one of submission_text, submission_file, or submission_url must be provided.
-        """
-        try:
-            assignment = self.get_object()
-            student = request.user
-
-            # Check if already submitted
-            existing_submission = AssignmentSubmission.objects.filter(
-                assignment=assignment, student=student
-            ).first()
-
-            if existing_submission and existing_submission.status != "resubmit":
-                return api_response(
-                    False,
-                    "You have already submitted this assignment",
-                    None,
-                    status.HTTP_400_BAD_REQUEST,
-                )
-
-            # Create or update submission
-            serializer = AssignmentSubmissionCreateSerializer(
-                existing_submission, data=request.data, context={"request": request}
-            )
-
-            if serializer.is_valid():
-                submission = serializer.save(
-                    assignment=assignment, student=student, status="pending"
-                )
-
-                # Return simplified response without full serialization
-                response_data = {
-                    "id": str(submission.id),
-                    "assignment": str(submission.assignment.id),
-                    "assignment_title": submission.assignment.title,
-                    "submission_text": submission.submission_text or "",
-                    "submission_file": (
-                        request.build_absolute_uri(submission.submission_file.url)
-                        if submission.submission_file
-                        else None
-                    ),
-                    "submission_url": submission.submission_url or "",
-                    "submitted_at": submission.submitted_at.isoformat(),
-                    "status": submission.status,
-                    "is_late": submission.is_late,
-                }
-
-                return api_response(
-                    True,
-                    "Assignment submitted successfully",
-                    response_data,
-                    status.HTTP_201_CREATED,
-                )
-
-            return api_response(
-                False,
-                "Validation failed",
-                serializer.errors,
-                status.HTTP_400_BAD_REQUEST,
-            )
-
-        except Exception as e:
-            import traceback
-
-            traceback.print_exc()
-            return api_response(
-                False,
-                f"Server error: {str(e)}",
-                {"error": str(e), "type": type(e).__name__},
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-    @action(detail=True, methods=["get"], url_path="my-submission")
-    def my_submission(self, request, pk=None):
-        """Get current student's submission for this assignment"""
         assignment = self.get_object()
         student = request.user
 
-        submission = AssignmentSubmission.objects.filter(
-            assignment=assignment, student=student
+        submission, created = AssignmentSubmission.objects.get_or_create(
+            assignment=assignment,
+            student=student,
+            defaults={"status": "pending"},
+        )
+
+        serializer = AssignmentSubmissionCreateSerializer(
+            submission,
+            data=request.data,
+            context={"request": request},
+            partial=True,
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return api_response(
+            True,
+            "Assignment submitted successfully",
+            {"assignment_id": str(assignment.id)},
+            status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["get"], url_path="my-submission")
+    def my_submission(self, request, pk=None):
+        assignment = self.get_object()
+        submission = assignment.submissions.filter(
+            student=request.user
         ).first()
 
         if not submission:
-            return Response(
-                api_response(False, "No submission found", None),
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return api_response(False, "No submission found", None, status.HTTP_404_NOT_FOUND)
 
-        serializer = AssignmentSubmissionSerializer(submission)
-        return Response(
-            api_response(True, "Submission retrieved successfully", serializer.data)
+        return api_response(
+            True,
+            "Submission retrieved",
+            AssignmentSubmissionSerializer(submission).data,
         )
 
-    @action(detail=True, methods=["get"])
-    def submissions(self, request, pk=None):
-        """Get all submissions for assignment (teachers only)"""
-        assignment = self.get_object()
-        submissions = assignment.submissions.select_related("student").all()
 
-        # Filter by status if provided
-        status_filter = request.query_params.get("status")
-        if status_filter:
-            submissions = submissions.filter(status=status_filter)
-
-        serializer = AssignmentSubmissionSerializer(submissions, many=True)
-        return Response(
-            api_response(
-                True,
-                "Submissions retrieved successfully",
-                {
-                    "submissions": serializer.data,
-                    "total_submissions": submissions.count(),
-                },
-            )
-        )
 
 
 class AssignmentSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -514,6 +405,8 @@ class AssignmentSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
     request=QuizCreateUpdateSerializer,
     responses={200: QuizSerializer, 201: QuizSerializer},
 )
+
+
 class QuizViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Quizzes

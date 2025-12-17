@@ -209,210 +209,47 @@ class LiveClassAttendanceSerializer(serializers.ModelSerializer):
 
 
 # ========== Assignment Serializers ==========
+class AssignmentListSerializer(serializers.ModelSerializer):
+    module_id = serializers.UUIDField(source="module.id", read_only=True)
+    module_title = serializers.CharField(source="module.title", read_only=True)
 
+    batch_id = serializers.UUIDField(source="batch.id", read_only=True)
+    batch_name = serializers.CharField(source="batch.display_name", read_only=True)
 
-class AssignmentSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
-    """Serializer for assignments within a module."""
-
-    html_fields = ["description"]
-
-    created_by_name = serializers.CharField(
-        source="created_by.get_full_name", read_only=True, allow_null=True
-    )
-
-    # Helper fields
     is_overdue = serializers.SerializerMethodField()
-    days_remaining = serializers.SerializerMethodField()
-    submission_count = serializers.SerializerMethodField()
-    has_submitted = (
-        serializers.SerializerMethodField()
-    )  # NEW: Student submission status
-    submission_status = (
-        serializers.SerializerMethodField()
-    )  # NEW: pending|submitted|graded
-    submission_date = serializers.SerializerMethodField()  # NEW: When submitted
-    obtained_marks = serializers.SerializerMethodField()  # NEW: Grade received
-    can_submit = serializers.SerializerMethodField()  # NEW: Check deadline
-    attachment_url = serializers.SerializerMethodField()  # NEW: Assignment file URL
-    has_enrollment = (
-        serializers.SerializerMethodField()
-    )  # NEW: Check if student is enrolled
-    batch_info = serializers.SerializerMethodField()  # NEW: Student's batch information
 
     class Meta:
         model = Assignment
         fields = [
             "id",
+            "module_id",
+            "module_title",
+            "batch_id",
+            "batch_name",
             "title",
-            "description",
             "assignment_type",
-            "attachment",
-            "total_marks",
-            "passing_marks",
             "due_date",
-            "late_submission_allowed",
-            "late_submission_penalty",
+            "total_marks",
             "order",
             "is_active",
-            "created_by_name",
             "is_overdue",
-            "days_remaining",
-            "submission_count",
-            "has_submitted",  # NEW
-            "submission_status",  # NEW
-            "submission_date",  # NEW
-            "obtained_marks",  # NEW
-            "can_submit",  # NEW
-            "attachment_url",  # NEW
-            "has_enrollment",  # NEW
-            "batch_info",  # NEW
-            "created_at",
-            "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
 
     def get_is_overdue(self, obj):
-        """Check if assignment is past due date"""
-        if obj.due_date:
-            return timezone.now() > obj.due_date
-        return False
-
-    def get_days_remaining(self, obj):
-        """Calculate days remaining until due date"""
-        if obj.due_date:
-            delta = obj.due_date - timezone.now()
-            return max(0, delta.days)
-        return None
-
-    def get_submission_count(self, obj):
-        """Get number of submissions"""
-        return obj.submissions.count()
-
-    def get_has_submitted(self, obj):
-        """Check if current student has submitted"""
-        request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
-            return False
-
-        try:
-            return obj.submissions.filter(student=request.user).exists()
-        except Exception:
-            return False
-
-    def get_submission_status(self, obj):
-        """Get submission status for current student"""
-        request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
-            return None
-
-        try:
-            submission = obj.submissions.filter(student=request.user).first()
-            return submission.status if submission else None
-        except Exception:
-            return None
-
-    def get_submission_date(self, obj):
-        """Get submission date for current student"""
-        request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
-            return None
-
-        try:
-            submission = obj.submissions.filter(student=request.user).first()
-            return submission.submitted_at if submission else None
-        except Exception:
-            return None
-
-    def get_obtained_marks(self, obj):
-        """Get marks obtained by current student"""
-        request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
-            return None
-
-        try:
-            submission = obj.submissions.filter(student=request.user).first()
-            return (
-                float(submission.marks_obtained)
-                if submission and submission.marks_obtained is not None
-                else None
-            )
-        except Exception:
-            return None
-
-    def get_can_submit(self, obj):
-        """Check if student can still submit"""
-        if not obj.due_date:
-            return True
-
-        now = timezone.now()
-        if now <= obj.due_date:
-            return True
-
-        # Check if late submission is allowed
-        return obj.late_submission_allowed
-
-    def get_attachment_url(self, obj):
-        """Get full URL for attachment file"""
-        if obj.attachment:
-            request = self.context.get("request")
-            if request:
-                return request.build_absolute_uri(obj.attachment.url)
-            return obj.attachment.url
-        return None
-
-    def get_has_enrollment(self, obj):
-        """Check if current student is enrolled in the course"""
-        request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
-            return False
-
-        try:
-            from api.models.models_order import Enrollment
-
-            return Enrollment.objects.filter(
-                user=request.user, course=obj.module.course.course, is_active=True
-            ).exists()
-        except Exception:
-            return False
-
-    def get_batch_info(self, obj):
-        """Get student's batch information for this course"""
-        request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
-            return None
-
-        try:
-            from api.models.models_order import Enrollment
-
-            enrollment = (
-                Enrollment.objects.filter(
-                    user=request.user, course=obj.module.course.course, is_active=True
-                )
-                .select_related("batch")
-                .first()
-            )
-
-            if enrollment and enrollment.batch:
-                return {
-                    "id": str(enrollment.batch.id),
-                    "batch_number": enrollment.batch.batch_number,
-                    "batch_name": enrollment.batch.batch_name,
-                    "display_name": enrollment.batch.display_name,
-                    "start_date": enrollment.batch.start_date,
-                    "end_date": enrollment.batch.end_date,
-                }
-            return None
-        except Exception:
-            return None
+        return bool(obj.due_date and timezone.now() > obj.due_date)
 
 
 class AssignmentCreateUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for creating/updating assignments (admin/teacher use)."""
+    """
+    Teacher/Admin only
+    All required fields enforced by model
+    """
 
     class Meta:
         model = Assignment
         fields = [
             "module",
+            "batch",
             "title",
             "description",
             "assignment_type",
@@ -425,6 +262,92 @@ class AssignmentCreateUpdateSerializer(serializers.ModelSerializer):
             "order",
             "is_active",
         ]
+
+
+class AssignmentStudentSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
+    html_fields = ["description"]
+
+    module_title = serializers.CharField(source="module.title", read_only=True)
+
+    is_overdue = serializers.SerializerMethodField()
+    days_remaining = serializers.SerializerMethodField()
+    has_submitted = serializers.SerializerMethodField()
+    submission_status = serializers.SerializerMethodField()
+    submission_date = serializers.SerializerMethodField()
+    obtained_marks = serializers.SerializerMethodField()
+    can_submit = serializers.SerializerMethodField()
+    attachment_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Assignment
+        fields = [
+            "id",
+            "module_title",
+            "title",
+            "description",
+            "assignment_type",
+            "attachment_url",
+            "total_marks",
+            "passing_marks",
+            "due_date",
+            "late_submission_allowed",
+            "late_submission_penalty",
+            "order",
+            "is_active",
+            "is_overdue",
+            "days_remaining",
+            "has_submitted",
+            "submission_status",
+            "submission_date",
+            "obtained_marks",
+            "can_submit",
+        ]
+
+    # ---------- helpers ----------
+
+    def _submission(self, obj):
+        user = self.context["request"].user
+        return obj.submissions.filter(student=user).first()
+
+    def get_is_overdue(self, obj):
+        return bool(obj.due_date and timezone.now() > obj.due_date)
+
+    def get_days_remaining(self, obj):
+        if not obj.due_date:
+            return None
+        return max(0, (obj.due_date - timezone.now()).days)
+
+    def get_has_submitted(self, obj):
+        return bool(self._submission(obj))
+
+    def get_submission_status(self, obj):
+        sub = self._submission(obj)
+        return sub.status if sub else "pending"
+
+    def get_submission_date(self, obj):
+        sub = self._submission(obj)
+        return sub.submitted_at if sub else None
+
+    def get_obtained_marks(self, obj):
+        sub = self._submission(obj)
+        return (
+            float(sub.marks_obtained)
+            if sub and sub.marks_obtained is not None
+            else None
+        )
+
+    def get_can_submit(self, obj):
+        if not obj.due_date:
+            return True
+        if timezone.now() <= obj.due_date:
+            return True
+        return obj.late_submission_allowed
+
+    def get_attachment_url(self, obj):
+        request = self.context.get("request")
+        if obj.attachment and request:
+            return request.build_absolute_uri(obj.attachment.url)
+        return None
 
 
 class AssignmentSubmissionSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
@@ -505,7 +428,7 @@ class AssignmentGradeSerializer(serializers.Serializer):
     """Serializer for teacher to grade assignment."""
 
     marks_obtained = serializers.DecimalField(
-        max_digits=6, decimal_places=2, min_value=Decimal('0')
+        max_digits=6, decimal_places=2, min_value=Decimal("0")
     )
     feedback = serializers.CharField(required=False, allow_blank=True)
     status = serializers.ChoiceField(choices=["graded", "resubmit"], default="graded")
@@ -581,6 +504,13 @@ class QuizSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(
         source="created_by.get_full_name", read_only=True, allow_null=True
     )
+    module_id = serializers.UUIDField(source="module.id", read_only=True)
+    module_title = serializers.CharField(source="module.title", read_only=True)
+
+    batch_id = serializers.UUIDField(source="batch.id", read_only=True, allow_null=True)
+    batch_name = serializers.CharField(
+        source="batch.display_name", read_only=True, allow_null=True
+    )
 
     question_count = serializers.SerializerMethodField()
     is_available = serializers.SerializerMethodField()
@@ -593,7 +523,10 @@ class QuizSerializer(serializers.ModelSerializer):
         model = Quiz
         fields = [
             "id",
-            "batch",
+            "module_id",
+            "module_title",
+            "batch_id",
+            "batch_name",
             "title",
             "description",
             "total_marks",
@@ -631,7 +564,6 @@ class QuizSerializer(serializers.ModelSerializer):
             self._attempt_cache[obj.id] = obj.attempts.filter(student=request.user)
 
         return self._attempt_cache[obj.id]
-    
 
     def get_question_count(self, obj):
         return obj.questions.filter(is_active=True).count()
@@ -688,7 +620,7 @@ class QuizCreateUpdateSerializer(serializers.ModelSerializer):
             "available_until",
             "is_active",
         ]
-        
+
     def validate_batch(self, value):
         if not value:
             raise serializers.ValidationError("Batch is required to create a quiz.")
@@ -727,10 +659,7 @@ class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
         question = QuizQuestion.objects.create(**validated_data)
 
         for option in options_data:
-            QuizQuestionOption.objects.create(
-                question=question,
-                **option
-            )
+            QuizQuestionOption.objects.create(question=question, **option)
 
         return question
 
@@ -747,10 +676,7 @@ class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
         if options_data is not None:
             instance.options.all().delete()
             for option in options_data:
-                QuizQuestionOption.objects.create(
-                    question=instance,
-                    **option
-                )
+                QuizQuestionOption.objects.create(question=instance, **option)
 
         return instance
 
@@ -763,18 +689,13 @@ class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
         Works for both CREATE and UPDATE.
         """
 
-        qtype = data.get(
-            "question_type",
-            getattr(self.instance, "question_type", None)
-        )
+        qtype = data.get("question_type", getattr(self.instance, "question_type", None))
 
         options = data.get("options", None)
 
         if options is not None:
 
-            correct_count = sum(
-                1 for o in options if o.get("is_correct")
-            )
+            correct_count = sum(1 for o in options if o.get("is_correct"))
 
             if qtype in ["mcq", "true_false"]:
                 if correct_count != 1:
@@ -853,7 +774,7 @@ class QuizAnswerSerializer(serializers.ModelSerializer):
             ).data
 
         return obj.question.correct_answer_text
-    
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         request = self.context.get("request")
@@ -862,75 +783,6 @@ class QuizAnswerSerializer(serializers.ModelSerializer):
             data.pop("is_correct", None)
 
         return data
-
-
-# ========== Module with Complete Content Serializer ==========
-
-
-class CourseModuleDetailSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
-    """Complete serializer for course module with all content (live classes, assignments, quizzes)."""
-
-    html_fields = ["short_description"]
-
-    live_classes = LiveClassSerializer(many=True, read_only=True)
-    assignments = AssignmentSerializer(many=True, read_only=True)
-    quizzes = QuizSerializer(many=True, read_only=True)
-
-    # Summary fields
-    live_class_count = serializers.SerializerMethodField()
-    assignment_count = serializers.SerializerMethodField()
-    quiz_count = serializers.SerializerMethodField()
-
-    class Meta:
-        model = CourseModule
-        fields = [
-            "id",
-            "title",
-            "short_description",
-            "order",
-            "is_active",
-            "live_classes",
-            "assignments",
-            "quizzes",
-            "live_class_count",
-            "assignment_count",
-            "quiz_count",
-        ]
-        read_only_fields = ["id"]
-
-    def get_live_class_count(self, obj):
-        """Count active live classes"""
-        return obj.live_classes.filter(is_active=True).count()
-
-    def get_assignment_count(self, obj):
-        """Count active assignments with proper content"""
-        from django.db.models import Q
-
-        return (
-            obj.assignments.filter(is_active=True)
-            .exclude(
-                Q(title__isnull=True)
-                | Q(title="")
-                | Q(description__isnull=True)
-                | Q(description="")
-            )
-            .count()
-        )
-
-    def get_quiz_count(self, obj):
-        """Count active quizzes with at least one active question"""
-        from django.db.models import Count, Q
-
-        return (
-            obj.quizzes.filter(is_active=True)
-            .annotate(
-                active_question_count=Count(
-                    "questions", filter=Q(questions__is_active=True)
-                )
-            )
-            .filter(active_question_count__gt=0)
-            .count()
-        )
 
 
 # ========== Course Resource Serializers ==========
@@ -1058,3 +910,88 @@ class CourseResourceCreateUpdateSerializer(serializers.ModelSerializer):
                 pass
 
         return resource
+
+
+# ========== Module with Complete Content Serializer ==========
+
+
+# ========== Module with Complete Content (STUDENT STUDY PLAN) ==========
+
+
+class CourseModuleStudentStudyPlanSerializer(
+    HTMLFieldsMixin, serializers.ModelSerializer
+):
+    """
+    Student-facing Study Plan serializer
+
+    Used ONLY for:
+    GET /api/courses/{course_slug}/study-plan/{module_slug}/
+
+    Provides everything needed to render:
+    - Module accordion
+    - Assignments
+    - Quizzes
+    - Live classes
+    - Resources
+    """
+
+    html_fields = ["short_description"]
+
+    # ---- Content blocks ----
+    live_classes = LiveClassSerializer(many=True, read_only=True)
+    assignments = AssignmentStudentSerializer(many=True, read_only=True)
+    quizzes = QuizSerializer(many=True, read_only=True)
+    resources = CourseResourceSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    live_class_count = serializers.SerializerMethodField()
+    assignment_count = serializers.SerializerMethodField()
+    quiz_count = serializers.SerializerMethodField()
+    resource_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CourseModule
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "short_description",
+            "order",
+            "is_active",
+            # content
+            "live_classes",
+            "assignments",
+            "quizzes",
+            "resources",
+            # counts
+            "live_class_count",
+            "assignment_count",
+            "quiz_count",
+            "resource_count",
+        ]
+        read_only_fields = ["id", "slug"]
+
+    def get_live_class_count(self, obj):
+        return obj.live_classes.filter(is_active=True).count()
+
+    def get_assignment_count(self, obj):
+        return obj.assignments.filter(is_active=True).count()
+
+    def get_quiz_count(self, obj):
+        from django.db.models import Count, Q
+
+        return (
+            obj.quizzes.filter(is_active=True)
+            .annotate(
+                active_question_count=Count(
+                    "questions", filter=Q(questions__is_active=True)
+                )
+            )
+            .filter(active_question_count__gt=0)
+            .count()
+        )
+
+    def get_resource_count(self, obj):
+        return obj.resources.filter(is_active=True).count()

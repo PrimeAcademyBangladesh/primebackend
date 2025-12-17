@@ -83,9 +83,7 @@ class LiveClass(models.Model):
     
     batch = models.ForeignKey(
         'CourseBatch',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE,
         related_name='live_classes',
         help_text='Specific batch this live class is for (optional - leave blank for all batches)'
     )
@@ -213,9 +211,7 @@ class Assignment(models.Model):
     
     batch = models.ForeignKey(
         'CourseBatch',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE,
         related_name='assignments',
         help_text='Specific batch this assignment is for (optional - leave blank for all batches)'
     )
@@ -394,9 +390,7 @@ class Quiz(models.Model):
     
     batch = models.ForeignKey(
         'CourseBatch',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.CASCADE,
         related_name='quizzes',
         help_text='Specific batch this quiz is for (optional - leave blank for all batches)'
     )
