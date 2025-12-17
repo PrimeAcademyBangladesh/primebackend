@@ -471,6 +471,7 @@ class CourseViewSet(BaseAdminViewSet):
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     permission_classes = [IsCourseManager]
     slug_field = "slug"
+    lookup_url_kwarg = "course_slug"
     slug_lookup_only_actions = ["retrieve"]
 
     filter_backends = [

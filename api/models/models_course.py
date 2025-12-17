@@ -432,6 +432,7 @@ class CourseModule(models.Model):
 
     slug = models.SlugField(
         max_length=120,
+        db_index=True,
         help_text="URL-friendly module identifier",
     )
 
