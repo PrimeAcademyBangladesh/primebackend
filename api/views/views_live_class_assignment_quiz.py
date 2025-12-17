@@ -1,7 +1,7 @@
 """
 Views for Live Classes, Assignments, and Quizzes
 """
-from api.permissions import IsStudent
+
 import uuid
 from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
@@ -9,16 +9,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.db.models import Count, Q
 from django.db import transaction
 from drf_spectacular.utils import (
     extend_schema,
     OpenApiExample,
 )
 from django.db.models import Prefetch
-from api.models.models_course import Course
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from api.models.models_course import CourseModule
 from api.models.models_module import (
     LiveClass,
     LiveClassAttendance,
@@ -46,7 +43,6 @@ from api.serializers.serializers_module import (
     QuizQuestionCreateUpdateSerializer,
     QuizAttemptSerializer,
     QuizAnswerSerializer,
-    CourseModuleStudentStudyPlanSerializer,
 )
 from api.permissions import IsTeacherOrAdmin
 from api.utils.response_utils import api_response
@@ -57,33 +53,27 @@ from api.serializers.serializers_module import (
 )
 from api.models.models_order import Enrollment
 
+
 class LiveClassViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for Live Classes
+    Live Classes API
 
-    Endpoints:
-    - GET /api/live-classes/ - List live classes
-    - GET /api/live-classes/{id}/ - Get live class details
-    - POST /api/live-classes/ - Create live class (teachers/admin only)
-    - PUT /api/live-classes/{id}/ - Update live class (teachers/admin only)
-    - DELETE /api/live-classes/{id}/ - Delete live class (teachers/admin only)
-    - POST /api/live-classes/{id}/mark-attendance/ - Mark attendance
-    - GET /api/live-classes/{id}/attendances/ - Get attendance list (teachers only)
+    Students → batch-isolated
+    Teachers/Admin → full access
     """
 
-    queryset = LiveClass.objects.select_related("module", "instructor").order_by(
-        "scheduled_date"
-    )
     permission_classes = [permissions.IsAuthenticated]
 
+    queryset = LiveClass.objects.select_related(
+        "module", "batch", "instructor"
+    ).order_by("scheduled_date")
+
     def get_serializer_class(self):
-        """Use different serializers for read and write operations"""
         if self.action in ["create", "update", "partial_update"]:
             return LiveClassCreateUpdateSerializer
         return LiveClassSerializer
 
     def get_permissions(self):
-        """Teachers and admin can create/update/delete"""
         if self.action in [
             "create",
             "update",
@@ -95,120 +85,38 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
-        """Filter by module_id if provided"""
         queryset = super().get_queryset()
-        module_id = self.request.query_params.get("module_id")
-        if module_id:
-            # Validate UUID format
-            try:
-                uuid.UUID(str(module_id))
-                queryset = queryset.filter(module_id=module_id)
-            except (ValueError, AttributeError):
-                # Return empty queryset for invalid UUID
+        user = self.request.user
+
+        # Student batch isolation
+        if getattr(user, "role", None) == "student":
+            enrollment = (
+                Enrollment.objects.filter(user=user, is_active=True)
+                .select_related("batch")
+                .first()
+            )
+
+            if not enrollment or not enrollment.batch:
                 return queryset.none()
 
-        # Filter by status if provided
-        status_filter = self.request.query_params.get("status")
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
+            queryset = queryset.filter(batch=enrollment.batch)
+
+        # Optional module filter
+        module_id = self.request.query_params.get("module_id")
+        if module_id:
+            try:
+                uuid.UUID(module_id)
+                queryset = queryset.filter(module_id=module_id)
+            except ValueError:
+                return queryset.none()
 
         return queryset
-
-    def list(self, request, *args, **kwargs):
-        """List live classes with wrapped response"""
-        try:
-            queryset = self.filter_queryset(self.get_queryset())
-            serializer = self.get_serializer(queryset, many=True)
-            return api_response(
-                success=True,
-                message="Live classes retrieved successfully",
-                data=serializer.data,
-                status_code=status.HTTP_200_OK,
-            )
-        except Exception as e:
-            # Gracefully handle errors - return empty array
-            return api_response(
-                success=True,
-                message="Live classes retrieved successfully",
-                data=[],
-                status_code=status.HTTP_200_OK,
-            )
-
-    @action(detail=True, methods=["post"])
-    def join(self, request, pk=None):
-        """
-        Record attendance when student clicks to join the meeting.
-
-        Frontend should call this endpoint when opening the meeting URL. This will
-        create or update a LiveClassAttendance record and set `attended=True` and
-        `joined_at` to now if not already set.
-        """
-        live_class = self.get_object()
-        student = request.user
-
-        now = timezone.now()
-
-        attendance, created = LiveClassAttendance.objects.get_or_create(
-            live_class=live_class,
-            student=student,
-            defaults={"attended": True, "joined_at": now, "duration_minutes": 0},
-        )
-
-        # If record existed but no joined_at, set it. Always mark attended=True
-        if not attendance.joined_at:
-            attendance.joined_at = now
-        attendance.attended = True
-        attendance.save()
-
-        serializer = LiveClassAttendanceSerializer(attendance)
-        return api_response(True, "Attendance recorded successfully", serializer.data)
-
-    @extend_schema(
-        tags=["Course - Live Classes"],
-        summary="Get my attendance",
-        description="Get current student's attendance status for this live class",
-    )
-    @action(detail=True, methods=["get"], url_path="my-attendance")
-    def my_attendance(self, request, pk=None):
-        """Get current student's attendance for this live class"""
-        live_class = self.get_object()
-        student = request.user
-
-        try:
-            attendance = LiveClassAttendance.objects.get(
-                live_class=live_class, student=student
-            )
-            serializer = LiveClassAttendanceSerializer(attendance)
-            return api_response(
-                True, "Attendance retrieved successfully", serializer.data
-            )
-        except LiveClassAttendance.DoesNotExist:
-            return api_response(
-                True,
-                "No attendance record found",
-                {"attended": False, "joined_at": None},
-            )
-
-    @action(detail=True, methods=["get"])
-    def attendances(self, request, pk=None):
-        """Get attendance list for live class (teachers only)"""
-        live_class = self.get_object()
-        attendances = live_class.attendances.select_related("student").all()
-        serializer = LiveClassAttendanceSerializer(attendances, many=True)
-        return api_response(
-            True,
-            "Attendances retrieved successfully",
-            {"attendances": serializer.data, "total_students": attendances.count()},
-        )
 
 
 class AssignmentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
-    queryset = Assignment.objects.select_related(
-        "module",
-        "batch"
-    ).order_by("due_date")
+    queryset = Assignment.objects.select_related("module", "batch").order_by("due_date")
 
     # ---------------- SERIALIZER SWITCH ----------------
 
@@ -239,8 +147,7 @@ class AssignmentViewSet(viewsets.ModelViewSet):
 
         # Student → only their batch + course
         enrollment = (
-            Enrollment.objects
-            .filter(user=user, is_active=True)
+            Enrollment.objects.filter(user=user, is_active=True)
             .select_related("batch", "course")
             .first()
         )
@@ -249,8 +156,7 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             return Assignment.objects.none()
 
         return self.queryset.filter(
-            batch=enrollment.batch,
-            module__course=enrollment.course
+            batch=enrollment.batch, module__course=enrollment.course
         )
 
     # ---------------- ACTIONS ----------------
@@ -286,20 +192,18 @@ class AssignmentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="my-submission")
     def my_submission(self, request, pk=None):
         assignment = self.get_object()
-        submission = assignment.submissions.filter(
-            student=request.user
-        ).first()
+        submission = assignment.submissions.filter(student=request.user).first()
 
         if not submission:
-            return api_response(False, "No submission found", None, status.HTTP_404_NOT_FOUND)
+            return api_response(
+                False, "No submission found", None, status.HTTP_404_NOT_FOUND
+            )
 
         return api_response(
             True,
             "Submission retrieved",
             AssignmentSubmissionSerializer(submission).data,
         )
-
-
 
 
 class AssignmentSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -405,12 +309,10 @@ class AssignmentSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
     request=QuizCreateUpdateSerializer,
     responses={200: QuizSerializer, 201: QuizSerializer},
 )
-
-
 class QuizViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Quizzes
-    
+
     Student + Teacher access
 
     Endpoints:
@@ -426,8 +328,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     queryset = (
-        Quiz.objects
-        .select_related("created_by")
+        Quiz.objects.select_related("created_by")
         .prefetch_related(
             "questions",
             "questions__options",
@@ -459,8 +360,7 @@ class QuizViewSet(viewsets.ModelViewSet):
 
         queryset = queryset.annotate(
             active_question_count=Count(
-                "questions",
-                filter=Q(questions__is_active=True)
+                "questions", filter=Q(questions__is_active=True)
             )
         ).filter(active_question_count__gt=0)
 
@@ -469,9 +369,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(
-            queryset,
-            many=True,
-            context={"request": request}
+            queryset, many=True, context={"request": request}
         )
         return api_response(
             True,
@@ -491,7 +389,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             QuizSerializer(quiz, context={"request": request}).data,
             status.HTTP_201_CREATED,
         )
-        
+
     @extend_schema(
         tags=["Course - Quizzes"],
         summary="Start quiz attempt",
@@ -506,14 +404,20 @@ class QuizViewSet(viewsets.ModelViewSet):
         now = timezone.now()
 
         if quiz.available_from and now < quiz.available_from:
-            return api_response(False, "Quiz not yet available", None, status.HTTP_400_BAD_REQUEST)
+            return api_response(
+                False, "Quiz not yet available", None, status.HTTP_400_BAD_REQUEST
+            )
 
         if quiz.available_until and now > quiz.available_until:
-            return api_response(False, "Quiz is no longer available", None, status.HTTP_400_BAD_REQUEST)
+            return api_response(
+                False, "Quiz is no longer available", None, status.HTTP_400_BAD_REQUEST
+            )
 
         attempt_count = QuizAttempt.objects.filter(quiz=quiz, student=student).count()
         if quiz.max_attempts and attempt_count >= quiz.max_attempts:
-            return api_response(False, "Maximum attempts reached", None, status.HTTP_400_BAD_REQUEST)
+            return api_response(
+                False, "Maximum attempts reached", None, status.HTTP_400_BAD_REQUEST
+            )
 
         attempt = QuizAttempt.objects.create(
             quiz=quiz,
@@ -530,7 +434,9 @@ class QuizViewSet(viewsets.ModelViewSet):
             questions = questions.order_by("order")
 
         total_questions = questions.count()
-        marks_per_question = quiz.total_marks / total_questions if total_questions else 0
+        marks_per_question = (
+            quiz.total_marks / total_questions if total_questions else 0
+        )
 
         questions_data = []
         for q in questions:
@@ -597,7 +503,6 @@ class QuizQuestionViewSet(viewsets.ModelViewSet):
     responses={200: QuizAttemptSerializer},
 )
 class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
-    
     """
     ViewSet for Quiz Attempts
 
@@ -608,13 +513,12 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
     - POST /api/quiz-attempts/{id}/submit/ - Submit entire quiz
     - GET /api/quiz-attempts/{id}/results/ - Get results with correct answers
     """
-    
+
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = QuizAttemptSerializer
 
     queryset = (
-        QuizAttempt.objects
-        .select_related("quiz", "student")
+        QuizAttempt.objects.select_related("quiz", "student")
         .prefetch_related(
             "answers",
             "answers__question",
@@ -628,24 +532,21 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
         if getattr(self.request.user, "role", None) == "student":
             qs = qs.filter(student=self.request.user)
         return qs
-    
+
     @action(detail=True, methods=["post"])
     def answer(self, request, pk=None):
         attempt = self.get_object()
 
         if attempt.submitted_at:
-            return api_response(False, "Quiz already submitted", None, status.HTTP_400_BAD_REQUEST)
+            return api_response(
+                False, "Quiz already submitted", None, status.HTTP_400_BAD_REQUEST
+            )
 
         question = get_object_or_404(
-            QuizQuestion,
-            id=request.data.get("question_id"),
-            quiz=attempt.quiz
+            QuizQuestion, id=request.data.get("question_id"), quiz=attempt.quiz
         )
 
-        answer, _ = QuizAnswer.objects.get_or_create(
-            attempt=attempt,
-            question=question
-        )
+        answer, _ = QuizAnswer.objects.get_or_create(attempt=attempt, question=question)
 
         answer.answer_text = request.data.get("answer_text", "")
         answer.selected_options.set(request.data.get("selected_options", []))
@@ -656,17 +557,19 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
             "Answer saved",
             QuizAnswerSerializer(answer, context={"request": request}).data,
         )
-        
+
     @action(detail=True, methods=["post"])
     @transaction.atomic
     def submit(self, request, pk=None):
         attempt = self.get_object()
 
         if attempt.submitted_at:
-            return api_response(False, "Quiz already submitted", None, status.HTTP_400_BAD_REQUEST)
+            return api_response(
+                False, "Quiz already submitted", None, status.HTTP_400_BAD_REQUEST
+            )
 
         answers_data = request.data.get("answers", [])
-        
+
         if not answers_data:
             return api_response(
                 False,
@@ -676,28 +579,26 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
             )
 
         total_questions = attempt.quiz.questions.filter(is_active=True).count()
-        marks_per_question = attempt.quiz.total_marks / total_questions if total_questions else 0
+        marks_per_question = (
+            attempt.quiz.total_marks / total_questions if total_questions else 0
+        )
 
         options_map = {
             str(o.id): o
-            for o in QuizQuestionOption.objects.filter(
-                question__quiz=attempt.quiz
-            )
+            for o in QuizQuestionOption.objects.filter(question__quiz=attempt.quiz)
         }
 
         total_marks = 0
 
         for item in answers_data:
             question = QuizQuestion.objects.filter(
-                id=item.get("question_id"),
-                quiz=attempt.quiz
+                id=item.get("question_id"), quiz=attempt.quiz
             ).first()
             if not question:
                 continue
 
             quiz_answer, _ = QuizAnswer.objects.get_or_create(
-                attempt=attempt,
-                question=question
+                attempt=attempt, question=question
             )
 
             if question.question_type in ["mcq", "multiple", "true_false"]:
@@ -712,10 +613,13 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
                         quiz_answer.selected_options.add(option)
 
                 correct_ids = set(
-                    question.options.filter(is_correct=True)
-                    .values_list("id", flat=True)
+                    question.options.filter(is_correct=True).values_list(
+                        "id", flat=True
+                    )
                 )
-                chosen_ids = set(quiz_answer.selected_options.values_list("id", flat=True))
+                chosen_ids = set(
+                    quiz_answer.selected_options.values_list("id", flat=True)
+                )
 
                 if correct_ids == chosen_ids:
                     quiz_answer.marks_awarded = marks_per_question
@@ -734,7 +638,8 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
         attempt.marks_obtained = total_marks
         attempt.percentage = (
             (total_marks / attempt.quiz.total_marks) * 100
-            if attempt.quiz.total_marks > 0 else 0
+            if attempt.quiz.total_marks > 0
+            else 0
         )
         attempt.passed = total_marks >= attempt.quiz.passing_marks
         attempt.status = "submitted"
@@ -751,12 +656,11 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
         attempt = self.get_object()
 
         if not attempt.submitted_at:
-            return api_response(False, "Quiz not yet submitted", None, status.HTTP_400_BAD_REQUEST)
+            return api_response(
+                False, "Quiz not yet submitted", None, status.HTTP_400_BAD_REQUEST
+            )
 
-        serializer = QuizAttemptSerializer(
-            attempt,
-            context={"request": request}
-        )
+        serializer = QuizAttemptSerializer(attempt, context={"request": request})
 
         return api_response(
             True,
@@ -795,7 +699,7 @@ class CourseResourceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """Filter resources based on query parameters and user enrollment"""
-        
+
         queryset = (
             CourseResource.objects.filter(is_active=True)
             .select_related("module", "live_class", "uploaded_by")
@@ -807,7 +711,6 @@ class CourseResourceViewSet(viewsets.ModelViewSet):
             pass
         else:
             # Students can only see resources from modules they're enrolled in
-            
 
             enrolled_courses = Enrollment.objects.filter(
                 user=self.request.user, is_active=True

@@ -161,12 +161,16 @@ class LiveClassSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
 
 
 class LiveClassCreateUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for creating/updating live classes (admin/teacher use)."""
+    """
+    Teacher/Admin only
+    Batch is mandatory
+    """
 
     class Meta:
         model = LiveClass
         fields = [
             "module",
+            "batch",
             "title",
             "description",
             "scheduled_date",
@@ -180,6 +184,13 @@ class LiveClassCreateUpdateSerializer(serializers.ModelSerializer):
             "is_active",
             "instructor",
         ]
+
+    def validate_batch(self, value):
+        if not value:
+            raise serializers.ValidationError(
+                "Batch is required to create a live class."
+            )
+        return value
 
 
 class LiveClassAttendanceSerializer(serializers.ModelSerializer):
@@ -242,7 +253,7 @@ class AssignmentListSerializer(serializers.ModelSerializer):
 class AssignmentCreateUpdateSerializer(serializers.ModelSerializer):
     """
     Teacher/Admin only
-    All required fields enforced by model
+    Batch is REQUIRED at API level
     """
 
     class Meta:
@@ -262,6 +273,13 @@ class AssignmentCreateUpdateSerializer(serializers.ModelSerializer):
             "order",
             "is_active",
         ]
+
+    def validate_batch(self, value):
+        if not value:
+            raise serializers.ValidationError(
+                "Batch is required when creating an assignment."
+            )
+        return value
 
 
 class AssignmentStudentSerializer(HTMLFieldsMixin, serializers.ModelSerializer):

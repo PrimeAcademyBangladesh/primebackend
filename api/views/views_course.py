@@ -1940,7 +1940,16 @@ class WhyEnrolViewSet(BaseAdminViewSet):
     ),
     retrieve=extend_schema(
         summary="Retrieve course module (Admin)",
-        description="Get specific module with all details.",
+        description="""
+        Get specific module with all details.
+        
+        **Dual Lookup Support:**
+        You can look up a module using either its **UUID** or its **Slug**.
+        
+        **Example URLs:**
+        - `/api/courses/modules/550e8400-e29b-41d4-a716-446655440000/`
+        - `/api/courses/modules/introduction-to-python/`
+        """,
         responses={200: None},
         tags=["Course - Modules"],
     ),
@@ -1952,19 +1961,19 @@ class WhyEnrolViewSet(BaseAdminViewSet):
     ),
     update=extend_schema(
         summary="Update course module (Admin)",
-        description="Full update of course module.",
+        description="Full update of course module. Supports lookup by **UUID** or **Slug**.",
         responses={200: None},
         tags=["Course - Modules"],
     ),
     partial_update=extend_schema(
         summary="Partially update course module (Admin)",
-        description="Partial update of module fields.",
+        description="Partial update of module fields. Supports lookup by **UUID** or **Slug**.",
         responses={200: None},
         tags=["Course - Modules"],
     ),
     destroy=extend_schema(
         summary="Delete course module (Admin)",
-        description="Delete a course module.",
+        description="Delete a course module. Supports lookup by **UUID** or **Slug**.",
         responses={204: None},
         tags=["Course - Modules"],
     ),
@@ -1985,6 +1994,29 @@ class CourseModuleViewSet(BaseAdminViewSet):
     search_fields = ["title", "short_description"]
     ordering_fields = ["order", "created_at"]
     ordering = ["course", "order"]
+
+    slug_field = "slug"
+    lookup_value_regex = "[^/]+"
+
+    def get_object(self):
+        """Allow lookup by either UUID (pk) or slug."""
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        value = self.kwargs[lookup_url_kwarg]
+
+        # 1. Try Slug
+        try:
+            return queryset.get(slug=value)
+        except (CourseModule.DoesNotExist, TypeError, ValueError):
+            # 2. Try UUID PK
+            try:
+                from django.core.exceptions import ValidationError
+
+                return queryset.get(pk=value)
+            except (CourseModule.DoesNotExist, ValidationError, TypeError, ValueError):
+                from django.http import Http404
+
+                raise Http404("No CourseModule matches the given query.")
 
     def get_queryset(self):
         """Override to allow filtering by Course ID/slug via 'course_id' or 'course_slug' params."""
