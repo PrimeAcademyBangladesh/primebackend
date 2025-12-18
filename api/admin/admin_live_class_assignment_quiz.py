@@ -104,8 +104,7 @@ class LiveClassAdmin(BaseModelAdmin):
         qs = super().get_queryset(request)
         return qs.select_related(
             "module",  # For course_name(), course_display()
-            "module__course",  # Load CourseDetail
-            "module__course__course",  # Load Course
+            "module__course",  # Load Course
             "instructor",  # For instructor field in list_display
         ).prefetch_related(
             "attendances",  # For attendance_count()
@@ -128,27 +127,21 @@ class LiveClassAdmin(BaseModelAdmin):
             # Set initial course from instance.module if editing
             if self.instance and getattr(self.instance, "module", None):
                 module = self.instance.module
-                if getattr(module, "course", None) and getattr(
-                    module.course, "course", None
-                ):
-                    self.fields["course"].initial = module.course.course.slug
+                if getattr(module, "course", None):
+                    self.fields["course"].initial = module.course.slug
 
             # Limit module queryset to active modules; modules will be loaded via AJAX when course selected
             self.fields["module"].queryset = CourseModule.objects.filter(
                 is_active=True
-            ).select_related("course__course")
+            ).select_related("course")
 
         def clean(self):
             cleaned = super().clean()
             course = cleaned.get("course")
             module = cleaned.get("module")
             if course and module:
-                # Module.course is CourseDetail; compare module.course.course.slug to selected course.slug
-                if not (
-                    module.course
-                    and getattr(module.course, "course", None)
-                    and module.course.course.slug == course.slug
-                ):
+                # Module.course is Course; compare module.course.slug to selected course.slug
+                if not (module.course and module.course.slug == course.slug):
                     raise forms.ValidationError(
                         "Selected module does not belong to the chosen course."
                     )
@@ -171,14 +164,14 @@ class LiveClassAdmin(BaseModelAdmin):
         "status",
         "is_active",
         "scheduled_date",
-        "module__course__course",
+        "module__course",
         "instructor",
     ]
     search_fields = [
         "title",
         "description",
         "module__title",
-        "module__course__course__title",
+        "module__course__title",
     ]
     readonly_fields = [
         "id",
@@ -239,23 +232,23 @@ class LiveClassAdmin(BaseModelAdmin):
         if db_field.name == "module":
             kwargs["queryset"] = db_field.related_model.objects.filter(
                 is_active=True
-            ).select_related("course__course")
+            ).select_related("course")
 
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def course_name(self, obj):
         """Display course name."""
         return (
-            obj.module.course.course.title if obj.module and obj.module.course else "-"
+            obj.module.course.title if obj.module and obj.module.course else "-"
         )
 
     course_name.short_description = "Course"
-    course_name.admin_order_field = "module__course__course__title"
+    course_name.admin_order_field = "module__course__title"
 
     def course_display(self, obj):
         """Display course name in form (read-only)."""
         if obj.module and obj.module.course:
-            course = obj.module.course.course
+            course = obj.module.course
             return format_html(
                 '<div style="padding: 10px; background: #e3f2fd; border-left: 4px solid #1976d2; font-size: 14px;">'
                 '<strong style="color: #1976d2;">📚 {}</strong><br>'
@@ -430,7 +423,6 @@ class AssignmentAdmin(BaseModelAdmin):
         return qs.select_related(
             "module",
             "module__course",
-            "module__course__course",
             "created_by",
         ).prefetch_related(
             "submissions",
@@ -450,14 +442,14 @@ class AssignmentAdmin(BaseModelAdmin):
         "assignment_type",
         "is_active",
         "due_date",
-        "module__course__course",
+        "module__course",
         "late_submission_allowed",
     ]
     search_fields = [
         "title",
         "description",
         "module__title",
-        "module__course__course__title",
+        "module__course__title",
     ]
     readonly_fields = [
         "id",
@@ -523,23 +515,23 @@ class AssignmentAdmin(BaseModelAdmin):
         if db_field.name == "module":
             kwargs["queryset"] = db_field.related_model.objects.filter(
                 is_active=True
-            ).select_related("course__course")
+            ).select_related("course")
 
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def course_name(self, obj):
         """Display course name."""
         return (
-            obj.module.course.course.title if obj.module and obj.module.course else "-"
+            obj.module.course.title if obj.module and obj.module.course else "-"
         )
 
     course_name.short_description = "Course"
-    course_name.admin_order_field = "module__course__course__title"
+    course_name.admin_order_field = "module__course__title"
 
     def course_display(self, obj):
         """Display course name in form (read-only)."""
         if obj.module and obj.module.course:
-            course = obj.module.course.course
+            course = obj.module.course
             return format_html(
                 '<div style="padding: 10px; background: #e3f2fd; border-left: 4px solid #1976d2; font-size: 14px;">'
                 '<strong style="color: #1976d2;">📚 {}</strong><br>'
@@ -851,13 +843,13 @@ class QuizAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
         "is_active",
         "show_correct_answers",
         "randomize_questions",
-        "module__course__course",
+        "module__course",
     ]
     search_fields = [
         "title",
         "description",
         "module__title",
-        "module__course__course__title",
+        "module__course__title",
     ]
     readonly_fields = [
         "id",
@@ -907,23 +899,23 @@ class QuizAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
         if db_field.name == "module":
             kwargs["queryset"] = db_field.related_model.objects.filter(
                 is_active=True
-            ).select_related("course__course")
+            ).select_related("course")
 
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def course_name(self, obj):
         """Display course name."""
         return (
-            obj.module.course.course.title if obj.module and obj.module.course else "-"
+            obj.module.course.title if obj.module and obj.module.course else "-"
         )
 
     course_name.short_description = "Course"
-    course_name.admin_order_field = "module__course__course__title"
+    course_name.admin_order_field = "module__course__title"
 
     def course_display(self, obj):
         """Display course name in form (read-only)."""
         if obj.module and obj.module.course:
-            course = obj.module.course.course
+            course = obj.module.course
             return format_html(
                 '<div style="padding: 10px; background: #e3f2fd; border-left: 4px solid #1976d2; font-size: 14px;">'
                 '<strong style="color: #1976d2;">📚 {}</strong><br>'

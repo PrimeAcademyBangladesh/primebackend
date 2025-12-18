@@ -702,7 +702,7 @@ class CourseContentSectionAdmin(BaseModelAdmin):
     """Course content sections - usually managed via nested admin."""
     list_display = ('section_name', 'course', 'order', 'is_active', 'tab_count')
     list_filter = ('is_active',)
-    search_fields = ('section_name', 'course__course__title')
+    search_fields = ('section_name', 'course__title')
     list_editable = ('is_active', 'order')
     ordering = ('course', 'order')
     
@@ -720,7 +720,7 @@ class CourseSectionTabAdmin(BaseModelAdmin):
     """Course section tabs - usually managed via nested admin."""
     list_display = ('tab_name', 'section', 'order', 'is_active', 'content_count')
     list_filter = ('is_active',)
-    search_fields = ('tab_name', 'section__section_name', 'section__course__course__title')
+    search_fields = ('tab_name', 'section__section_name', 'section__course__title')
     list_editable = ('is_active', 'order')
     ordering = ('section', 'order')
     
@@ -738,7 +738,7 @@ class CourseTabbedContentAdmin(BaseModelAdmin):
     """Course tabbed content - usually managed via nested admin."""
     list_display = ('title', 'tab', 'media_type', 'order', 'is_active', 'created_at')
     list_filter = ('media_type', 'video_provider', 'is_active', 'created_at')
-    search_fields = ('title', 'description', 'tab__tab_name', 'tab__section__course__course__title')
+    search_fields = ('title', 'description', 'tab__tab_name', 'tab__section__course__title')
     list_editable = ('is_active', 'order')
     ordering = ('tab', 'order')
     readonly_fields = ('video_id', 'created_at', 'updated_at')
@@ -770,7 +770,7 @@ class WhyEnrolAdmin(BaseModelAdmin):
     """Why enrol sections - usually managed via nested admin."""
     list_display = ('title', 'course', 'is_active')
     list_filter = ('is_active',)
-    search_fields = ('title', 'course__course__title')
+    search_fields = ('title', 'course__title')
     list_editable = ('is_active',)
     
     def has_module_permission(self, request):
@@ -783,7 +783,7 @@ class CourseModuleAdmin(BaseModelAdmin):
     """Course modules/chapters - usually managed via nested admin."""
     list_display = ('order', 'title', 'course', 'is_active')
     list_filter = ('is_active',)
-    search_fields = ('title', 'course__course__title')
+    search_fields = ('title', 'course__title')
     list_editable = ('is_active',)
     ordering = ('course', 'order')
     
@@ -797,7 +797,7 @@ class KeyBenefitAdmin(BaseModelAdmin):
     """Course key benefits - usually managed via nested admin."""
     list_display = ('title', 'course', 'is_active')
     list_filter = ('is_active',)
-    search_fields = ('title', 'course__course__title')
+    search_fields = ('title', 'course__title')
     list_editable = ('is_active',)
     
     def has_module_permission(self, request):
@@ -810,7 +810,7 @@ class SideImageSectionAdmin(BaseModelAdmin):
     """Course side image sections - usually managed via nested admin."""
     list_display = ('title', 'course', 'button_text', 'is_active')
     list_filter = ('is_active',)
-    search_fields = ('title', 'course__course__title')
+    search_fields = ('title', 'course__title')
     list_editable = ('is_active',)
     
     def has_module_permission(self, request):
@@ -823,7 +823,7 @@ class SuccessStoryAdmin(BaseModelAdmin):
     """Course success stories - usually managed via nested admin."""
     list_display = ('name', 'course', 'is_active')
     list_filter = ('is_active',)
-    search_fields = ('name', 'course__course__title')
+    search_fields = ('name', 'course__title')
     list_editable = ('is_active',)
     
     def has_module_permission(self, request):

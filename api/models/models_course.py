@@ -6,6 +6,7 @@ from django_ckeditor_5.fields import CKEditor5Field
 
 from api.models.images_base_class import OptimizedImageModel
 from api.utils.helper_models import TimeStampedModel
+from api.models.models_order import Enrollment
 
 
 class Category(TimeStampedModel):
@@ -111,7 +112,7 @@ class Course(TimeStampedModel, OptimizedImageModel):
     }
 
     def save(self, *args, **kwargs):
-        self.slug = slugify(self.name)
+        self.slug = slugify(self.title)
         super().save(*args, **kwargs)
 
     class Meta(TimeStampedModel.Meta, OptimizedImageModel.Meta):
@@ -423,7 +424,7 @@ class CourseModule(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     course = models.ForeignKey(
-        "CourseDetail",
+        Course,
         related_name="modules",
         on_delete=models.CASCADE,
     )
@@ -565,18 +566,16 @@ class CourseInstructor(models.Model):
         super().save(*args, **kwargs)
 
     def get_assigned_modules(self):
-        """Get modules this instructor teaches or all course modules if none specified."""
         if self.modules.exists():
             return self.modules.all()
-        # Return all modules from the course's detail
-        return self.course.detail.modules.all()
+        return self.course.modules.all()
 
     def __str__(self):
         module_count = self.modules.count() if self.pk else 0
         type_display = f" ({self.get_instructor_type_display()})"
         if module_count > 0:
-            return f"{self.teacher.get_full_name}{type_display} - {self.course.title} ({module_count} modules)"
-        return f"{self.teacher.get_full_name}{type_display} - {self.course.title} (All modules)"
+            return f"{self.teacher.get_full_name()}{type_display} - {self.course.title} ({module_count} modules)"
+        return f"{self.teacher.get_full_name()}{type_display} - {self.course.title} (All modules)"
 
 
 class CourseBatch(TimeStampedModel):
@@ -649,7 +648,6 @@ class CourseBatch(TimeStampedModel):
         help_text="Current number of enrolled students (auto-calculated)",
     )
 
-    # Pricing (optional override - if not set, uses course default pricing)
     custom_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -658,7 +656,6 @@ class CourseBatch(TimeStampedModel):
         help_text="Custom price for this batch (optional, overrides course price)",
     )
 
-    # Installment options per batch (override course defaults)
     installment_available = models.BooleanField(
         null=True,
         blank=True,
@@ -670,7 +667,6 @@ class CourseBatch(TimeStampedModel):
         help_text="Batch-specific installment count (overrides course setting if installment_available=True)",
     )
 
-    # Status
     status = models.CharField(
         max_length=20,
         choices=BATCH_STATUS_CHOICES,
@@ -685,7 +681,6 @@ class CourseBatch(TimeStampedModel):
         help_text="Whether this batch is active and visible",
     )
 
-    # Additional info
     description = models.TextField(
         blank=True, help_text="Batch-specific description or notes (optional)"
     )
@@ -704,23 +699,17 @@ class CourseBatch(TimeStampedModel):
         ]
 
     def save(self, *args, **kwargs):
-        """Auto-generate slug and update status based on dates."""
-        if not self.pk or "status" not in kwargs.get("update_fields", []):
-            self._update_status()
-
-        if not self.slug:
+        if not self.pk:
             base_slug = f"{self.course.slug}-batch-{self.batch_number}"
             self.slug = base_slug
-
-            # Ensure uniqueness
             counter = 1
+
             while (
                 CourseBatch.objects.filter(slug=self.slug).exclude(pk=self.pk).exists()
             ):
                 self.slug = f"{base_slug}-{counter}"
                 counter += 1
 
-        # Auto-update status based on dates
         self._update_status()
 
         super().save(*args, **kwargs)
@@ -731,31 +720,26 @@ class CourseBatch(TimeStampedModel):
 
         now = timezone.now().date()
 
-        # Don't auto-update if manually set to cancelled
         if self.status == "cancelled":
             return
 
-        # Check if completed
         if self.end_date and now > self.end_date:
             self.status = "completed"
-        # Check if running
         elif self.start_date and now >= self.start_date and now <= self.end_date:
             self.status = "running"
-        # Check if enrollment is open
         elif self.is_active and self._check_enrollment_open(now):
             self.status = "enrollment_open"
-        # Otherwise upcoming
         else:
             self.status = "upcoming"
 
     def _check_enrollment_open(self, now):
-        """Helper to check if enrollment is open for a given date."""
-        enrollment_start = (
-            self.enrollment_start_date or self.created_at.date()
-            if self.created_at
-            else now
+        enrollment_start = self.enrollment_start_date or (
+            self.created_at.date() if self.created_at else now
         )
         enrollment_end = self.enrollment_end_date or self.start_date
+
+        if not enrollment_start or not enrollment_end:
+            return False
 
         return (
             now >= enrollment_start
@@ -822,7 +806,6 @@ class CourseBatch(TimeStampedModel):
 
     def update_enrolled_count(self):
         """Update enrolled_students count from actual enrollments."""
-        from api.models.models_order import Enrollment
 
         self.enrolled_students = Enrollment.objects.filter(
             batch=self, is_active=True

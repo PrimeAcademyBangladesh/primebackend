@@ -6,6 +6,10 @@ from django.db import models
 from django_ckeditor_5.fields import CKEditor5Field
 from api.utils.helper_models import TimeStampedModel
 
+from django.core.exceptions import ValidationError
+
+from api.models.models_course import CourseModule, CourseBatch
+
 
 # Live Classes within a module
 class LiveClass(models.Model):
@@ -508,15 +512,15 @@ class QuizAnswer(TimeStampedModel):
 
 class CourseResource(TimeStampedModel):
     """
-    Course materials/resources uploaded by teachers.
-    Can be linked to modules, live classes, or standalone.
+    Study materials / resources for a module or live class.
+    Batch-isolated, student-safe, and production-ready.
     """
 
     RESOURCE_TYPE_CHOICES = [
         ("pdf", "PDF Document"),
         ("video", "Video"),
         ("slide", "Presentation Slides"),
-        ("code", "Code/Project Files"),
+        ("code", "Code / Project Files"),
         ("document", "Document"),
         ("link", "External Link"),
         ("other", "Other"),
@@ -524,62 +528,62 @@ class CourseResource(TimeStampedModel):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    # Relationships
+    # ---------- Relationships ----------
     module = models.ForeignKey(
-        "CourseModule",
+        CourseModule,
         related_name="resources",
         on_delete=models.CASCADE,
         help_text="Module this resource belongs to",
     )
+
+    batch = models.ForeignKey(
+        CourseBatch,
+        related_name="resources",
+        on_delete=models.CASCADE,
+        help_text="Batch this resource belongs to",
+    )
+
     live_class = models.ForeignKey(
         LiveClass,
         related_name="resources",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        help_text="Optional: Link to specific live class",
+        help_text="Optional: Link to a specific live class",
     )
 
-    # Resource details
-    title = models.CharField(
-        max_length=200,
-        help_text="Resource title (e.g., 'Week 1 Slides', 'Python Basics Notes')",
-    )
-    description = CKEditor5Field(
-        blank=True, null=True, help_text="Description of the resource"
-    )
+    # ---------- Resource details ----------
+    title = models.CharField(max_length=200)
+    description = CKEditor5Field(blank=True, null=True)
+
     resource_type = models.CharField(
-        max_length=20, choices=RESOURCE_TYPE_CHOICES, default="document"
+        max_length=20,
+        choices=RESOURCE_TYPE_CHOICES,
+        default="document",
     )
 
-    # File or URL
+    # ---------- File or URL ----------
     file = models.FileField(
         upload_to="course_resources/",
         blank=True,
         null=True,
-        help_text="Upload file (PDF, ZIP, PPT, etc.)",
+        help_text="Optional single file upload",
     )
     external_url = models.URLField(
-        blank=True, null=True, help_text="External link (Google Drive, YouTube, etc.)"
+        blank=True,
+        null=True,
+        help_text="External link (Drive, YouTube, etc.)",
     )
 
-    # File metadata
-    file_size = models.BigIntegerField(
-        null=True, blank=True, help_text="File size in bytes"
-    )
-    download_count = models.PositiveIntegerField(
-        default=0, help_text="Number of times downloaded"
-    )
+    # ---------- Metadata ----------
+    file_size = models.BigIntegerField(null=True, blank=True)
+    download_count = models.PositiveIntegerField(default=0)
 
-    # Organization
-    order = models.PositiveIntegerField(
-        default=0, help_text="Display order within module"
-    )
-    is_active = models.BooleanField(
-        default=True, help_text="Whether resource is visible to students"
-    )
+    # ---------- Display ----------
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
 
-    # Tracking
+    # ---------- Tracking ----------
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -588,34 +592,94 @@ class CourseResource(TimeStampedModel):
         limit_choices_to={"role__in": ["teacher", "admin", "superadmin"]},
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
     class Meta:
         verbose_name = "Course Resource"
         verbose_name_plural = "Course Resources"
-        ordering = ["module", "order", "-created_at"]
+        ordering = ["order", "-created_at"]
+
+        # Prevent duplicate ordering per batch
+        unique_together = ["module", "batch", "order"]
+
+        # ✅ Performance indexes
         indexes = [
-            models.Index(fields=["module", "is_active"]),
+            models.Index(fields=["module", "batch", "is_active"]),
+            models.Index(fields=["module", "batch", "order"]),
             models.Index(fields=["live_class"]),
         ]
 
     def __str__(self):
-        return f"{self.module.title} - {self.title}"
+        return f"{self.module.title} | {self.batch.display_name} | {self.title}"
 
+    # ---------- Validation ----------
+    def clean(self):
+        """
+        Enforce that at least one content source exists:
+        - file
+        - external_url
+        - attached files
+        """
+        has_attached_files = self.pk and self.files.exists()
+
+        if not self.file and not self.external_url and not has_attached_files:
+            raise ValidationError(
+                "A resource must have a file, external URL, or attached files."
+            )
+
+    # ---------- Helpers ----------
     def increment_download_count(self):
-        """Increment download counter"""
         self.download_count += 1
         self.save(update_fields=["download_count"])
 
     def get_file_size_display(self):
-        """Return human-readable file size"""
         if not self.file_size:
             return "Unknown"
 
-        size = self.file_size
-        for unit in ["B", "KB", "MB", "GB"]:
-            if size < 1024.0:
+        size = float(self.file_size)
+        for unit in ["B", "KB", "MB", "GB", "TB"]:
+            if size < 1024:
                 return f"{size:.1f} {unit}"
-            size /= 1024.0
-        return f"{size:.1f} TB"
+            size /= 1024
+        return "Unknown"
+
+
+class CourseResourceFile(models.Model):
+    """
+    Individual files attached to a CourseResource.
+    Enables multi-file uploads per resource.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    resource = models.ForeignKey(
+        CourseResource,
+        related_name="files",
+        on_delete=models.CASCADE,
+    )
+
+    file = models.FileField(
+        upload_to="course_resources/files/",
+        help_text="Attached resource file",
+    )
+
+    file_size = models.BigIntegerField(null=True, blank=True)
+
+    order = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Course Resource File"
+        verbose_name_plural = "Course Resource Files"
+        ordering = ["order", "created_at"]
+
+        indexes = [
+            models.Index(fields=["resource", "order"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.file and not self.file_size:
+            self.file_size = self.file.size
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.resource.title} - {self.file.name}"

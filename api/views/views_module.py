@@ -74,7 +74,7 @@ class CourseModuleStudyPlanView(APIView):
 
         module = get_object_or_404(
             CourseModule.objects.filter(
-                course__course=course,
+                course=course,
                 slug=module_slug,
                 is_active=True,
             ).prefetch_related(

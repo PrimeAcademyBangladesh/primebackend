@@ -202,7 +202,7 @@ router.register(r"quiz-attempts", QuizAttemptViewSet, basename="quiz-attempt")
 
 
 # Course Resources (Teacher-uploaded materials)
-router.register(r"resources", CourseResourceViewSet, basename="course-resource")
+router.register(r"course-resource", CourseResourceViewSet, basename="course-resource")
 
 
 urlpatterns = router.urls + [
@@ -214,7 +214,6 @@ urlpatterns = router.urls + [
     # Student specific endpoints
     path("students/register/", StudentRegisterView.as_view(), name="student-register"),
     path("students/login/", StudentLoginView.as_view(), name="student-login"),
-    # Student-specific routes (registration/login/password flows)
     path("verify-student/", VerifyEmailView.as_view(), name="verify-student"),
     path(
         "students/resend-verification/",

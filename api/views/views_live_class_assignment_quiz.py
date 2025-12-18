@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.db import transaction
 from drf_spectacular.utils import (
     extend_schema,
+    extend_schema_view,
     OpenApiExample,
 )
 from django.db.models import Prefetch
@@ -52,8 +53,27 @@ from api.serializers.serializers_module import (
     CourseResourceCreateUpdateSerializer,
 )
 from api.models.models_order import Enrollment
+from api.permissions import IsTeacherOrAdmin
 
 
+@extend_schema_view(
+    list=extend_schema(summary="List live classes", tags=["Course - Live Classes"]),
+    retrieve=extend_schema(
+        summary="Get live class details", tags=["Course - Live Classes"]
+    ),
+    create=extend_schema(
+        summary="Create live class (Admin)", tags=["Course - Live Classes"]
+    ),
+    update=extend_schema(
+        summary="Update live class (Admin)", tags=["Course - Live Classes"]
+    ),
+    partial_update=extend_schema(
+        summary="Partial update live class (Admin)", tags=["Course - Live Classes"]
+    ),
+    destroy=extend_schema(
+        summary="Delete live class (Admin)", tags=["Course - Live Classes"]
+    ),
+)
 class LiveClassViewSet(viewsets.ModelViewSet):
     """
     Live Classes API
@@ -88,7 +108,6 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         user = self.request.user
 
-        # Student batch isolation
         if getattr(user, "role", None) == "student":
             enrollment = (
                 Enrollment.objects.filter(user=user, is_active=True)
@@ -101,7 +120,6 @@ class LiveClassViewSet(viewsets.ModelViewSet):
 
             queryset = queryset.filter(batch=enrollment.batch)
 
-        # Optional module filter
         module_id = self.request.query_params.get("module_id")
         if module_id:
             try:
@@ -113,6 +131,30 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         return queryset
 
 
+@extend_schema_view(
+    list=extend_schema(summary="List assignments", tags=["Course - Assignments"]),
+    retrieve=extend_schema(
+        summary="Get assignment details", tags=["Course - Assignments"]
+    ),
+    create=extend_schema(
+        summary="Create assignment (Admin)", tags=["Course - Assignments"]
+    ),
+    update=extend_schema(
+        summary="Update assignment (Admin)", tags=["Course - Assignments"]
+    ),
+    partial_update=extend_schema(
+        summary="Partial update assignment (Admin)", tags=["Course - Assignments"]
+    ),
+    destroy=extend_schema(
+        summary="Delete assignment (Admin)", tags=["Course - Assignments"]
+    ),
+    submit=extend_schema(
+        summary="Submit assignment (Student)", tags=["Course - Assignments"]
+    ),
+    my_submission=extend_schema(
+        summary="Get my submission (Student)", tags=["Course - Assignments"]
+    ),
+)
 class AssignmentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -206,6 +248,14 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List assignment submissions", tags=["Course - Assignments"]
+    ),
+    retrieve=extend_schema(
+        summary="Get submission details", tags=["Course - Assignments"]
+    ),
+)
 class AssignmentSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for Assignment Submissions (Read-Only)
@@ -298,16 +348,17 @@ class AssignmentSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
-@extend_schema(
-    tags=["Course - Quizzes"],
-    summary="Manage quizzes (list, retrieve, create, update, delete)",
-    description=(
-        "List and retrieve quizzes. Use `QuizCreateUpdateSerializer` for "
-        "create/update. Responses use `QuizSerializer` for reads and "
-        "`QuizAttemptSerializer` for attempt-related responses."
+@extend_schema_view(
+    list=extend_schema(summary="List quizzes", tags=["Course - Quizzes"]),
+    retrieve=extend_schema(
+        summary="Get quiz with questions", tags=["Course - Quizzes"]
     ),
-    request=QuizCreateUpdateSerializer,
-    responses={200: QuizSerializer, 201: QuizSerializer},
+    create=extend_schema(summary="Create quiz (Admin)", tags=["Course - Quizzes"]),
+    update=extend_schema(summary="Update quiz (Admin)", tags=["Course - Quizzes"]),
+    partial_update=extend_schema(
+        summary="Partial update quiz (Admin)", tags=["Course - Quizzes"]
+    ),
+    destroy=extend_schema(summary="Delete quiz (Admin)", tags=["Course - Quizzes"]),
 )
 class QuizViewSet(viewsets.ModelViewSet):
     """
@@ -493,14 +544,18 @@ class QuizQuestionViewSet(viewsets.ModelViewSet):
     queryset = QuizQuestion.objects.prefetch_related("options").order_by("order")
 
 
-@extend_schema(
-    tags=["Course - Quiz Attempts"],
-    summary="View and submit quiz attempts",
-    description=(
-        "List and retrieve quiz attempts. Use `/answer/` to save an answer and `/submit/` to submit the quiz. "
-        "`QuizAttemptSerializer` is used for responses."
+@extend_schema_view(
+    list=extend_schema(
+        summary="List student's quiz attempts", tags=["Course - Quizzes"]
     ),
-    responses={200: QuizAttemptSerializer},
+    retrieve=extend_schema(summary="Get attempt details", tags=["Course - Quizzes"]),
+    answer=extend_schema(
+        summary="Submit answer for question", tags=["Course - Quizzes"]
+    ),
+    submit=extend_schema(summary="Submit entire quiz", tags=["Course - Quizzes"]),
+    results=extend_schema(
+        summary="Get results with correct answers", tags=["Course - Quizzes"]
+    ),
 )
 class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -672,215 +727,121 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
 # ========== Course Resources ViewSet ==========
 
 
+@extend_schema_view(
+    list=extend_schema(tags=["Course - Resources"]),
+    retrieve=extend_schema(tags=["Course - Resources"]),
+    create=extend_schema(tags=["Course - Resources"]),
+    update=extend_schema(tags=["Course - Resources"]),
+    partial_update=extend_schema(tags=["Course - Resources"]),
+    destroy=extend_schema(tags=["Course - Resources"]),
+)
 class CourseResourceViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for course resources/materials.
+    Course Resources API
 
-    List/Retrieve: Available to enrolled students
-    Create/Update/Delete: Teachers and admin only
+    Students:
+    - Download resources
+    - Batch-isolated access
+
+    Teachers/Admin:
+    - Full CRUD access
     """
 
-    queryset = CourseResource.objects.all()
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser, JSONParser)
 
-    def get_serializer_class(self):
-        """Use different serializers for read vs write operations"""
+    queryset = (
+        CourseResource.objects.select_related(
+            "module", "batch", "live_class", "uploaded_by"
+        )
+        .prefetch_related("files")
+        .filter(is_active=True)
+        .order_by("order", "-created_at")
+    )
 
+    # ---------------- SERIALIZERS ----------------
+
+    def get_serializer_class(self):
         if self.action in ["create", "update", "partial_update"]:
             return CourseResourceCreateUpdateSerializer
         return CourseResourceSerializer
 
+    # ---------------- PERMISSIONS ----------------
+
     def get_permissions(self):
-        """Different permissions for read vs write operations"""
         if self.action in ["create", "update", "partial_update", "destroy"]:
             return [IsTeacherOrAdmin()]
         return [permissions.IsAuthenticated()]
 
+    # ---------------- QUERYSET ----------------
+
     def get_queryset(self):
-        """Filter resources based on query parameters and user enrollment"""
+        queryset = super().get_queryset()
+        user = self.request.user
 
-        queryset = (
-            CourseResource.objects.filter(is_active=True)
-            .select_related("module", "live_class", "uploaded_by")
-            .order_by("order", "-created_at")
-        )
+        # ---- Students: batch isolation ----
+        if getattr(user, "role", None) == "student":
+            enrollment = (
+                Enrollment.objects.filter(user=user, is_active=True)
+                .select_related("batch", "course")
+                .first()
+            )
 
-        # Teachers/admin can see all resources
-        if self.request.user.is_staff or hasattr(self.request.user, "is_teacher"):
-            pass
-        else:
-            # Students can only see resources from modules they're enrolled in
+            if not enrollment:
+                return queryset.none()
 
-            enrolled_courses = Enrollment.objects.filter(
-                user=self.request.user, is_active=True
-            ).values_list("course", flat=True)
+            queryset = queryset.filter(
+                batch=enrollment.batch,
+                module__course=enrollment.course,
+            )
 
-            queryset = queryset.filter(module__course__course__in=enrolled_courses)
-
-        # Filter by module_id if provided
+        # ---- Filters ----
         module_id = self.request.query_params.get("module_id")
         if module_id:
-            queryset = queryset.filter(module_id=module_id)
+            try:
+                uuid.UUID(module_id)
+                queryset = queryset.filter(module_id=module_id)
+            except ValueError:
+                return queryset.none()
 
-        # Filter by live_class_id if provided
         live_class_id = self.request.query_params.get("live_class_id")
         if live_class_id:
             queryset = queryset.filter(live_class_id=live_class_id)
 
-        # Filter by resource_type if provided
-        resource_type = self.request.query_params.get("resource_type")
-        if resource_type:
-            queryset = queryset.filter(resource_type=resource_type)
-
         return queryset
 
-    def list(self, request, *args, **kwargs):
-        """List resources with graceful error handling"""
-        try:
-            queryset = self.filter_queryset(self.get_queryset())
-            serializer = self.get_serializer(queryset, many=True)
-
-            return api_response(
-                success=True,
-                message="Resources retrieved successfully",
-                data=serializer.data,
-                status_code=status.HTTP_200_OK,
-            )
-        except Exception as e:
-            # Return empty array instead of 500 error
-            return api_response(
-                success=True,
-                message="No resources found",
-                data=[],
-                status_code=status.HTTP_200_OK,
-            )
-
-    def retrieve(self, request, *args, **kwargs):
-        """Get resource details"""
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
-
-        return api_response(
-            success=True,
-            message="Resource retrieved successfully",
-            data=serializer.data,
-            status_code=status.HTTP_200_OK,
-        )
-
-    def create(self, request, *args, **kwargs):
-        """Upload new resource"""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        # Set uploaded_by to current user
-        resource = serializer.save(uploaded_by=request.user)
-
-        # Calculate file size if file was uploaded
-        if resource.file:
-            try:
-                resource.file_size = resource.file.size
-                resource.save(update_fields=["file_size"])
-            except Exception:
-                pass
-
-        response_serializer = CourseResourceSerializer(
-            resource, context={"request": request}
-        )
-
-        return api_response(
-            success=True,
-            message="Resource uploaded successfully",
-            data=response_serializer.data,
-            status_code=status.HTTP_201_CREATED,
-        )
-
-    def update(self, request, *args, **kwargs):
-        """Update resource"""
-        partial = kwargs.pop("partial", False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-
-        resource = serializer.save()
-
-        # Recalculate file size if new file was uploaded
-        if "file" in request.data and resource.file:
-            try:
-                resource.file_size = resource.file.size
-                resource.save(update_fields=["file_size"])
-            except Exception:
-                pass
-
-        response_serializer = CourseResourceSerializer(
-            resource, context={"request": request}
-        )
-
-        return api_response(
-            success=True,
-            message="Resource updated successfully",
-            data=response_serializer.data,
-            status_code=status.HTTP_200_OK,
-        )
-
-    def destroy(self, request, *args, **kwargs):
-        """Delete resource"""
-        instance = self.get_object()
-        instance.delete()
-
-        return api_response(
-            success=True,
-            message="Resource deleted successfully",
-            data=None,
-            status_code=status.HTTP_204_NO_CONTENT,
-        )
-
-    @extend_schema(
-        tags=["Course - Resources"],
-        summary="Download resource",
-        description="Download resource and increment download count",
-    )
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
         """
-        Track resource download
-
-        Increments download count and returns file URL
+        Download resource and increment count
         """
         resource = self.get_object()
-
-        # Increment download count
         resource.increment_download_count()
 
-        # Return file URL or external URL
         if resource.file:
-            file_url = request.build_absolute_uri(resource.file.url)
             return api_response(
-                success=True,
-                message="Download initiated",
-                data={
-                    "url": file_url,
+                True,
+                "Download initiated",
+                {
+                    "url": request.build_absolute_uri(resource.file.url),
                     "title": resource.title,
-                    "file_size": resource.get_file_size_display(),
                     "download_count": resource.download_count,
                 },
-                status_code=status.HTTP_200_OK,
             )
-        elif resource.external_url:
+
+        if resource.external_url:
             return api_response(
-                success=True,
-                message="External resource accessed",
-                data={
+                True,
+                "External resource accessed",
+                {
                     "url": resource.external_url,
-                    "title": resource.title,
                     "download_count": resource.download_count,
                 },
-                status_code=status.HTTP_200_OK,
             )
-        else:
-            return api_response(
-                success=False,
-                message="No file or URL available",
-                data=None,
-                status_code=status.HTTP_404_NOT_FOUND,
-            )
+
+        return api_response(
+            False,
+            "No downloadable content",
+            None,
+            status.HTTP_404_NOT_FOUND,
+        )
