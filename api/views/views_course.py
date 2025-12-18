@@ -459,7 +459,7 @@ class CourseViewSet(BaseAdminViewSet):
             "detail__content_sections__tabs",
             "detail__content_sections",
             "detail__why_enrol",
-            "detail__modules",
+            "modules",
             "detail__benefits",
             "detail__side_image_sections",
             "detail__success_stories",

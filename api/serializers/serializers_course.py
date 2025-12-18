@@ -1313,9 +1313,10 @@ class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
 
     def get_modules(self, obj):
         """Return minimal module information ordered by module number."""
-        if not hasattr(obj, "detail") or not obj.detail:
+        # Modules are now directly on the Course object
+        if not hasattr(obj, "modules"):
             return []
-        modules_qs = obj.detail.modules.filter(is_active=True).order_by("order")
+        modules_qs = obj.modules.filter(is_active=True).order_by("order")
 
         # Always return a preview/sample of the first N modules for the course
         # regardless of authentication state. Full list can be retrieved from
