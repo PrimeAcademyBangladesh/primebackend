@@ -16,7 +16,11 @@ from api.models.models_course import (
     CourseTabbedContent,
 )
 from api.models.models_pricing import Coupon, CoursePrice
-from api.serializers.serializers_helpers import HTMLFieldsMixin
+from api.serializers.serializers_helpers import (
+    HTMLFieldsMixin,
+    CourseDetailRequiredOnCreateMixin,
+)
+from api.models.models_auth import CustomUser
 
 # ========== Category Serializers ==========
 
@@ -222,6 +226,76 @@ class CourseModuleSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             return ""
 
 
+class CourseModuleCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
+    """Serializer for creating/updating course modules.
+    Accepts 'course' field with Course UUID or slug.
+    """
+
+    html_fields = ["short_description"]
+    course = serializers.CharField(
+        write_only=True,
+        help_text="Course UUID or slug.",
+    )
+
+    class Meta:
+        model = CourseModule
+        fields = [
+            "id",
+            "course",
+            "title",
+            "slug",
+            "short_description",
+            "order",
+            "is_active",
+        ]
+        read_only_fields = ["id", "slug"]
+        validators = []
+
+    def validate_course(self, value):
+        """Validate and get Course object."""
+        from api.models.models_course import Course
+        import uuid
+
+        if not value:
+            raise serializers.ValidationError("This field is required.")
+
+        # Try to determine if it's a UUID or slug
+        try:
+            # Try parsing as UUID first
+            uuid.UUID(value)
+            course_obj = Course.objects.get(id=value)
+        except (ValueError, Course.DoesNotExist):
+            # If not a UUID, try as slug
+            try:
+                course_obj = Course.objects.get(slug=value)
+            except Course.DoesNotExist:
+                raise serializers.ValidationError(
+                    f'Course with identifier "{value}" not found.'
+                )
+
+        # ✅ Return Course directly (not CourseDetail)
+        return course_obj
+
+    def validate(self, data):
+        """Validate order uniqueness per course."""
+        course = data.get("course")
+        order = data.get("order")
+
+        if course and order is not None:
+            query = CourseModule.objects.filter(course=course, order=order)
+            if self.instance:
+                query = query.exclude(pk=self.instance.pk)
+
+            if query.exists():
+                raise serializers.ValidationError(
+                    {
+                        "order": f"A module with order {order} already exists for this course."
+                    }
+                )
+
+        return data
+
+
 class KeyBenefitSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     """Serializer for key benefits."""
 
@@ -320,18 +394,31 @@ class CourseInstructorSerializer(serializers.ModelSerializer):
 class CourseInstructorCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating course instructor assignments."""
 
+    course = serializers.PrimaryKeyRelatedField(
+        queryset=Course.objects.all(),
+        required=False,
+        help_text="Course being assigned to.",
+    )
+    teacher = serializers.PrimaryKeyRelatedField(
+        queryset=CustomUser.objects.filter(role="teacher"),
+        required=False,
+        help_text="Teacher being assigned.",
+    )
+
     class Meta:
         model = CourseInstructor
         fields = [
+            "id",
             "course",
             "teacher",
             "modules",
             "is_lead_instructor",
             "is_active",
         ]
+        read_only_fields = ["id"]
 
     def validate_teacher(self, value):
-        """Ensure the selected user is a teacher."""
+        """Ensure the selected user is a valid active teacher."""
         if value.role != "teacher":
             raise serializers.ValidationError(
                 "Only users with teacher role can be assigned as instructors."
@@ -341,17 +428,41 @@ class CourseInstructorCreateUpdateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        """Additional validation for instructor assignment."""
+        # ✅ REQUIRED
+        data = super().validate(data)
+
         course = data.get("course")
         teacher = data.get("teacher")
 
-        # Check for duplicate assignment (only on create)
+        # ======================
+        # CREATE
+        # ======================
         if not self.instance:
+            if not course:
+                raise serializers.ValidationError({"course": "This field is required."})
+            if not teacher:
+                raise serializers.ValidationError(
+                    {"teacher": "This field is required."}
+                )
+
             if CourseInstructor.objects.filter(course=course, teacher=teacher).exists():
                 raise serializers.ValidationError(
                     {
-                        "teacher": f"{teacher.get_full_name} is already assigned to this course."
+                        "teacher": f"{teacher.get_full_name()} is already assigned to this course."
                     }
+                )
+
+        # ======================
+        # UPDATE
+        # ======================
+        else:
+            if "course" in data:
+                raise serializers.ValidationError(
+                    {"course": "Course cannot be changed after assignment."}
+                )
+            if "teacher" in data:
+                raise serializers.ValidationError(
+                    {"teacher": "Teacher cannot be changed after assignment."}
                 )
 
         return data
@@ -628,6 +739,7 @@ class CourseBatchCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseBatch
         fields = [
+            "id",
             "course",
             "batch_number",
             "batch_name",
@@ -641,6 +753,7 @@ class CourseBatchCreateUpdateSerializer(serializers.ModelSerializer):
             "is_active",
             "description",
         ]
+        read_only_fields = ["id"]
         extra_kwargs = {
             "course": {"required": False},
             "batch_number": {"required": False},
@@ -913,14 +1026,26 @@ class CourseDetailCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSeria
 # ========== Nested Component Create/Update Serializers ==========
 
 
-class CourseContentSectionCreateUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for creating/updating content sections."""
+class CourseContentSectionCreateUpdateSerializer(
+    CourseDetailRequiredOnCreateMixin, serializers.ModelSerializer
+):
+    """Serializer for creating/updating content sections.
+
+    IMPORTANT: Use 'course_detail' field with CourseDetail UUID.
+    """
+
+    course_detail = serializers.PrimaryKeyRelatedField(
+        queryset=CourseDetail.objects.all(),
+        required=False,
+        help_text="UUID of CourseDetail (not Course).",
+    )
 
     class Meta:
         model = CourseContentSection
-        fields = ["course", "section_name", "order", "is_active"]
+        fields = ["id", "course_detail", "section_name", "order", "is_active"]
+        read_only_fields = ["id"]
 
-    def validate_course(self, value):
+    def validate_course_detail(self, value):
         """Ensure CourseDetail exists."""
         if not hasattr(value, "course"):
             raise serializers.ValidationError("Invalid course detail reference.")
@@ -928,12 +1053,17 @@ class CourseContentSectionCreateUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         """Validate order uniqueness per course."""
-        course = data.get("course")
+        data = super().validate(data)
+
+        course_detail = data.get("course_detail") or (
+            self.instance.course_detail if self.instance else None
+        )
         order = data.get("order")
 
-        if course and order is not None:
-            # Check for duplicate order (only on create or when changing order)
-            query = CourseContentSection.objects.filter(course=course, order=order)
+        if course_detail and order is not None:
+            query = CourseContentSection.objects.filter(
+                course_detail=course_detail, order=order
+            )
             if self.instance:
                 query = query.exclude(pk=self.instance.pk)
 
@@ -950,25 +1080,38 @@ class CourseContentSectionCreateUpdateSerializer(serializers.ModelSerializer):
 class CourseSectionTabCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating section tabs."""
 
+    section = serializers.PrimaryKeyRelatedField(
+        queryset=CourseContentSection.objects.all(),
+        required=False,
+    )
+
     class Meta:
         model = CourseSectionTab
-        fields = ["section", "tab_name", "order", "is_active"]
+        fields = ["id", "section", "tab_name", "order", "is_active"]
+        read_only_fields = ["id"]
 
     def validate(self, data):
-        """Validate order uniqueness per section.
+        # ✅ REQUIRED
+        data = super().validate(data)
 
-        Allows any non-negative integer for `order`. Ensures no duplicate order
-        exists for the same section (except when updating the same instance).
-        """
-        section = data.get("section")
+        # CREATE → section required
+        if not self.instance and "section" not in data:
+            raise serializers.ValidationError({"section": "This field is required."})
+
+        # UPDATE → section immutable
+        if self.instance and "section" in data:
+            raise serializers.ValidationError({"section": "Section cannot be changed."})
+
+        section = data.get("section") or self.instance.section
         order = data.get("order")
 
-        if section and order is not None:
-            query = CourseSectionTab.objects.filter(section=section, order=order)
+        # Order uniqueness per section
+        if order is not None:
+            qs = CourseSectionTab.objects.filter(section=section, order=order)
             if self.instance:
-                query = query.exclude(pk=self.instance.pk)
+                qs = qs.exclude(pk=self.instance.pk)
 
-            if query.exists():
+            if qs.exists():
                 raise serializers.ValidationError(
                     {
                         "order": f"A tab with order {order} already exists in this section."
@@ -985,9 +1128,15 @@ class CourseTabbedContentCreateUpdateSerializer(
 
     html_fields = ["description"]
 
+    tab = serializers.PrimaryKeyRelatedField(
+        queryset=CourseSectionTab.objects.all(),
+        required=False,
+    )
+
     class Meta:
         model = CourseTabbedContent
         fields = [
+            "id",
             "tab",
             "media_type",
             "title",
@@ -1001,11 +1150,28 @@ class CourseTabbedContentCreateUpdateSerializer(
             "order",
             "is_active",
         ]
-        read_only_fields = ["video_id"]
+        read_only_fields = ["id", "video_id"]
 
     def validate(self, data):
-        """Validate media requirements based on media_type."""
-        media_type = data.get("media_type", "image")
+        # ✅ ALWAYS call super first
+        data = super().validate(data)
+
+        # ======================
+        # Parent tab rules
+        # ======================
+        if not self.instance and "tab" not in data:
+            raise serializers.ValidationError({"tab": "This field is required."})
+
+        if self.instance and "tab" in data:
+            raise serializers.ValidationError({"tab": "Tab cannot be changed."})
+
+        # ======================
+        # Media validation
+        # ======================
+        media_type = data.get(
+            "media_type", self.instance.media_type if self.instance else "image"
+        )
+
         image = data.get("image")
         video_url = data.get("video_url")
         video_provider = data.get("video_provider")
@@ -1035,16 +1201,18 @@ class CourseTabbedContentCreateUpdateSerializer(
                     }
                 )
 
-        # Validate order uniqueness
-        tab = data.get("tab")
+        # ======================
+        # Order uniqueness
+        # ======================
+        tab = data.get("tab") or (self.instance.tab if self.instance else None)
         order = data.get("order")
 
         if tab and order is not None:
-            query = CourseTabbedContent.objects.filter(tab=tab, order=order)
+            qs = CourseTabbedContent.objects.filter(tab=tab, order=order)
             if self.instance:
-                query = query.exclude(pk=self.instance.pk)
+                qs = qs.exclude(pk=self.instance.pk)
 
-            if query.exists():
+            if qs.exists():
                 raise serializers.ValidationError(
                     {"order": f"Content with order {order} already exists in this tab."}
                 )
@@ -1052,131 +1220,64 @@ class CourseTabbedContentCreateUpdateSerializer(
         return data
 
 
-class WhyEnrolCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
-    """Serializer for creating/updating why enrol sections.
-
-    IMPORTANT: Use 'course_detail' field with CourseDetail UUID.
-    Get CourseDetail UUID from: GET /api/courses/details/?course=YOUR_COURSE_UUID
-    Or create one first: POST /api/courses/details/ {"course": "COURSE_UUID", "hero_text": "..."}
+class WhyEnrolCreateUpdateSerializer(
+    CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer
+):
+    """
+    Serializer for creating/updating why enrol sections.
     """
 
     html_fields = ["text"]
     course_detail = serializers.PrimaryKeyRelatedField(
         queryset=CourseDetail.objects.all(),
-        source="course",
-        help_text="UUID of CourseDetail (not Course). Get from /api/courses/details/",
+        required=False,
+        help_text="UUID of CourseDetail (not Course).",
     )
 
     class Meta:
         model = WhyEnrol
-        fields = ["course_detail", "icon", "title", "text", "is_active"]
+        fields = ["id", "course_detail", "icon", "title", "text", "is_active"]
+        read_only_fields = ["id"]
 
 
-class CourseModuleCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
-    """Serializer for creating/updating course modules.
-
-    Accepts 'course' field with Course UUID or slug.
-    Automatically maps Course to its CourseDetail.
+class KeyBenefitCreateUpdateSerializer(
+    CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer
+):
     """
-
-    html_fields = ["short_description"]
-    course = serializers.CharField(
-        write_only=True,
-        help_text="Course UUID or slug. Will automatically map to CourseDetail.",
-    )
-
-    class Meta:
-        model = CourseModule
-        fields = ["course", "title", "slug", "short_description", "order", "is_active"]
-        read_only_fields = ["slug"]
-        validators = []  # Disable auto validators to handle unique_together manually
-
-    def validate_course(self, value):
-        """Validate and map Course ID/slug to CourseDetail."""
-        from api.models.models_course import Course
-        import uuid
-
-        if not value:
-            raise serializers.ValidationError("This field is required.")
-
-        # Try to determine if it's a UUID or slug
-        try:
-            # Try parsing as UUID first
-            uuid.UUID(value)
-            course_obj = Course.objects.get(id=value)
-        except (ValueError, Course.DoesNotExist):
-            # If not a UUID, try as slug
-            try:
-                course_obj = Course.objects.get(slug=value)
-            except Course.DoesNotExist:
-                raise serializers.ValidationError(
-                    f'Course with identifier "{value}" not found.'
-                )
-
-        # Get or create CourseDetail for this Course
-        course_detail_obj, created = CourseDetail.objects.get_or_create(
-            course=course_obj
-        )
-        return course_detail_obj
-
-    def validate(self, data):
-        """Validate order uniqueness per course."""
-        course_detail = data.get("course")
-        order = data.get("order")
-
-        if course_detail and order is not None:
-            query = CourseModule.objects.filter(course=course_detail, order=order)
-            if self.instance:
-                query = query.exclude(pk=self.instance.pk)
-
-            if query.exists():
-                raise serializers.ValidationError(
-                    {
-                        "order": f"A module with order {order} already exists for this course."
-                    }
-                )
-
-        return data
-
-
-class KeyBenefitCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
-    """Serializer for creating/updating key benefits.
-
-    IMPORTANT: Use 'course_detail' field with CourseDetail UUID.
-    Get CourseDetail UUID from: GET /api/courses/details/?course=YOUR_COURSE_UUID
+    Serializer for creating/updating key benefits.
     """
 
     html_fields = ["text"]
     course_detail = serializers.PrimaryKeyRelatedField(
         queryset=CourseDetail.objects.all(),
-        source="course",
-        help_text="UUID of CourseDetail (not Course). Get from /api/courses/details/",
+        required=False,
+        help_text="UUID of CourseDetail (not Course).",
     )
 
     class Meta:
         model = KeyBenefit
-        fields = ["course_detail", "icon", "title", "text", "is_active"]
+        fields = ["id", "course_detail", "icon", "title", "text", "is_active"]
+        read_only_fields = ["id"]
 
 
 class SideImageSectionCreateUpdateSerializer(
-    HTMLFieldsMixin, serializers.ModelSerializer
+    CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer
 ):
-    """Serializer for creating/updating side image sections.
-
-    IMPORTANT: Use 'course_detail' field with CourseDetail UUID.
-    Get CourseDetail UUID from: GET /api/courses/details/?course=YOUR_COURSE_UUID
+    """
+    Serializer for creating/updating side image sections.
     """
 
     html_fields = ["text"]
     course_detail = serializers.PrimaryKeyRelatedField(
         queryset=CourseDetail.objects.all(),
-        source="course",
-        help_text="UUID of CourseDetail (not Course). Get from /api/courses/details/",
+        required=False,
+        help_text="UUID of CourseDetail (not Course).",
     )
 
     class Meta:
         model = SideImageSection
         fields = [
+            "id",
             "course_detail",
             "image",
             "title",
@@ -1185,25 +1286,40 @@ class SideImageSectionCreateUpdateSerializer(
             "button_url",
             "is_active",
         ]
+        read_only_fields = ["id"]
 
 
-class SuccessStoryCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
-    """Serializer for creating/updating success stories.
+class SuccessStoryCreateUpdateSerializer(
+    CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer
+):
+    """
+    Serializer for creating/updating success stories.
 
-    IMPORTANT: Use 'course_detail' field with CourseDetail UUID.
-    Get CourseDetail UUID from: GET /api/courses/details/?course=YOUR_COURSE_UUID
+    Rules:
+    - course_detail is REQUIRED on CREATE
+    - course_detail is NOT REQUIRED on UPDATE
+    - course_detail CANNOT be changed after creation
     """
 
     html_fields = ["description"]
+
     course_detail = serializers.PrimaryKeyRelatedField(
         queryset=CourseDetail.objects.all(),
-        source="course",
-        help_text="UUID of CourseDetail (not Course). Get from /api/courses/details/",
+        required=False,
+        help_text="UUID of CourseDetail (not Course).",
     )
 
     class Meta:
         model = SuccessStory
-        fields = ["course_detail", "icon", "name", "description", "is_active"]
+        fields = [
+            "id",
+            "course_detail",
+            "icon",
+            "name",
+            "description",
+            "is_active",
+        ]
+        read_only_fields = ["id"]
 
 
 # ========== Course Serializers ==========

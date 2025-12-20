@@ -1,5 +1,6 @@
 """Base ViewSet for admin-style CRUD operations with standardized responses and
 role-based access control."""
+
 from django.core.exceptions import ImproperlyConfigured
 from django.http import Http404
 from rest_framework import permissions, status, viewsets
@@ -60,6 +61,11 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
         # Public actions (available to anonymous users) - ALWAYS public
         if self.action in PUBLIC_ACTIONS:
             return [permissions.AllowAny()]
+        
+        # if self.action in PUBLIC_ACTIONS:
+        #     if getattr(self, "permission_classes", None):
+        #         return [perm() for perm in self.permission_classes]
+        #     return [permissions.AllowAny()]
 
         # Admin-only destructive actions - requires explicit override
         if self.action in ADMIN_ACTIONS:
@@ -87,6 +93,15 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
     def is_staff_user(self, user):
         """Check if user has staff/admin role"""
         return user.is_authenticated and user.role in ["staff", "admin", "superadmin"]
+
+    def is_staff_and_teacher_user(self, user):
+        """Check if user has staff/admin/teacher role"""
+        return user.is_authenticated and user.role in [
+            "staff",
+            "admin",
+            "superadmin",
+            "teacher",
+        ]
 
     def get_base_queryset(self):
         """Get the base queryset before any filtering"""
@@ -205,10 +220,10 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         from django.core.exceptions import ValidationError as DjangoValidationError
-        
+
         self.check_permissions(request)
         print("Permissions checked", request.user.role)
-        
+
         try:
             response = super().create(request, *args, **kwargs)
             return api_response(
@@ -219,19 +234,24 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
             )
         except DjangoValidationError as e:
             # Convert Django ValidationError to DRF response
-            error_dict = e.message_dict if hasattr(e, 'message_dict') else {'non_field_errors': [str(e)]}
+            error_dict = (
+                e.message_dict
+                if hasattr(e, "message_dict")
+                else {"non_field_errors": [str(e)]}
+            )
             # Extract first error message for the main message field
-            first_error = next(iter(error_dict.values()))[0] if error_dict else "Validation failed"
+            first_error = (
+                next(iter(error_dict.values()))[0]
+                if error_dict
+                else "Validation failed"
+            )
             return api_response(
-                False,
-                first_error,
-                error_dict,
-                status.HTTP_400_BAD_REQUEST
+                False, first_error, error_dict, status.HTTP_400_BAD_REQUEST
             )
 
     def update(self, request, *args, **kwargs):
         from django.core.exceptions import ValidationError as DjangoValidationError
-        
+
         try:
             response = super().update(request, *args, **kwargs)
             return api_response(
@@ -239,19 +259,24 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
             )
         except DjangoValidationError as e:
             # Convert Django ValidationError to DRF response
-            error_dict = e.message_dict if hasattr(e, 'message_dict') else {'non_field_errors': [str(e)]}
+            error_dict = (
+                e.message_dict
+                if hasattr(e, "message_dict")
+                else {"non_field_errors": [str(e)]}
+            )
             # Extract first error message for the main message field
-            first_error = next(iter(error_dict.values()))[0] if error_dict else "Validation failed"
+            first_error = (
+                next(iter(error_dict.values()))[0]
+                if error_dict
+                else "Validation failed"
+            )
             return api_response(
-                False,
-                first_error,
-                error_dict,
-                status.HTTP_400_BAD_REQUEST
+                False, first_error, error_dict, status.HTTP_400_BAD_REQUEST
             )
 
     def partial_update(self, request, *args, **kwargs):
         from django.core.exceptions import ValidationError as DjangoValidationError
-        
+
         try:
             instance = self.get_object()
             serializer = self.get_serializer(instance, data=request.data, partial=True)
@@ -262,14 +287,19 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
             )
         except DjangoValidationError as e:
             # Convert Django ValidationError to DRF response
-            error_dict = e.message_dict if hasattr(e, 'message_dict') else {'non_field_errors': [str(e)]}
+            error_dict = (
+                e.message_dict
+                if hasattr(e, "message_dict")
+                else {"non_field_errors": [str(e)]}
+            )
             # Extract first error message for the main message field
-            first_error = next(iter(error_dict.values()))[0] if error_dict else "Validation failed"
+            first_error = (
+                next(iter(error_dict.values()))[0]
+                if error_dict
+                else "Validation failed"
+            )
             return api_response(
-                False,
-                first_error,
-                error_dict,
-                status.HTTP_400_BAD_REQUEST
+                False, first_error, error_dict, status.HTTP_400_BAD_REQUEST
             )
 
     def destroy(self, request, *args, **kwargs):

@@ -54,6 +54,10 @@ from api.serializers.serializers_module import (
 )
 from api.models.models_order import Enrollment
 from api.permissions import IsTeacherOrAdmin
+from api.views.views_base import BaseAdminViewSet
+from api.utils.pagination import StandardResultsSetPagination
+from django.db.models import Prefetch
+from django.db.models import Count, Q
 
 
 @extend_schema_view(
@@ -74,18 +78,21 @@ from api.permissions import IsTeacherOrAdmin
         summary="Delete live class (Admin)", tags=["Course - Live Classes"]
     ),
 )
-class LiveClassViewSet(viewsets.ModelViewSet):
+class LiveClassViewSet(BaseAdminViewSet):
     """
     Live Classes API
 
-    Students → batch-isolated
+    Students → ALL enrolled batches
     Teachers/Admin → full access
     """
 
     permission_classes = [permissions.IsAuthenticated]
 
     queryset = LiveClass.objects.select_related(
-        "module", "batch", "instructor"
+        "module",
+        "module__course",
+        "batch",
+        "instructor",
     ).order_by("scheduled_date")
 
     def get_serializer_class(self):
@@ -105,21 +112,26 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
         user = self.request.user
+        base_queryset = super().get_queryset()
 
-        if getattr(user, "role", None) == "student":
-            enrollment = (
-                Enrollment.objects.filter(user=user, is_active=True)
-                .select_related("batch")
-                .first()
-            )
+        # Admin / Teacher → full access
+        if user.role in ["admin", "superadmin", "teacher"]:
+            return base_queryset
 
-            if not enrollment or not enrollment.batch:
-                return queryset.none()
+        # Student → all enrolled batches
+        enrollments = Enrollment.objects.filter(
+            user=user, is_active=True
+        ).select_related("batch")
 
-            queryset = queryset.filter(batch=enrollment.batch)
+        if not enrollments.exists():
+            return base_queryset.none()
 
+        batch_ids = enrollments.values_list("batch_id", flat=True)
+
+        queryset = base_queryset.filter(batch_id__in=batch_ids)
+
+        # Optional module filter (same pattern as AssignmentViewSet)
         module_id = self.request.query_params.get("module_id")
         if module_id:
             try:
@@ -155,10 +167,15 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         summary="Get my submission (Student)", tags=["Course - Assignments"]
     ),
 )
-class AssignmentViewSet(viewsets.ModelViewSet):
+class AssignmentViewSet(BaseAdminViewSet):
     permission_classes = [permissions.IsAuthenticated]
-
-    queryset = Assignment.objects.select_related("module", "batch").order_by("due_date")
+    pagination_class = StandardResultsSetPagination
+    queryset = Assignment.objects.select_related(
+        "module",
+        "module__course",
+        "batch",
+    ).order_by("due_date")
+    serializer_class = AssignmentListSerializer
 
     # ---------------- SERIALIZER SWITCH ----------------
 
@@ -174,39 +191,89 @@ class AssignmentViewSet(viewsets.ModelViewSet):
     # ---------------- PERMISSIONS ----------------
 
     def get_permissions(self):
+        """Override to handle assignment-specific permissions"""
+
+        if not self.request.user.is_authenticated:
+            return [permissions.IsAuthenticated()]
+
+        if self.action in ["list", "retrieve"]:
+            return [permissions.IsAuthenticated()]
+
         if self.action in ["create", "update", "partial_update", "destroy"]:
             return [IsTeacherOrAdmin()]
-        return [permissions.IsAuthenticated()]
+
+        if self.action in ["submit", "my_submission"]:
+            return [permissions.IsAuthenticated()]
+
+        return super().get_permissions()
 
     # ---------------- QUERYSET ----------------
 
     def get_queryset(self):
         user = self.request.user
+        base_queryset = self.queryset
 
-        # Teacher/Admin → see all
-        if hasattr(user, "is_teacher") and user.is_teacher:
-            return self.queryset
+        if user.role in ["admin", "superadmin", "teacher"]:
+            return base_queryset
 
-        # Student → only their batch + course
-        enrollment = (
-            Enrollment.objects.filter(user=user, is_active=True)
-            .select_related("batch", "course")
-            .first()
+        enrollment = Enrollment.objects.filter(
+            user=user, is_active=True
+        ).select_related("batch", "course")
+
+        if not enrollment.exists():
+            return base_queryset.none()
+
+        batch_ids = enrollment.values_list("batch_id", flat=True)
+        course_ids = enrollment.values_list("course_id", flat=True)
+
+        return base_queryset.filter(
+            batch__id__in=batch_ids,
+            module__course__id__in=course_ids,
         )
 
-        if not enrollment:
-            return Assignment.objects.none()
+    def list(self, request, *args, **kwargs):
+        """Custom list to handle student enrollment case"""
+        queryset = self.filter_queryset(self.get_queryset())
 
-        return self.queryset.filter(
-            batch=enrollment.batch, module__course=enrollment.course
-        )
+        if (
+            request.user.role == "student"
+            and not queryset.exists()
+            and not Enrollment.objects.filter(
+                user=request.user, is_active=True
+            ).exists()
+        ):
 
-    # ---------------- ACTIONS ----------------
+            return api_response(
+                False,
+                "No active enrollment found. Please enroll in a course first.",
+                None,
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        return super().list(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"])
     def submit(self, request, pk=None):
+        """Student submits assignment"""
         assignment = self.get_object()
         student = request.user
+
+        if not self.get_queryset().filter(id=assignment.id).exists():
+            return api_response(
+                False,
+                "You don't have permission to submit to this assignment",
+                None,
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if assignment.due_date and timezone.now() > assignment.due_date:
+            if not assignment.late_submission_allowed:
+                return api_response(
+                    False,
+                    "Submission deadline has passed",
+                    None,
+                    status.HTTP_400_BAD_REQUEST,
+                )
 
         submission, created = AssignmentSubmission.objects.get_or_create(
             assignment=assignment,
@@ -218,102 +285,123 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             submission,
             data=request.data,
             context={"request": request},
-            partial=True,
+            partial=not created,
         )
 
         serializer.is_valid(raise_exception=True)
         serializer.save()
 
+        message = (
+            "Assignment submitted successfully" if created else "Submission updated"
+        )
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+
         return api_response(
             True,
-            "Assignment submitted successfully",
-            {"assignment_id": str(assignment.id)},
-            status.HTTP_201_CREATED,
+            message,
+            {
+                "submission_id": str(submission.id),
+                "assignment_id": str(assignment.id),
+                "created": created,
+            },
+            status_code,
         )
 
     @action(detail=True, methods=["get"], url_path="my-submission")
     def my_submission(self, request, pk=None):
+        """Get student's submission for this assignment"""
         assignment = self.get_object()
+
+        if not self.get_queryset().filter(id=assignment.id).exists():
+            return api_response(
+                False,
+                "You don't have permission to view this assignment",
+                None,
+                status.HTTP_403_FORBIDDEN,
+            )
+
         submission = assignment.submissions.filter(student=request.user).first()
 
         if not submission:
             return api_response(
-                False, "No submission found", None, status.HTTP_404_NOT_FOUND
+                False,
+                "No submission found",
+                None,
+                status.HTTP_404_NOT_FOUND,
             )
 
         return api_response(
             True,
-            "Submission retrieved",
+            "Submission retrieved successfully",
             AssignmentSubmissionSerializer(submission).data,
         )
 
 
 @extend_schema_view(
     list=extend_schema(
-        summary="List assignment submissions", tags=["Course - Assignments"]
+        summary="List assignment submissions",
+        tags=["Course - Assignments"],
     ),
     retrieve=extend_schema(
-        summary="Get submission details", tags=["Course - Assignments"]
+        summary="Get submission details",
+        tags=["Course - Assignments"],
+    ),
+    grade=extend_schema(
+        summary="Grade assignment submission (Teacher/Admin)",
+        tags=["Course - Assignments"],
     ),
 )
-class AssignmentSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
+class AssignmentSubmissionViewSet(BaseAdminViewSet):
     """
-    ViewSet for Assignment Submissions (Read-Only)
+    Assignment Submissions (Read-only for students)
 
-    Students submit via /api/assignments/{id}/submit/
+    Students:
+    - View only their submissions
 
-    Endpoints:
-    - GET /api/assignment-submissions/ - List submissions
-    - GET /api/assignment-submissions/{id}/ - Get submission details
-    - POST /api/assignment-submissions/{id}/grade/ - Grade submission (teachers only)
+    Teachers/Admin:
+    - View all submissions
+    - Grade submissions
     """
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = AssignmentSubmissionSerializer
 
     queryset = AssignmentSubmission.objects.select_related(
-        "assignment", "student", "graded_by"
+        "assignment",
+        "assignment__module",
+        "assignment__module__course",
+        "student",
+        "graded_by",
     ).order_by("-submitted_at")
-    serializer_class = AssignmentSubmissionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+
+    # ---------------- PERMISSIONS ----------------
+
+    def get_permissions(self):
+        if self.action == "grade":
+            return [IsTeacherOrAdmin()]
+        return [permissions.IsAuthenticated()]
+
+    # ---------------- QUERYSET ----------------
 
     def get_queryset(self):
-        """Students see only their submissions, teachers see all"""
         queryset = super().get_queryset()
-        if not (
-            hasattr(self.request.user, "is_teacher") and self.request.user.is_teacher
-        ):
-            queryset = queryset.filter(student=self.request.user)
+        user = self.request.user
+
+        # 🔒 Student → only their submissions
+        if user.role == "student":
+            queryset = queryset.filter(student=user)
+
         return queryset
 
-    @extend_schema(
-        tags=["Course - Assignments"],
-        summary="Grade submission",
-        description="Grade an assignment submission (teachers only)",
-        examples=[
-            OpenApiExample(
-                "Success Response",
-                value={
-                    "success": True,
-                    "message": "Assignment graded successfully",
-                    "data": {
-                        "id": "sub-123",
-                        "assignment_title": "Python Basics Exercise",
-                        "student_name": "Jane Smith",
-                        "score": 85,
-                        "graded": True,
-                        "feedback": "Great work!",
-                        "graded_at": "2025-11-28T15:00:00Z",
-                        "graded_by_name": "John Teacher",
-                    },
-                },
-                response_only=True,
-            )
-        ],
-    )
+    # ---------------- ACTIONS ----------------
+
     @action(detail=True, methods=["post"])
     def grade(self, request, pk=None):
         """
-        Grade assignment submission (teachers only)
+        Grade assignment submission (Teacher/Admin only)
 
-        Body: {
+        Body:
+        {
             "marks_obtained": 85,
             "feedback": "<p>Good work!</p>",
             "status": "graded"
@@ -321,65 +409,56 @@ class AssignmentSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         """
         submission = self.get_object()
 
-        # Check permission
-        if not (hasattr(request.user, "is_teacher") and request.user.is_teacher):
-            return Response(
-                api_response(False, "Only teachers can grade assignments", None),
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         serializer = AssignmentGradeSerializer(
-            submission, data=request.data, partial=True
+            submission,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        serializer.save(
+            graded_by=request.user,
+            graded_at=timezone.now(),
         )
 
-        if serializer.is_valid():
-            serializer.save(graded_by=request.user, graded_at=timezone.now())
-            return Response(
-                api_response(
-                    True,
-                    "Assignment graded successfully",
-                    AssignmentSubmissionSerializer(submission).data,
-                )
-            )
-
-        return Response(
-            api_response(False, "Validation failed", serializer.errors),
-            status=status.HTTP_400_BAD_REQUEST,
+        return api_response(
+            True,
+            "Assignment graded successfully",
+            AssignmentSubmissionSerializer(
+                submission, context={"request": request}
+            ).data,
         )
 
 
 @extend_schema_view(
     list=extend_schema(summary="List quizzes", tags=["Course - Quizzes"]),
-    retrieve=extend_schema(
-        summary="Get quiz with questions", tags=["Course - Quizzes"]
-    ),
+    retrieve=extend_schema(summary="Get quiz details", tags=["Course - Quizzes"]),
     create=extend_schema(summary="Create quiz (Admin)", tags=["Course - Quizzes"]),
     update=extend_schema(summary="Update quiz (Admin)", tags=["Course - Quizzes"]),
     partial_update=extend_schema(
         summary="Partial update quiz (Admin)", tags=["Course - Quizzes"]
     ),
     destroy=extend_schema(summary="Delete quiz (Admin)", tags=["Course - Quizzes"]),
+    start=extend_schema(summary="Start quiz attempt", tags=["Course - Quizzes"]),
 )
-class QuizViewSet(viewsets.ModelViewSet):
+class QuizViewSet(BaseAdminViewSet):
     """
-    ViewSet for Quizzes
+    Quiz API
 
-    Student + Teacher access
-
-    Endpoints:
-    - GET /api/quizzes/ - List quizzes
-    - GET /api/quizzes/{id}/ - Get quiz details with questions
-    - POST /api/quizzes/ - Create quiz (teachers/admin only)
-    - PUT /api/quizzes/{id}/ - Update quiz (teachers/admin only)
-    - DELETE /api/quizzes/{id}/ - Delete quiz (teachers/admin only)
-    - POST /api/quizzes/{id}/start/ - Start quiz attempt
-    - GET /api/quizzes/{id}/my-attempts/ - Get student's attempts
+    Students → enrollment scoped (multi-course + multi-batch)
+    Teachers/Admin → full access
     """
 
     permission_classes = [permissions.IsAuthenticated]
 
     queryset = (
-        Quiz.objects.select_related("created_by")
+        Quiz.objects.select_related(
+            "module",
+            "module__course",
+            "batch",
+            "created_by",
+        )
         .prefetch_related(
             "questions",
             "questions__options",
@@ -388,19 +467,48 @@ class QuizViewSet(viewsets.ModelViewSet):
         .order_by("title")
     )
 
+    # ---------------- SERIALIZER ----------------
+
     def get_serializer_class(self):
         if self.action in ["create", "update", "partial_update"]:
             return QuizCreateUpdateSerializer
         return QuizSerializer
 
+    # ---------------- PERMISSIONS ----------------
+
     def get_permissions(self):
         if self.action in ["create", "update", "partial_update", "destroy"]:
             return [IsTeacherOrAdmin()]
-        return super().get_permissions()
+        return [permissions.IsAuthenticated()]
+
+    # ---------------- QUERYSET ----------------
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        user = self.request.user
 
+        # Admin / Teacher → full access
+        if user.role in ["admin", "superadmin", "teacher"]:
+            return queryset
+
+        # Student → enrollment scoped
+        enrollments = Enrollment.objects.filter(
+            user=user,
+            is_active=True,
+        ).select_related("batch", "course")
+
+        if not enrollments.exists():
+            return queryset.none()
+
+        batch_ids = enrollments.values_list("batch_id", flat=True)
+        course_ids = enrollments.values_list("course_id", flat=True)
+
+        queryset = queryset.filter(
+            batch_id__in=batch_ids,
+            module__course_id__in=course_ids,
+        )
+
+        # Optional module filter
         module_id = self.request.query_params.get("module_id")
         if module_id:
             try:
@@ -409,50 +517,32 @@ class QuizViewSet(viewsets.ModelViewSet):
             except ValueError:
                 return queryset.none()
 
+        # Only quizzes with active questions
         queryset = queryset.annotate(
             active_question_count=Count(
-                "questions", filter=Q(questions__is_active=True)
+                "questions",
+                filter=Q(questions__is_active=True),
             )
         ).filter(active_question_count__gt=0)
 
         return queryset
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        serializer = self.get_serializer(
-            queryset, many=True, context={"request": request}
-        )
-        return api_response(
-            True,
-            "Quizzes retrieved successfully",
-            serializer.data,
-            status.HTTP_200_OK,
-        )
+    # ---------------- START QUIZ ----------------
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        quiz = serializer.save(created_by=request.user)
-
-        return api_response(
-            True,
-            "Quiz created successfully",
-            QuizSerializer(quiz, context={"request": request}).data,
-            status.HTTP_201_CREATED,
-        )
-
-    @extend_schema(
-        tags=["Course - Quizzes"],
-        summary="Start quiz attempt",
-        description="Start a quiz attempt; no request body required. Returns attempt metadata and questions.",
-        request=None,
-        responses={201: QuizAttemptSerializer},
-    )
     @action(detail=True, methods=["post"])
     def start(self, request, pk=None):
         quiz = self.get_object()
         student = request.user
         now = timezone.now()
+
+        # 🔒 Enrollment guard (same rule as Assignment / LiveClass)
+        if not self.get_queryset().filter(id=quiz.id).exists():
+            return api_response(
+                False,
+                "You don't have permission to start this quiz",
+                None,
+                status.HTTP_403_FORBIDDEN,
+            )
 
         if quiz.available_from and now < quiz.available_from:
             return api_response(
@@ -465,6 +555,7 @@ class QuizViewSet(viewsets.ModelViewSet):
             )
 
         attempt_count = QuizAttempt.objects.filter(quiz=quiz, student=student).count()
+
         if quiz.max_attempts and attempt_count >= quiz.max_attempts:
             return api_response(
                 False, "Maximum attempts reached", None, status.HTTP_400_BAD_REQUEST
@@ -478,11 +569,11 @@ class QuizViewSet(viewsets.ModelViewSet):
         )
 
         questions = quiz.questions.filter(is_active=True)
-
-        if quiz.randomize_questions:
-            questions = questions.order_by("?")
-        else:
-            questions = questions.order_by("order")
+        questions = (
+            questions.order_by("?")
+            if quiz.randomize_questions
+            else questions.order_by("order")
+        )
 
         total_questions = questions.count()
         marks_per_question = (
@@ -525,14 +616,8 @@ class QuizViewSet(viewsets.ModelViewSet):
 @extend_schema(
     tags=["Course - Quiz Questions"],
     summary="Create/update/delete quiz questions (teachers/admin)",
-    description=(
-        "Endpoints to create, update and delete quiz questions. "
-        "Use `QuizQuestionCreateUpdateSerializer` for writes and `QuizQuestionSerializer` for reads."
-    ),
-    request=QuizQuestionCreateUpdateSerializer,
-    responses={200: QuizQuestionSerializer, 201: QuizQuestionSerializer},
 )
-class QuizQuestionViewSet(viewsets.ModelViewSet):
+class QuizQuestionViewSet(BaseAdminViewSet):
     """
     Teacher/Admin only
     Create / Update / Delete quiz questions
@@ -543,32 +628,28 @@ class QuizQuestionViewSet(viewsets.ModelViewSet):
 
     queryset = QuizQuestion.objects.prefetch_related("options").order_by("order")
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+
+        # Admin / Superadmin → full access
+        if user.role in ["admin", "superadmin"]:
+            return qs
+
+        # Teacher → only quizzes they created
+        return qs.filter(quiz__created_by=user)
+
 
 @extend_schema_view(
     list=extend_schema(
         summary="List student's quiz attempts", tags=["Course - Quizzes"]
     ),
     retrieve=extend_schema(summary="Get attempt details", tags=["Course - Quizzes"]),
-    answer=extend_schema(
-        summary="Submit answer for question", tags=["Course - Quizzes"]
-    ),
-    submit=extend_schema(summary="Submit entire quiz", tags=["Course - Quizzes"]),
-    results=extend_schema(
-        summary="Get results with correct answers", tags=["Course - Quizzes"]
-    ),
+    answer=extend_schema(summary="Submit answer", tags=["Course - Quizzes"]),
+    submit=extend_schema(summary="Submit quiz", tags=["Course - Quizzes"]),
+    results=extend_schema(summary="Get results", tags=["Course - Quizzes"]),
 )
 class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet for Quiz Attempts
-
-    Endpoints:
-    - GET /api/quiz-attempts/ - List student's attempts
-    - GET /api/quiz-attempts/{id}/ - Get attempt details
-    - POST /api/quiz-attempts/{id}/answer/ - Submit answer for question
-    - POST /api/quiz-attempts/{id}/submit/ - Submit entire quiz
-    - GET /api/quiz-attempts/{id}/results/ - Get results with correct answers
-    """
-
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = QuizAttemptSerializer
 
@@ -582,15 +663,37 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
         .order_by("-started_at")
     )
 
+    # ---------------- QUERYSET ----------------
+
     def get_queryset(self):
         qs = super().get_queryset()
-        if getattr(self.request.user, "role", None) == "student":
-            qs = qs.filter(student=self.request.user)
+        user = self.request.user
+
+        # Student → only own attempts
+        if user.role == "student":
+            return qs.filter(student=user)
+
+        # Teacher → only quizzes they created
+        if user.role == "teacher":
+            return qs.filter(quiz__created_by=user)
+
+        # Admin / Superadmin → all
         return qs
+
+    # ---------------- ACTIONS ----------------
 
     @action(detail=True, methods=["post"])
     def answer(self, request, pk=None):
         attempt = self.get_object()
+
+        # 🔒 Ownership check
+        if attempt.student != request.user:
+            return api_response(
+                False,
+                "You don't have permission to answer this quiz",
+                None,
+                status.HTTP_403_FORBIDDEN,
+            )
 
         if attempt.submitted_at:
             return api_response(
@@ -609,8 +712,8 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
 
         return api_response(
             True,
-            "Answer saved",
-            QuizAnswerSerializer(answer, context={"request": request}).data,
+            "Answer saved successfully",
+            QuizAnswerSerializer(answer).data,
         )
 
     @action(detail=True, methods=["post"])
@@ -618,19 +721,24 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
     def submit(self, request, pk=None):
         attempt = self.get_object()
 
+        # 🔒 Ownership check
+        if attempt.student != request.user:
+            return api_response(
+                False,
+                "You don't have permission to submit this quiz",
+                None,
+                status.HTTP_403_FORBIDDEN,
+            )
+
         if attempt.submitted_at:
             return api_response(
                 False, "Quiz already submitted", None, status.HTTP_400_BAD_REQUEST
             )
 
         answers_data = request.data.get("answers", [])
-
         if not answers_data:
             return api_response(
-                False,
-                "No answers submitted",
-                None,
-                status.HTTP_400_BAD_REQUEST,
+                False, "No answers submitted", None, status.HTTP_400_BAD_REQUEST
             )
 
         total_questions = attempt.quiz.questions.filter(is_active=True).count()
@@ -715,12 +823,10 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
                 False, "Quiz not yet submitted", None, status.HTTP_400_BAD_REQUEST
             )
 
-        serializer = QuizAttemptSerializer(attempt, context={"request": request})
-
         return api_response(
             True,
             "Results retrieved successfully",
-            serializer.data,
+            QuizAttemptSerializer(attempt).data,
         )
 
 
@@ -735,13 +841,13 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
     partial_update=extend_schema(tags=["Course - Resources"]),
     destroy=extend_schema(tags=["Course - Resources"]),
 )
-class CourseResourceViewSet(viewsets.ModelViewSet):
+class CourseResourceViewSet(BaseAdminViewSet):
     """
     Course Resources API
 
     Students:
-    - Download resources
-    - Batch-isolated access
+    - View / download resources
+    - Access limited to enrolled batches & courses
 
     Teachers/Admin:
     - Full CRUD access
@@ -749,13 +855,17 @@ class CourseResourceViewSet(viewsets.ModelViewSet):
 
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser, JSONParser)
+    pagination_class = StandardResultsSetPagination
 
     queryset = (
         CourseResource.objects.select_related(
-            "module", "batch", "live_class", "uploaded_by"
+            "module",
+            "module__course",
+            "batch",
+            "live_class",
+            "uploaded_by",
         )
         .prefetch_related("files")
-        .filter(is_active=True)
         .order_by("order", "-created_at")
     )
 
@@ -779,23 +889,24 @@ class CourseResourceViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         user = self.request.user
 
-        # ---- Students: batch isolation ----
-        if getattr(user, "role", None) == "student":
-            enrollment = (
-                Enrollment.objects.filter(user=user, is_active=True)
-                .select_related("batch", "course")
-                .first()
-            )
+        if user.is_authenticated and user.role == "student":
+            enrollments = Enrollment.objects.filter(
+                user=user,
+                is_active=True,
+            ).select_related("batch", "course")
 
-            if not enrollment:
+            if not enrollments.exists():
                 return queryset.none()
 
+            batch_ids = enrollments.values_list("batch_id", flat=True)
+            course_ids = enrollments.values_list("course_id", flat=True)
+
             queryset = queryset.filter(
-                batch=enrollment.batch,
-                module__course=enrollment.course,
+                batch_id__in=batch_ids,
+                module__course_id__in=course_ids,
+                is_active=True,
             )
 
-        # ---- Filters ----
         module_id = self.request.query_params.get("module_id")
         if module_id:
             try:
@@ -810,10 +921,12 @@ class CourseResourceViewSet(viewsets.ModelViewSet):
 
         return queryset
 
+    # ---------------- ACTIONS ----------------
+
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
         """
-        Download resource and increment count
+        Download resource and increment download count
         """
         resource = self.get_object()
         resource.increment_download_count()

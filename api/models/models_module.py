@@ -82,7 +82,7 @@ class LiveClass(models.Model):
         unique_together = ["module", "batch", "order"]
 
     def __str__(self):
-        return f"{self.module.title} | {self.batch.display_name} | {self.title}"
+        return f"{self.module.title} | {self.batch.get_display_name} | {self.title}"
 
 
 # Attendance tracking for live classes
@@ -400,12 +400,6 @@ class QuizQuestionOption(TimeStampedModel):
         QuizQuestion, related_name="options", on_delete=models.CASCADE
     )
     option_text = models.TextField(help_text="The answer option text")
-    option_image = models.ImageField(
-        upload_to="quizzes/options/",
-        blank=True,
-        null=True,
-        help_text="Optional image for this option",
-    )
     is_correct = models.BooleanField(
         default=False, help_text="Check if this is a correct answer"
     )

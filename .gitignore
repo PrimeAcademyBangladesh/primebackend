@@ -5,6 +5,8 @@
 __pycache__
 db.sqlite3
 db.sqlite3
+course_data_templates.pdf
+md-to-pdf.pdf
 # Ignore everything inside media
 media/**
 # But keep all subfolders
@@ -85,7 +87,8 @@ data.json
 # Installer logs 
 pip-log.txt 
 pip-delete-this-directory.txt 
-
+schema_temp.yml
+md_to_pdf.py
 # Unit test / coverage reports 
 htmlcov/ 
 .tox/ 

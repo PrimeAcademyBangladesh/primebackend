@@ -171,6 +171,7 @@ class LiveClassCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = LiveClass
         fields = [
+            "id",
             "module",
             "batch",
             "title",
@@ -186,6 +187,7 @@ class LiveClassCreateUpdateSerializer(serializers.ModelSerializer):
             "is_active",
             "instructor",
         ]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
     def validate_batch(self, value):
         if not value:
@@ -225,7 +227,11 @@ class LiveClassAttendanceSerializer(serializers.ModelSerializer):
 class AssignmentListSerializer(serializers.ModelSerializer):
     module_id = serializers.UUIDField(source="module.id", read_only=True)
     module_title = serializers.CharField(source="module.title", read_only=True)
-
+    module_slug = serializers.CharField(source="module.slug", read_only=True)
+    module_course_id = serializers.UUIDField(source="module.course.id", read_only=True)
+    module_course_title = serializers.CharField(
+        source="module.course.title", read_only=True
+    )
     batch_id = serializers.UUIDField(source="batch.id", read_only=True)
     batch_name = serializers.CharField(source="batch.display_name", read_only=True)
 
@@ -235,8 +241,11 @@ class AssignmentListSerializer(serializers.ModelSerializer):
         model = Assignment
         fields = [
             "id",
+            "module_course_id",
+            "module_course_title",
             "module_id",
             "module_title",
+            "module_slug",
             "batch_id",
             "batch_name",
             "title",
@@ -261,6 +270,7 @@ class AssignmentCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment
         fields = [
+            "id",
             "module",
             "batch",
             "title",
@@ -275,6 +285,7 @@ class AssignmentCreateUpdateSerializer(serializers.ModelSerializer):
             "order",
             "is_active",
         ]
+        read_only_fields = ["id"]
 
     def validate_batch(self, value):
         if not value:
@@ -469,7 +480,6 @@ class QuizQuestionOptionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "option_text",
-            "option_image",
             "is_correct",
             "order",
         ]
@@ -625,6 +635,7 @@ class QuizCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Quiz
         fields = [
+            "id",
             "module",
             "batch",
             "title",

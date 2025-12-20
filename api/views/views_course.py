@@ -9,7 +9,7 @@ from rest_framework import filters, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.parsers import MultiPartParser, FormParser
+
 
 # Models
 from api.models.models_course import (
@@ -871,8 +871,6 @@ class CourseViewSet(BaseAdminViewSet):
         """Return categories each with up to 10 courses for frontend home sections."""
         include_all = request.query_params.get("include_all", "false").lower() == "true"
 
-        # Optimize: Prefetch courses for each category to avoid N+1
-        # Build the courses queryset with proper select_related for nested objects
         courses_base_qs = (
             Course.objects.filter(is_active=True, status="published")
             .select_related("category", "pricing")
@@ -882,12 +880,13 @@ class CourseViewSet(BaseAdminViewSet):
         if not include_all:
             courses_base_qs = courses_base_qs.filter(show_in_home_tab=True)
 
-        # Prefetch courses for each category (limit 10 per category)
         categories = (
             Category.objects.filter(is_active=True)
             .prefetch_related(
                 Prefetch(
-                    "courses", queryset=courses_base_qs[:10], to_attr="home_courses"
+                    "courses",
+                    queryset=courses_base_qs,
+                    to_attr="home_courses",
                 )
             )
             .order_by("name")
@@ -895,13 +894,16 @@ class CourseViewSet(BaseAdminViewSet):
 
         result = []
         for cat in categories:
-            # Use prefetched courses
-            if not cat.home_courses:
+            courses = cat.home_courses[:10]
+
+            if not courses:
                 continue
 
-            serializer = CourseListSerializer(cat.home_courses, many=True)
             result.append(
-                {"category": CategorySerializer(cat).data, "courses": serializer.data}
+                {
+                    "category": CategorySerializer(cat).data,
+                    "courses": CourseListSerializer(courses, many=True).data,
+                }
             )
 
         return api_response(True, "Home categories with courses retrieved", result)
@@ -1068,9 +1070,9 @@ class CourseViewSet(BaseAdminViewSet):
                 status.HTTP_404_NOT_FOUND,
             )
 
-        modules = CourseModule.objects.filter(
-            course=course.detail, is_active=True
-        ).order_by("order")
+        modules = CourseModule.objects.filter(course=course, is_active=True).order_by(
+            "order"
+        )
 
         serializer = CourseModuleSerializer(
             modules,
@@ -1582,7 +1584,6 @@ class CourseDetailViewSet(BaseAdminViewSet):
         .prefetch_related(
             "content_sections__tabs__contents",
             "why_enrol",
-            "modules",
             "benefits",
             "side_image_sections",
             "success_stories",
@@ -1665,23 +1666,23 @@ class CourseContentSectionViewSet(BaseAdminViewSet):
     """CRUD operations for CourseContentSection."""
 
     queryset = (
-        CourseContentSection.objects.select_related("course__course")
+        CourseContentSection.objects.select_related("course_detail__course")
         .prefetch_related("tabs__contents")
         .all()
     )
     serializer_class = CourseContentSectionSerializer
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     permission_classes = [IsStaff]
-    pagination_class = StandardResultsSetPagination
+    pagination_class = None
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = ["is_active", "course"]
-    search_fields = ["section_name", "course__course__title"]
+    filterset_fields = ["is_active", "course_detail"]
+    search_fields = ["section_name", "course_detail__course__title"]
     ordering_fields = ["order", "created_at"]
-    ordering = ["course", "order"]
+    ordering = ["course_detail", "order"]
 
     def get_queryset(self):
         """Override to allow filtering by Course ID/slug via 'course_id' or 'course_slug' params."""
@@ -1692,9 +1693,9 @@ class CourseContentSectionViewSet(BaseAdminViewSet):
         course_slug = self.request.query_params.get("course_slug")
 
         if course_id:
-            queryset = queryset.filter(course__course__id=course_id)
+            queryset = queryset.filter(course_detail__course__id=course_id)
         elif course_slug:
-            queryset = queryset.filter(course__course__slug=course_slug)
+            queryset = queryset.filter(course_detail__course__slug=course_slug)
 
         return queryset
 
@@ -1759,13 +1760,13 @@ class CourseSectionTabViewSet(BaseAdminViewSet):
     """CRUD operations for CourseSectionTab."""
 
     queryset = (
-        CourseSectionTab.objects.select_related("section__course__course")
+        CourseSectionTab.objects.select_related("section__course_detail__course")
         .prefetch_related("contents")
         .all()
     )
     serializer_class = CourseSectionTabSerializer
     permission_classes = [IsStaff]
-    pagination_class = StandardResultsSetPagination
+    pagination_class = None
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
@@ -1838,11 +1839,11 @@ class CourseTabbedContentViewSet(BaseAdminViewSet):
     """CRUD operations for CourseTabbedContent (images/videos)."""
 
     queryset = CourseTabbedContent.objects.select_related(
-        "tab__section__course__course"
+        "tab__section__course_detail__course"
     ).all()
     serializer_class = CourseTabbedContentSerializer
     permission_classes = [IsStaff]
-    pagination_class = StandardResultsSetPagination
+    pagination_class = None
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     filter_backends = [
         DjangoFilterBackend,
@@ -1912,16 +1913,16 @@ class CourseTabbedContentViewSet(BaseAdminViewSet):
 class WhyEnrolViewSet(BaseAdminViewSet):
     """CRUD operations for WhyEnrol sections."""
 
-    queryset = WhyEnrol.objects.select_related("course__course").all()
+    queryset = WhyEnrol.objects.select_related("course_detail__course").all()
     serializer_class = WhyEnrolSerializer
     permission_classes = [IsStaff]
-    pagination_class = StandardResultsSetPagination
+    pagination_class = None
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = ["is_active", "course"]
+    filterset_fields = ["is_active", "course_detail"]
     search_fields = ["title", "text"]
     ordering_fields = ["id"]
     ordering = ["id"]
@@ -2106,16 +2107,16 @@ class CourseModuleViewSet(BaseAdminViewSet):
 class KeyBenefitViewSet(BaseAdminViewSet):
     """CRUD operations for KeyBenefit."""
 
-    queryset = KeyBenefit.objects.select_related("course__course").all()
+    queryset = KeyBenefit.objects.select_related("course_detail__course").all()
     serializer_class = KeyBenefitSerializer
     permission_classes = [IsStaff]
-    pagination_class = StandardResultsSetPagination
+    pagination_class = None
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = ["is_active", "course"]
+    filterset_fields = ["is_active", "course_detail"]
     search_fields = ["title", "text"]
     ordering_fields = ["id"]
     ordering = ["id"]
@@ -2178,17 +2179,17 @@ class KeyBenefitViewSet(BaseAdminViewSet):
 class SideImageSectionViewSet(BaseAdminViewSet):
     """CRUD operations for SideImageSection."""
 
-    queryset = SideImageSection.objects.select_related("course__course").all()
+    queryset = SideImageSection.objects.select_related("course_detail__course").all()
     serializer_class = SideImageSectionSerializer
     permission_classes = [IsStaff]
-    pagination_class = StandardResultsSetPagination
+    pagination_class = None
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = ["is_active", "course"]
+    filterset_fields = ["is_active", "course_detail"]
     search_fields = ["title", "text"]
     ordering_fields = ["id"]
     ordering = ["id"]
@@ -2251,17 +2252,17 @@ class SideImageSectionViewSet(BaseAdminViewSet):
 class SuccessStoryViewSet(BaseAdminViewSet):
     """CRUD operations for SuccessStory."""
 
-    queryset = SuccessStory.objects.select_related("course__course").all()
+    queryset = SuccessStory.objects.select_related("course_detail__course").all()
     serializer_class = SuccessStorySerializer
     permission_classes = [IsStaff]
-    pagination_class = StandardResultsSetPagination
+    pagination_class = None
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = ["is_active", "course"]
+    filterset_fields = ["is_active", "course_detail"]
     search_fields = ["name", "description"]
     ordering_fields = ["id"]
     ordering = ["id"]
@@ -2351,7 +2352,7 @@ class CourseInstructorViewSet(BaseAdminViewSet):
     )
     serializer_class = CourseInstructorSerializer
     permission_classes = [IsStaff]
-    pagination_class = StandardResultsSetPagination
+    pagination_class = None
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,

@@ -45,7 +45,7 @@ SYSTEM_APPS = [
 
 THIRD_PARTY_APPS = [
     "rest_framework",
-    'django_ckeditor_5',
+    "django_ckeditor_5",
     "rest_framework.authtoken",
     "rest_framework_simplejwt.token_blacklist",
     "django_filters",
@@ -162,7 +162,7 @@ REST_FRAMEWORK = {
         "resend": "100/hour",
         "registration": "100/minute",
         # Payment-specific throttle scopes
-        "payment_webhook": "1000/hour",
+        "payment_webhook": "100/hour",
         "payment_verify": "100/minute",
         # Cart-specific throttle scopes
         "cart": "100000/day",
@@ -255,7 +255,6 @@ else:
     STATIC_ROOT = "/var/www/backend/api/staticfiles/"
 
 
-
 MEDIA_URL = "/media/"
 
 if os.getenv("ENVIRONMENT", "development") == "development":
@@ -284,10 +283,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS settings (if your API is accessed by a frontend)
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",        # Local frontend (Vite dev server)
-    "http://127.0.0.1:5173",        # Local frontend (alternative)
-    "http://45.85.250.92",      # Production frontend
-    "http://45.85.250.92:8080",     # Production API (if needed for same-origin requests)
+    "http://localhost:5173",  # Local frontend (Vite dev server)
+    "http://127.0.0.1:5173",  # Local frontend (alternative)
+    "http://45.85.250.92",  # Production frontend
+    "http://45.85.250.92:8080",  # Production API (if needed for same-origin requests)
     "https://prime-academy-bd.vercel.app",  # Production frontend (Vercel)
 ]
 
@@ -295,14 +294,16 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # Session and CSRF cookie settings
-SESSION_COOKIE_SAMESITE = 'Lax'    # Changed from 'None'
-SESSION_COOKIE_SECURE = False      # Required for HTTP
-SESSION_COOKIE_HTTPONLY = True     # Recommended True for security (False if JS needs access)
+SESSION_COOKIE_SAMESITE = "Lax"  # Changed from 'None'
+SESSION_COOKIE_SECURE = False  # Required for HTTP
+SESSION_COOKIE_HTTPONLY = (
+    True  # Recommended True for security (False if JS needs access)
+)
 SESSION_COOKIE_AGE = 1209600
 
-CSRF_COOKIE_SAMESITE = 'Lax'       # Changed from 'None'
-CSRF_COOKIE_SECURE = False         # Required for HTTP
-CSRF_COOKIE_NAME = 'csrftoken'
+CSRF_COOKIE_SAMESITE = "Lax"  # Changed from 'None'
+CSRF_COOKIE_SECURE = False  # Required for HTTP
+CSRF_COOKIE_NAME = "csrftoken"
 
 
 CSRF_TRUSTED_ORIGINS = [
@@ -339,7 +340,7 @@ else:
 # SECURE_CONTENT_TYPE_NOSNIFF = True
 
 # Allow same-origin framing for admin previews (change for production as needed)
-X_FRAME_OPTIONS = 'SAMEORIGIN'
+X_FRAME_OPTIONS = "SAMEORIGIN"
 
 
 if os.getenv("ENVIRONMENT", "development") == "development":
@@ -381,11 +382,9 @@ SEO_CONFIG = {
         "https://www.instagram.com/theprimeacademy_bangladesh",
         "https://www.linkedin.com/company/prime-academy-bangladesh",
         "https://www.tiktok.com/@theprimeacademy",
-        "https://www.youtube.com/@bdprimeacademy"
+        "https://www.youtube.com/@bdprimeacademy",
     ],
 }
-
-
 
 
 # CKEDITOR ===========================
@@ -407,164 +406,235 @@ CUSTOM_COLOR_PALETTE = [
 ]
 
 CKEDITOR_5_CONFIGS = {
-    'default': {
-        'toolbar': [
-            'heading', '|',
-            'bold', 'italic', 'link', 'bulletedList', 'numberedList', 'blockQuote', '|',
-            'fontSize', 'fontFamily', 'fontColor', 'fontBackgroundColor', '|',
-            'insertTable', 'imageUpload', 'mediaEmbed', '|',  # 👈 imageUpload here
-            'outdent', 'indent', '|',
-            'undo', 'redo'
+    "default": {
+        "toolbar": [
+            "heading",
+            "|",
+            "bold",
+            "italic",
+            "link",
+            "bulletedList",
+            "numberedList",
+            "blockQuote",
+            "|",
+            "fontSize",
+            "fontFamily",
+            "fontColor",
+            "fontBackgroundColor",
+            "|",
+            "insertTable",
+            "imageUpload",
+            "mediaEmbed",
+            "|",  # 👈 imageUpload here
+            "outdent",
+            "indent",
+            "|",
+            "undo",
+            "redo",
         ],
-        'height': 400,
-        'width': 600,
-        'image': {
-            'toolbar': [
-                'imageTextAlternative', '|',
-                'imageStyle:alignLeft',
-                'imageStyle:alignCenter',
-                'imageStyle:alignRight'
+        "height": 400,
+        "width": 600,
+        "image": {
+            "toolbar": [
+                "imageTextAlternative",
+                "|",
+                "imageStyle:alignLeft",
+                "imageStyle:alignCenter",
+                "imageStyle:alignRight",
             ],
-            'styles': [
-                'full',
-                'alignLeft',
-                'alignCenter',
-                'alignRight'
-            ],
+            "styles": ["full", "alignLeft", "alignCenter", "alignRight"],
             # 👇 Upload configuration for custom API
-            'upload': {
-                'types': ['jpeg', 'jpg', 'png', 'gif', 'webp']
-            }
+            "upload": {"types": ["jpeg", "jpg", "png", "gif", "webp"]},
         },
-        'table': {
-            'contentToolbar': [
-                'tableColumn', 'tableRow', 'mergeTableCells',
-                'tableProperties', 'tableCellProperties'
+        "table": {
+            "contentToolbar": [
+                "tableColumn",
+                "tableRow",
+                "mergeTableCells",
+                "tableProperties",
+                "tableCellProperties",
             ],
-            'tableProperties': {
-                'borderColors': CUSTOM_COLOR_PALETTE,
-                'backgroundColors': CUSTOM_COLOR_PALETTE
+            "tableProperties": {
+                "borderColors": CUSTOM_COLOR_PALETTE,
+                "backgroundColors": CUSTOM_COLOR_PALETTE,
             },
-            'tableCellProperties': {
-                'borderColors': CUSTOM_COLOR_PALETTE,
-                'backgroundColors': CUSTOM_COLOR_PALETTE
-            }
+            "tableCellProperties": {
+                "borderColors": CUSTOM_COLOR_PALETTE,
+                "backgroundColors": CUSTOM_COLOR_PALETTE,
+            },
         },
-        'heading': {
-            'options': [
-                {'model': 'paragraph', 'title': 'Paragraph', 'class': 'ck-heading_paragraph'},
-                {'model': 'heading1', 'view': 'h1', 'title': 'Heading 1', 'class': 'ck-heading_heading1'},
-                {'model': 'heading2', 'view': 'h2', 'title': 'Heading 2', 'class': 'ck-heading_heading2'},
-                {'model': 'heading3', 'view': 'h3', 'title': 'Heading 3', 'class': 'ck-heading_heading3'},
+        "heading": {
+            "options": [
+                {
+                    "model": "paragraph",
+                    "title": "Paragraph",
+                    "class": "ck-heading_paragraph",
+                },
+                {
+                    "model": "heading1",
+                    "view": "h1",
+                    "title": "Heading 1",
+                    "class": "ck-heading_heading1",
+                },
+                {
+                    "model": "heading2",
+                    "view": "h2",
+                    "title": "Heading 2",
+                    "class": "ck-heading_heading2",
+                },
+                {
+                    "model": "heading3",
+                    "view": "h3",
+                    "title": "Heading 3",
+                    "class": "ck-heading_heading3",
+                },
             ]
         },
-        'fontFamily': {
-            'options': [
-                'default',
-                'Arial, Helvetica, sans-serif',
-                'Courier New, Courier, monospace',
-                'Georgia, serif',
-                'Times New Roman, Times, serif',
-                'Verdana, Geneva, sans-serif'
+        "fontFamily": {
+            "options": [
+                "default",
+                "Arial, Helvetica, sans-serif",
+                "Courier New, Courier, monospace",
+                "Georgia, serif",
+                "Times New Roman, Times, serif",
+                "Verdana, Geneva, sans-serif",
             ]
         },
-        'fontSize': {
-            'options': [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
-        },
-        'fontColor': {
-            'colors': CUSTOM_COLOR_PALETTE
-        },
-        'fontBackgroundColor': {
-            'colors': CUSTOM_COLOR_PALETTE
-        }
+        "fontSize": {"options": [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]},
+        "fontColor": {"colors": CUSTOM_COLOR_PALETTE},
+        "fontBackgroundColor": {"colors": CUSTOM_COLOR_PALETTE},
     },
-    'extends': {
-        'height': 500, 
-        'blockToolbar': [
-            'paragraph', 'heading1', 'heading2', 'heading3',
-            '|',
-            'bulletedList', 'numberedList',
-            '|',
-            'blockQuote',
+    "extends": {
+        "height": 500,
+        "blockToolbar": [
+            "paragraph",
+            "heading1",
+            "heading2",
+            "heading3",
+            "|",
+            "bulletedList",
+            "numberedList",
+            "|",
+            "blockQuote",
         ],
-        'toolbar': [
-            'heading', '|', 'outdent', 'indent', '|', 
-            'bold', 'italic', 'link', 'underline', 'strikethrough',
-            'code', 'subscript', 'superscript', 'highlight', '|', 
-            'codeBlock', 'sourceEditing', 'insertImage',  # 👈 Or imageUpload
-            'bulletedList', 'numberedList', 'todoList', '|',  
-            'blockQuote', 'imageUpload', '|',  # 👈 imageUpload here
-            'fontSize', 'fontFamily', 'fontColor', 'fontBackgroundColor', 
-            'mediaEmbed', 'removeFormat', 'insertTable',
+        "toolbar": [
+            "heading",
+            "|",
+            "outdent",
+            "indent",
+            "|",
+            "bold",
+            "italic",
+            "link",
+            "underline",
+            "strikethrough",
+            "code",
+            "subscript",
+            "superscript",
+            "highlight",
+            "|",
+            "codeBlock",
+            "sourceEditing",
+            "insertImage",  # 👈 Or imageUpload
+            "bulletedList",
+            "numberedList",
+            "todoList",
+            "|",
+            "blockQuote",
+            "imageUpload",
+            "|",  # 👈 imageUpload here
+            "fontSize",
+            "fontFamily",
+            "fontColor",
+            "fontBackgroundColor",
+            "mediaEmbed",
+            "removeFormat",
+            "insertTable",
         ],
-        'image': {
-            'toolbar': [
-                'imageTextAlternative', '|', 
-                'imageStyle:alignLeft',
-                'imageStyle:alignRight', 
-                'imageStyle:alignCenter', 
-                'imageStyle:side', '|'
+        "image": {
+            "toolbar": [
+                "imageTextAlternative",
+                "|",
+                "imageStyle:alignLeft",
+                "imageStyle:alignRight",
+                "imageStyle:alignCenter",
+                "imageStyle:side",
+                "|",
             ],
-            'styles': [
-                'full',
-                'side',
-                'alignLeft',
-                'alignRight',
-                'alignCenter',
+            "styles": [
+                "full",
+                "side",
+                "alignLeft",
+                "alignRight",
+                "alignCenter",
             ],
             # 👇 Upload configuration for custom API
-            'upload': {
-                'types': ['jpeg', 'jpg', 'png', 'gif', 'webp']
-            }
+            "upload": {"types": ["jpeg", "jpg", "png", "gif", "webp"]},
         },
-        'table': {
-            'contentToolbar': [
-                'tableColumn', 'tableRow', 'mergeTableCells',
-                'tableProperties', 'tableCellProperties'
+        "table": {
+            "contentToolbar": [
+                "tableColumn",
+                "tableRow",
+                "mergeTableCells",
+                "tableProperties",
+                "tableCellProperties",
             ],
-            'tableProperties': {
-                'borderColors': CUSTOM_COLOR_PALETTE,
-                'backgroundColors': CUSTOM_COLOR_PALETTE
+            "tableProperties": {
+                "borderColors": CUSTOM_COLOR_PALETTE,
+                "backgroundColors": CUSTOM_COLOR_PALETTE,
             },
-            'tableCellProperties': {
-                'borderColors': CUSTOM_COLOR_PALETTE,
-                'backgroundColors': CUSTOM_COLOR_PALETTE
-            }
+            "tableCellProperties": {
+                "borderColors": CUSTOM_COLOR_PALETTE,
+                "backgroundColors": CUSTOM_COLOR_PALETTE,
+            },
         },
-        'heading': {
-            'options': [
-                {'model': 'paragraph', 'title': 'Paragraph', 'class': 'ck-heading_paragraph'},
-                {'model': 'heading1', 'view': 'h1', 'title': 'Heading 1', 'class': 'ck-heading_heading1'},
-                {'model': 'heading2', 'view': 'h2', 'title': 'Heading 2', 'class': 'ck-heading_heading2'},
-                {'model': 'heading3', 'view': 'h3', 'title': 'Heading 3', 'class': 'ck-heading_heading3'}
+        "heading": {
+            "options": [
+                {
+                    "model": "paragraph",
+                    "title": "Paragraph",
+                    "class": "ck-heading_paragraph",
+                },
+                {
+                    "model": "heading1",
+                    "view": "h1",
+                    "title": "Heading 1",
+                    "class": "ck-heading_heading1",
+                },
+                {
+                    "model": "heading2",
+                    "view": "h2",
+                    "title": "Heading 2",
+                    "class": "ck-heading_heading2",
+                },
+                {
+                    "model": "heading3",
+                    "view": "h3",
+                    "title": "Heading 3",
+                    "class": "ck-heading_heading3",
+                },
             ]
         },
-        'list': {
-            'properties': {
-                'styles': True,
-                'startIndex': True,
-                'reversed': True,
+        "list": {
+            "properties": {
+                "styles": True,
+                "startIndex": True,
+                "reversed": True,
             }
         },
-        'fontFamily': {
-            'options': [
-                'default',
-                'Arial, Helvetica, sans-serif',
-                'Courier New, Courier, monospace',
-                'Georgia, serif',
-                'Times New Roman, Times, serif',
-                'Verdana, Geneva, sans-serif'
+        "fontFamily": {
+            "options": [
+                "default",
+                "Arial, Helvetica, sans-serif",
+                "Courier New, Courier, monospace",
+                "Georgia, serif",
+                "Times New Roman, Times, serif",
+                "Verdana, Geneva, sans-serif",
             ]
         },
-        'fontSize': { 
-            'options': [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
-        },
-        'fontColor': { 
-            'colors': CUSTOM_COLOR_PALETTE
-        },
-        'fontBackgroundColor': {
-            'colors': CUSTOM_COLOR_PALETTE
-        }
+        "fontSize": {"options": [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]},
+        "fontColor": {"colors": CUSTOM_COLOR_PALETTE},
+        "fontBackgroundColor": {"colors": CUSTOM_COLOR_PALETTE},
     },
 }
 

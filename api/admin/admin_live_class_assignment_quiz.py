@@ -39,7 +39,7 @@ class QuizQuestionOptionInline(nested_admin.NestedTabularInline):
     model = QuizQuestionOption
     extra = 4  # Default 4 options for new questions
     max_num = 10  # Maximum 10 options per question
-    fields = ["order", "option_text", "option_image", "is_correct"]
+    fields = ["order", "option_text", "is_correct"]
     ordering = ["order"]
     verbose_name = "Answer Option"
     verbose_name_plural = "Answer Options (Check one or more as correct)"
@@ -238,9 +238,7 @@ class LiveClassAdmin(BaseModelAdmin):
 
     def course_name(self, obj):
         """Display course name."""
-        return (
-            obj.module.course.title if obj.module and obj.module.course else "-"
-        )
+        return obj.module.course.title if obj.module and obj.module.course else "-"
 
     course_name.short_description = "Course"
     course_name.admin_order_field = "module__course__title"
@@ -521,9 +519,7 @@ class AssignmentAdmin(BaseModelAdmin):
 
     def course_name(self, obj):
         """Display course name."""
-        return (
-            obj.module.course.title if obj.module and obj.module.course else "-"
-        )
+        return obj.module.course.title if obj.module and obj.module.course else "-"
 
     course_name.short_description = "Course"
     course_name.admin_order_field = "module__course__title"
@@ -905,9 +901,7 @@ class QuizAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
 
     def course_name(self, obj):
         """Display course name."""
-        return (
-            obj.module.course.title if obj.module and obj.module.course else "-"
-        )
+        return obj.module.course.title if obj.module and obj.module.course else "-"
 
     course_name.short_description = "Course"
     course_name.admin_order_field = "module__course__title"
