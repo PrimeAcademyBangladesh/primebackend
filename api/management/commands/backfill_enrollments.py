@@ -3,18 +3,13 @@ from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
 
-from api.models.models_order import Order, Enrollment
+from api.models.models_order import Enrollment, Order
 
 
 class Command(BaseCommand):
     help = "Backfill missing enrollments for completed orders"
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--dry-run",
-            action="store_true",
-            help="Don't create enrollments; just show what would be done",
-        )
         parser.add_argument(
             "--limit",
             type=int,
@@ -34,14 +29,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        dry_run = options.get("dry_run")
         limit = options.get("limit")
         days = options.get("days")
         commit = options.get("commit")
 
-        qs = Order.objects.filter(status="completed").annotate(
-            items_count=Count("items"), enroll_count=Count("enrollments")
-        ).order_by("-completed_at")
+        qs = (
+            Order.objects.filter(status="completed")
+            .annotate(items_count=Count("items"), enroll_count=Count("enrollments"))
+            .order_by("-completed_at")
+        )
 
         if days:
             since = timezone.now() - timezone.timedelta(days=days)
@@ -72,20 +68,14 @@ class Command(BaseCommand):
                 continue
 
             total_missing += len(missing)
-            self.stdout.write(
-                self.style.WARNING(
-                    f"Order {order.order_number}: {len(missing)} missing enrollment(s)"
-                )
-            )
+            self.stdout.write(self.style.WARNING(f"Order {order.order_number}: {len(missing)} missing enrollment(s)"))
 
             for item in missing:
                 self.stdout.write(f"  - Will create enrollment: user={order.user.email}, course={item.course.title}")
                 if commit:
                     try:
                         with transaction.atomic():
-                            Enrollment.objects.get_or_create(
-                                user=order.user, course=item.course, defaults={"order": order}
-                            )
+                            Enrollment.objects.get_or_create(user=order.user, course=item.course, defaults={"order": order})
                             total_created += 1
                     except Exception as e:
                         self.stderr.write(f"Failed to create enrollment for order {order.order_number}: {e}")

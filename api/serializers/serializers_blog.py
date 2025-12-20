@@ -14,7 +14,7 @@ class BlogCategorySerializer(serializers.ModelSerializer):
 class BlogSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     # Accept category as a primary key on write, but return nested category on read
     category = serializers.PrimaryKeyRelatedField(queryset=BlogCategory.objects.all())
-    html_fields = ['content']
+    html_fields = ["content"]
 
     class Meta:
         model = Blog
@@ -38,10 +38,7 @@ class BlogSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
         """Return nested category for read operations while keeping PK input for writes."""
         representation = super().to_representation(instance)
         try:
-            representation["category"] = (
-                BlogCategorySerializer(instance.category).data
-                if instance.category else None
-            )
+            representation["category"] = BlogCategorySerializer(instance.category).data if instance.category else None
         except Exception:
             pass  # Fallback to default representation
         return representation

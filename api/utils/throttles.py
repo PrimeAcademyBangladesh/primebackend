@@ -11,6 +11,7 @@ class LoginRateThrottle(SimpleRateThrottle):
     Per-email + per-IP login throttling.
     Uses email as primary key; falls back to IP if email is missing.
     """
+
     scope = "login"
 
     def get_cache_key(self, request, view):

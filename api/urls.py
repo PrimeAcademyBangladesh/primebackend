@@ -4,7 +4,8 @@ Registers viewsets with a router and exposes auth, profile, admin and
 footer endpoints used by the frontend and by automated tests.
 """
 
-from django.urls import path, include
+from django.urls import include, path
+
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -29,14 +30,14 @@ from api.views.views_auth import (
 )
 from api.views.views_blog import BlogCategoryViewSet, BlogViewSet
 from api.views.views_cart import (
-    cart_detail,
     add_to_cart,
-    remove_from_cart,
-    clear_cart,
-    wishlist_detail,
     add_to_wishlist,
-    remove_from_wishlist,
+    cart_detail,
+    clear_cart,
     move_to_cart,
+    remove_from_cart,
+    remove_from_wishlist,
+    wishlist_detail,
 )
 from api.views.views_ckeditor_image_upload import CKEditorImageUploadView
 from api.views.views_contact import ContactMessageViewSet
@@ -44,79 +45,66 @@ from api.views.views_course import (
     CategoryViewSet,
     CouponViewSet,
     CourseBatchViewSet,
-    CoursePriceViewSet,
-    CourseViewSet,
-    CourseDetailViewSet,
     CourseContentSectionViewSet,
+    CourseDetailViewSet,
+    CourseInstructorViewSet,
+    CourseModuleViewSet,
+    CoursePriceViewSet,
     CourseSectionTabViewSet,
     CourseTabbedContentViewSet,
-    WhyEnrolViewSet,
-    CourseModuleViewSet,
+    CourseViewSet,
     KeyBenefitViewSet,
     SideImageSectionViewSet,
     SuccessStoryViewSet,
-    CourseInstructorViewSet,
+    WhyEnrolViewSet,
 )
-from api.views.views_custom_payment import (
-    CustomPaymentViewSet,
-)
-from api.views.views_dashboard import (
-    course_details,
-    dashboard_overview,
-    earnings_details,
-    student_details,
-)
+from api.views.views_custom_payment import CustomPaymentViewSet
+from api.views.views_dashboard import course_details, dashboard_overview, earnings_details, student_details
 from api.views.views_employee import DepartmentViewSet, EmployeeViewSet
+from api.views.views_export import (
+    export_course_completion_csv,
+    export_course_completion_pdf,
+    export_employees_csv,
+    export_employees_pdf,
+    export_my_order_invoice_by_number_pdf,
+    export_my_order_invoice_pdf,
+    export_order_invoice_pdf,
+    export_orders_csv,
+    export_revenue_analytics_csv,
+    export_revenue_analytics_pdf,
+    export_students_csv,
+    export_students_pdf,
+)
 from api.views.views_faq import FAQViewSet
 from api.views.views_footer import FooterAdminView, FooterPublicView
+from api.views.views_free_enrollment import enroll_free_course
 from api.views.views_home import BrandViewSet, HeroSectionViewSet
-from api.views.views_order import EnrollmentViewSet, OrderItemViewSet, OrderViewSet
-from api.views.views_our_values import (
-    ValueTabContentViewSet,
-    ValueTabSectionViewSet,
-    ValueTabViewSet,
+from api.views.views_invoice_verification import verify_invoice
+from api.views.views_live_class_assignment_quiz import (
+    AssignmentSubmissionViewSet,
+    AssignmentViewSet,
+    CourseResourceViewSet,
+    LiveClassViewSet,
+    QuizAttemptViewSet,
+    QuizQuestionViewSet,
+    QuizViewSet,
 )
+from api.views.views_module import CourseModuleStudyPlanView
+from api.views.views_order import EnrollmentViewSet, OrderItemViewSet, OrderViewSet
+from api.views.views_our_values import ValueTabContentViewSet, ValueTabSectionViewSet, ValueTabViewSet
 from api.views.views_payment import (
     InstallmentPaymentInitiateView,
     InstallmentSummaryView,
     PaymentInitiateView,
-    payment_webhook,
-    payment_success_redirect,
-    payment_fail_redirect,
     payment_cancel_redirect,
+    payment_fail_redirect,
+    payment_success_redirect,
+    payment_webhook,
     verify_payment,
 )
 from api.views.views_policy import PolicyPageViewSet
 from api.views.views_seo import PageSEOViewSet
 from api.views.views_service import ContentSectionViewSet, PageServiceViewSet
-from api.views.views_module import CourseModuleStudyPlanView
-from api.views.views_live_class_assignment_quiz import (
-    CourseResourceViewSet,
-    LiveClassViewSet,
-    AssignmentViewSet,
-    AssignmentSubmissionViewSet,
-    QuizViewSet,
-    QuizQuestionViewSet,
-    QuizAttemptViewSet,
-)
-
-from api.views.views_export import (
-    export_students_csv,
-    export_students_pdf,
-    export_employees_csv,
-    export_employees_pdf,
-    export_orders_csv,
-    export_order_invoice_pdf,
-    export_my_order_invoice_pdf,
-    export_my_order_invoice_by_number_pdf,
-    export_course_completion_csv,
-    export_course_completion_pdf,
-    export_revenue_analytics_csv,
-    export_revenue_analytics_pdf,
-)
-from api.views.views_free_enrollment import enroll_free_course
-from api.views.views_invoice_verification import verify_invoice
-
 
 router = DefaultRouter()
 
@@ -132,16 +120,10 @@ router.register(r"page-services", PageServiceViewSet, basename="pageservice")
 router.register(r"content-sections", ContentSectionViewSet, basename="contentsection")
 router.register(r"contact", ContactMessageViewSet, basename="contact")
 router.register(r"faqs", FAQViewSet, basename="faq")
-router.register(
-    r"academy-overview", AcademyOverviewViewSet, basename="academy-overview"
-)
-router.register(
-    r"our-values/sections", ValueTabSectionViewSet, basename="valuetabsection"
-)
+router.register(r"academy-overview", AcademyOverviewViewSet, basename="academy-overview")
+router.register(r"our-values/sections", ValueTabSectionViewSet, basename="valuetabsection")
 router.register(r"our-values/tabs", ValueTabViewSet, basename="valuetab")
-router.register(
-    r"our-values/contents", ValueTabContentViewSet, basename="valuetabcontent"
-)
+router.register(r"our-values/contents", ValueTabContentViewSet, basename="valuetabcontent")
 
 # ========== Course System - All with 'courses/' prefix ==========
 router.register(r"courses/categories", CategoryViewSet, basename="course-category")
@@ -154,9 +136,7 @@ router.register(
     CourseContentSectionViewSet,
     basename="course-content-section",
 )
-router.register(
-    r"courses/section-tabs", CourseSectionTabViewSet, basename="course-section-tab"
-)
+router.register(r"courses/section-tabs", CourseSectionTabViewSet, basename="course-section-tab")
 router.register(
     r"courses/tabbed-content",
     CourseTabbedContentViewSet,
@@ -165,15 +145,9 @@ router.register(
 router.register(r"courses/why-enrol", WhyEnrolViewSet, basename="course-why-enrol")
 router.register(r"courses/modules", CourseModuleViewSet, basename="course-module")
 router.register(r"courses/benefits", KeyBenefitViewSet, basename="course-benefit")
-router.register(
-    r"courses/side-sections", SideImageSectionViewSet, basename="course-side-section"
-)
-router.register(
-    r"courses/success-stories", SuccessStoryViewSet, basename="course-success-story"
-)
-router.register(
-    r"courses/instructors", CourseInstructorViewSet, basename="course-instructor"
-)
+router.register(r"courses/side-sections", SideImageSectionViewSet, basename="course-side-section")
+router.register(r"courses/success-stories", SuccessStoryViewSet, basename="course-success-story")
+router.register(r"courses/instructors", CourseInstructorViewSet, basename="course-instructor")
 
 router.register(r"orders", OrderViewSet, basename="order")
 router.register(r"order-items", OrderItemViewSet, basename="orderitem")
@@ -200,9 +174,8 @@ router.register(r"quiz-questions", QuizQuestionViewSet, basename="quiz-question"
 # Quiz attempts (student only, read-only)
 router.register(r"quiz-attempts", QuizAttemptViewSet, basename="quiz-attempt")
 
-
-# Course Resources (Teacher-uploaded materials)
-router.register(r"course-resource", CourseResourceViewSet, basename="course-resource")
+# Backwards-compatible alias for frontend: `/api/resources/` -> CourseResourceViewSet
+router.register(r"resources", CourseResourceViewSet, basename="resources")
 
 
 urlpatterns = router.urls + [
@@ -220,9 +193,7 @@ urlpatterns = router.urls + [
         ResendVerificationEmailView.as_view(),
         name="resend-verification",
     ),
-    path(
-        "students/reset-password/", PasswordResetView.as_view(), name="password-reset"
-    ),
+    path("students/reset-password/", PasswordResetView.as_view(), name="password-reset"),
     path(
         "students/reset-password-confirm/",
         PasswordResetConfirmView.as_view(),
@@ -234,9 +205,7 @@ urlpatterns = router.urls + [
         name="student-change-password",
     ),
     # Phone change via email-confirmed flow
-    path(
-        "students/update-phone/", RequestPhoneChangeView.as_view(), name="update-phone"
-    ),
+    path("students/update-phone/", RequestPhoneChangeView.as_view(), name="update-phone"),
     # Teacher specific endpoints
     path("teachers/login/", TeacherLoginView.as_view(), name="teacher-login"),
     path(
@@ -272,9 +241,7 @@ urlpatterns = router.urls + [
     ),
     path(
         "blog-categories/<uuid:pk>/",
-        BlogCategoryViewSet.as_view(
-            {"put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        BlogCategoryViewSet.as_view({"put": "update", "patch": "partial_update", "delete": "destroy"}),
         name="category-id-admin",
     ),
     path(
@@ -294,9 +261,7 @@ urlpatterns = router.urls + [
     # ID-based update/delete must come before slug-based retrieve
     path(
         "blogs/<uuid:pk>/",
-        BlogViewSet.as_view(
-            {"put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        BlogViewSet.as_view({"put": "update", "patch": "partial_update", "delete": "destroy"}),
         name="blog-id-admin",
     ),
     # Slug-based retrieve
@@ -338,9 +303,7 @@ urlpatterns = router.urls + [
     # Course Main - UUID operations (Update/Delete)
     path(
         "courses/<uuid:pk>/",
-        CourseViewSet.as_view(
-            {"put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        CourseViewSet.as_view({"put": "update", "patch": "partial_update", "delete": "destroy"}),
         name="course-id-admin",
     ),
     # 1. Most specific (nested resources)
@@ -419,9 +382,7 @@ urlpatterns = router.urls + [
         student_details,
         name="dashboard-students-details",
     ),
-    path(
-        "dashboard/courses/details/", course_details, name="dashboard-courses-details"
-    ),
+    path("dashboard/courses/details/", course_details, name="dashboard-courses-details"),
     path(
         "dashboard/earnings/details/",
         earnings_details,
@@ -488,9 +449,7 @@ urlpatterns = router.urls + [
     # UUID-based operations for admin (update, partial_update, delete)
     path(
         "policy-pages/<uuid:pk>/",
-        PolicyPageViewSet.as_view(
-            {"put": "update", "patch": "partial_update", "delete": "destroy"}
-        ),
+        PolicyPageViewSet.as_view({"put": "update", "patch": "partial_update", "delete": "destroy"}),
         name="policy-pages-admin",
     ),
     # Page name-based retrieval (public access using page_name)

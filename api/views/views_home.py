@@ -1,13 +1,13 @@
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import filters
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
 from api.models.models_home import Brand, HeroSection
-from api.serializers.serializers_home import (BrandSerializer,
-                                              HeroSectionSerializer)
+from api.serializers.serializers_home import BrandSerializer, HeroSectionSerializer
 from api.utils.pagination import StandardResultsSetPagination
 from api.views.views_base import BaseAdminViewSet
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+
 
 @extend_schema(
     tags=["Home"],
@@ -17,9 +17,10 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 )
 class HeroSectionViewSet(BaseAdminViewSet):
     """Hero Sections Management"""
+
     queryset = HeroSection.objects.all()
     serializer_class = HeroSectionSerializer
-    
+
     # Admin-friendly listing: pagination, filtering, searching and ordering
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -37,8 +38,7 @@ class HeroSectionViewSet(BaseAdminViewSet):
 )
 class BrandViewSet(BaseAdminViewSet):
     """Brand Management"""
+
     queryset = Brand.objects.all()
     serializer_class = BrandSerializer
     # parser_classes = (MultiPartParser, FormParser)
-
-

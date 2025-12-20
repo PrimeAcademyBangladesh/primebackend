@@ -1,4 +1,5 @@
 """ Implementation of a strict JSON parser that raises an error on invalid JSON format. """
+
 import json
 
 from rest_framework.exceptions import ParseError
@@ -10,4 +11,4 @@ class StrictJSONParser(JSONParser):
         try:
             return super().parse(stream, media_type, parser_context)
         except json.JSONDecodeError as e:
-            raise ParseError(f'Invalid JSON format: {str(e)}')
+            raise ParseError(f"Invalid JSON format: {str(e)}")

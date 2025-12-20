@@ -1,17 +1,23 @@
 """Cart and Wishlist API Views"""
-from rest_framework import status, permissions
+
+from django.shortcuts import get_object_or_404
+
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
+from rest_framework import permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, OpenApiExample
-from drf_spectacular.types import OpenApiTypes
 
 from api.models.models_cart import Cart, CartItem, Wishlist
 from api.models.models_course import Course
 from api.models.models_order import Enrollment
 from api.serializers.serializers_cart import (
-    CartSerializer, CartItemSerializer, AddToCartSerializer,
-    WishlistSerializer, AddToWishlistSerializer, MoveToCartResponseSerializer
+    AddToCartSerializer,
+    AddToWishlistSerializer,
+    CartItemSerializer,
+    CartSerializer,
+    MoveToCartResponseSerializer,
+    WishlistSerializer,
 )
 
 
@@ -26,7 +32,7 @@ def get_or_create_cart(request):
         if not session_key:
             request.session.save()
             session_key = request.session.session_key
-        
+
         cart, created = Cart.objects.get_or_create(session_key=session_key)
         return cart
 
@@ -47,8 +53,8 @@ def get_or_create_cart(request):
                         "total": "0",
                         "item_count": 0,
                         "created_at": "2024-01-01T00:00:00Z",
-                        "updated_at": "2024-01-01T00:00:00Z"
-                    }
+                        "updated_at": "2024-01-01T00:00:00Z",
+                    },
                 ),
                 OpenApiExample(
                     "Cart with Items",
@@ -65,30 +71,30 @@ def get_or_create_cart(request):
                                     "header_image": "https://example.com/image.jpg",
                                     "price": "99.99",
                                     "discounted_price": "79.99",
-                                    "has_discount": True
+                                    "has_discount": True,
                                 },
                                 "subtotal": "79.99",
                                 "created_at": "2024-01-01T00:00:00Z",
-                                "updated_at": "2024-01-01T00:00:00Z"
+                                "updated_at": "2024-01-01T00:00:00Z",
                             }
                         ],
                         "total": "79.99",
                         "item_count": 1,
                         "created_at": "2024-01-01T00:00:00Z",
-                        "updated_at": "2024-01-01T00:00:00Z"
-                    }
-                )
-            ]
+                        "updated_at": "2024-01-01T00:00:00Z",
+                    },
+                ),
+            ],
         )
     },
-    tags=["Shopping Cart"]
+    tags=["Shopping Cart"],
 )
-@api_view(['GET'])
+@api_view(["GET"])
 @permission_classes([permissions.AllowAny])
 def cart_detail(request):
     """Get current user's cart"""
     cart = get_or_create_cart(request)
-    serializer = CartSerializer(cart, context={'request': request})
+    serializer = CartSerializer(cart, context={"request": request})
     return Response(serializer.data)
 
 
@@ -117,21 +123,21 @@ def cart_detail(request):
                                         "header_image": "https://example.com/image.jpg",
                                         "price": "99.99",
                                         "discounted_price": "99.99",
-                                        "has_discount": False
+                                        "has_discount": False,
                                     },
                                     "subtotal": "99.99",
                                     "created_at": "2024-01-01T00:00:00Z",
-                                    "updated_at": "2024-01-01T00:00:00Z"
+                                    "updated_at": "2024-01-01T00:00:00Z",
                                 }
                             ],
                             "total": "99.99",
                             "item_count": 1,
                             "created_at": "2024-01-01T00:00:00Z",
-                            "updated_at": "2024-01-01T00:00:00Z"
-                        }
-                    }
+                            "updated_at": "2024-01-01T00:00:00Z",
+                        },
+                    },
                 )
-            ]
+            ],
         ),
         200: OpenApiResponse(
             description="Course already in cart",
@@ -140,99 +146,94 @@ def cart_detail(request):
                     "Already in Cart",
                     value={
                         "message": "Python Programming is already in your cart",
-                        "cart": {
-                            "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "items": [],
-                            "total": "99.99",
-                            "item_count": 1
-                        }
-                    }
+                        "cart": {"id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "items": [], "total": "99.99", "item_count": 1},
+                    },
                 )
-            ]
+            ],
         ),
         400: OpenApiResponse(
             description="Invalid course ID or course not available",
-            examples=[
-                OpenApiExample(
-                    "Validation Error",
-                    value={"course_id": ["Course not found or is not available."]}
-                )
-            ]
-        )
+            examples=[OpenApiExample("Validation Error", value={"course_id": ["Course not found or is not available."]})],
+        ),
     },
-    tags=["Shopping Cart"]
+    tags=["Shopping Cart"],
 )
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 def add_to_cart(request):
     """Add a course to cart"""
     serializer = AddToCartSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    course_id = serializer.validated_data['course_id']
-    batch_id = serializer.validated_data.get('batch_id')
+
+    course_id = serializer.validated_data["course_id"]
+    batch_id = serializer.validated_data.get("batch_id")
     course = get_object_or_404(Course, id=course_id, is_active=True)
-    
+
     batch = None
     if batch_id:
         from api.models.models_course import CourseBatch
+
         batch = get_object_or_404(CourseBatch, id=batch_id, is_active=True, course=course)
-    
+
     # Prevent adding to cart if the authenticated user is already enrolled
     if request.user and request.user.is_authenticated and not request.user.is_staff:
         if batch:
             # Check batch-specific enrollment
             if Enrollment.objects.filter(user=request.user, batch=batch, is_active=True).exists():
-                return Response({
-                    'error': f"You are already enrolled in {course.title} - {batch.get_display_name()}",
-                    'detail': 'Cannot add enrolled courses to cart',
-                    'already_enrolled': True,
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {
+                        "error": f"You are already enrolled in {course.title} - {batch.get_display_name()}",
+                        "detail": "Cannot add enrolled courses to cart",
+                        "already_enrolled": True,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         else:
             # Check if user is enrolled in ANY batch of this course
             if Enrollment.objects.filter(user=request.user, course=course, is_active=True).exists():
-                return Response({
-                    'error': f"You are already enrolled in {course.title}",
-                    'detail': 'Cannot add enrolled courses to cart',
-                    'already_enrolled': True,
-                }, status=status.HTTP_400_BAD_REQUEST)
-    
+                return Response(
+                    {
+                        "error": f"You are already enrolled in {course.title}",
+                        "detail": "Cannot add enrolled courses to cart",
+                        "already_enrolled": True,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
     cart = get_or_create_cart(request)
-    
+
     # SINGLE COURSE RESTRICTION: Only allow one course in cart at a time
     existing_items = cart.items.all()
     if existing_items.exists():
         existing_item = existing_items.first()
         # Check if trying to add a different course
         if existing_item.course.id != course_id or (existing_item.batch and existing_item.batch.id != batch_id):
-            return Response({
-                'error': 'You can only purchase one course at a time',
-                'detail': f'Please remove "{existing_item.course.title}" from cart first',
-                'existing_course': {
-                    'id': str(existing_item.course.id),
-                    'title': existing_item.course.title,
-                    'batch': existing_item.batch.get_display_name() if existing_item.batch else None
-                }
-            }, status=status.HTTP_400_BAD_REQUEST)
-    
+            return Response(
+                {
+                    "error": "You can only purchase one course at a time",
+                    "detail": f'Please remove "{existing_item.course.title}" from cart first',
+                    "existing_course": {
+                        "id": str(existing_item.course.id),
+                        "title": existing_item.course.title,
+                        "batch": existing_item.batch.get_display_name() if existing_item.batch else None,
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     # Check if this course+batch combination already in cart
-    cart_item, created = CartItem.objects.get_or_create(
-        cart=cart,
-        course=course,
-        batch=batch
-    )
-    
+    cart_item, created = CartItem.objects.get_or_create(cart=cart, course=course, batch=batch)
+
     if created:
         message = f"{course.title} added to cart"
     else:
         message = f"{course.title} is already in your cart"
-    
-    cart_serializer = CartSerializer(cart, context={'request': request})
-    return Response({
-        'message': message,
-        'cart': cart_serializer.data
-    }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    cart_serializer = CartSerializer(cart, context={"request": request})
+    return Response(
+        {"message": message, "cart": cart_serializer.data}, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+    )
 
 
 @extend_schema(
@@ -240,10 +241,10 @@ def add_to_cart(request):
     description="Remove a specific item from the shopping cart using the cart item ID.",
     parameters=[
         OpenApiParameter(
-            name='item_id',
+            name="item_id",
             type=OpenApiTypes.UUID,
             location=OpenApiParameter.PATH,
-            description='UUID of the cart item to remove'
+            description="UUID of the cart item to remove",
         )
     ],
     responses={
@@ -254,49 +255,32 @@ def add_to_cart(request):
                     "Item Removed",
                     value={
                         "message": "Python Programming removed from cart",
-                        "cart": {
-                            "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "items": [],
-                            "total": "0",
-                            "item_count": 0
-                        }
-                    }
+                        "cart": {"id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "items": [], "total": "0", "item_count": 0},
+                    },
                 )
-            ]
+            ],
         ),
         404: OpenApiResponse(
-            description="Cart item not found",
-            examples=[
-                OpenApiExample(
-                    "Not Found",
-                    value={"error": "Cart item not found"}
-                )
-            ]
-        )
+            description="Cart item not found", examples=[OpenApiExample("Not Found", value={"error": "Cart item not found"})]
+        ),
     },
-    tags=["Shopping Cart"]
+    tags=["Shopping Cart"],
 )
-@api_view(['DELETE'])
+@api_view(["DELETE"])
 @permission_classes([permissions.AllowAny])
 def remove_from_cart(request, item_id):
     """Remove an item from cart"""
     cart = get_or_create_cart(request)
-    
+
     try:
         cart_item = CartItem.objects.get(id=item_id, cart=cart)
         course_title = cart_item.course.title
         cart_item.delete()
-        
-        cart_serializer = CartSerializer(cart, context={'request': request})
-        return Response({
-            'message': f"{course_title} removed from cart",
-            'cart': cart_serializer.data
-        })
+
+        cart_serializer = CartSerializer(cart, context={"request": request})
+        return Response({"message": f"{course_title} removed from cart", "cart": cart_serializer.data})
     except CartItem.DoesNotExist:
-        return Response(
-            {'error': 'Cart item not found'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return Response({"error": "Cart item not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 @extend_schema(
@@ -318,27 +302,24 @@ def remove_from_cart(request, item_id):
                             "total": "0",
                             "item_count": 0,
                             "created_at": "2024-01-01T00:00:00Z",
-                            "updated_at": "2024-01-01T00:00:00Z"
-                        }
-                    }
+                            "updated_at": "2024-01-01T00:00:00Z",
+                        },
+                    },
                 )
-            ]
+            ],
         )
     },
-    tags=["Shopping Cart"]
+    tags=["Shopping Cart"],
 )
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([permissions.AllowAny])
 def clear_cart(request):
     """Clear all items from cart"""
     cart = get_or_create_cart(request)
     cart.clear()
-    
-    cart_serializer = CartSerializer(cart, context={'request': request})
-    return Response({
-        'message': 'Cart cleared successfully',
-        'cart': cart_serializer.data
-    })
+
+    cart_serializer = CartSerializer(cart, context={"request": request})
+    return Response({"message": "Cart cleared successfully", "cart": cart_serializer.data})
 
 
 @extend_schema(
@@ -356,8 +337,8 @@ def clear_cart(request):
                         "courses": [],
                         "course_count": 0,
                         "created_at": "2024-01-01T00:00:00Z",
-                        "updated_at": "2024-01-01T00:00:00Z"
-                    }
+                        "updated_at": "2024-01-01T00:00:00Z",
+                    },
                 ),
                 OpenApiExample(
                     "Wishlist with Courses",
@@ -372,26 +353,26 @@ def clear_cart(request):
                                 "header_image": "https://example.com/image.jpg",
                                 "price": "99.99",
                                 "discounted_price": "79.99",
-                                "has_discount": True
+                                "has_discount": True,
                             }
                         ],
                         "course_count": 1,
                         "created_at": "2024-01-01T00:00:00Z",
-                        "updated_at": "2024-01-01T00:00:00Z"
-                    }
-                )
-            ]
+                        "updated_at": "2024-01-01T00:00:00Z",
+                    },
+                ),
+            ],
         ),
-        401: OpenApiResponse(description="Authentication required")
+        401: OpenApiResponse(description="Authentication required"),
     },
-    tags=["Wishlist"]
+    tags=["Wishlist"],
 )
-@api_view(['GET'])
+@api_view(["GET"])
 @permission_classes([permissions.IsAuthenticated])
 def wishlist_detail(request):
     """Get current user's wishlist"""
     wishlist, created = Wishlist.objects.get_or_create(user=request.user)
-    serializer = WishlistSerializer(wishlist, context={'request': request})
+    serializer = WishlistSerializer(wishlist, context={"request": request})
     return Response(serializer.data)
 
 
@@ -418,50 +399,41 @@ def wishlist_detail(request):
                                     "header_image": "https://example.com/image.jpg",
                                     "price": "99.99",
                                     "discounted_price": "99.99",
-                                    "has_discount": False
+                                    "has_discount": False,
                                 }
                             ],
-                            "course_count": 1
-                        }
-                    }
+                            "course_count": 1,
+                        },
+                    },
                 ),
                 OpenApiExample(
                     "Already in Wishlist",
                     value={
                         "message": "Python Programming is already in your wishlist",
-                        "wishlist": {
-                            "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "courses": [],
-                            "course_count": 1
-                        }
-                    }
-                )
-            ]
+                        "wishlist": {"id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "courses": [], "course_count": 1},
+                    },
+                ),
+            ],
         ),
         400: OpenApiResponse(
             description="Invalid course ID",
-            examples=[
-                OpenApiExample(
-                    "Validation Error",
-                    value={"course_id": ["Course not found or is not available."]}
-                )
-            ]
+            examples=[OpenApiExample("Validation Error", value={"course_id": ["Course not found or is not available."]})],
         ),
-        401: OpenApiResponse(description="Authentication required")
+        401: OpenApiResponse(description="Authentication required"),
     },
-    tags=["Wishlist"]
+    tags=["Wishlist"],
 )
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 def add_to_wishlist(request):
     """Add a course to wishlist"""
     serializer = AddToWishlistSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    course_id = serializer.validated_data['course_id']
+
+    course_id = serializer.validated_data["course_id"]
     course = get_object_or_404(Course, id=course_id, is_active=True)
-    
+
     # Allow adding to wishlist even if enrolled in some batch
     # (user might want to enroll in a different batch)
     wishlist, created = Wishlist.objects.get_or_create(user=request.user)
@@ -471,12 +443,9 @@ def add_to_wishlist(request):
     else:
         wishlist.courses.add(course)
         message = f"{course.title} added to wishlist"
-    
-    wishlist_serializer = WishlistSerializer(wishlist, context={'request': request})
-    return Response({
-        'message': message,
-        'wishlist': wishlist_serializer.data
-    })
+
+    wishlist_serializer = WishlistSerializer(wishlist, context={"request": request})
+    return Response({"message": message, "wishlist": wishlist_serializer.data})
 
 
 @extend_schema(
@@ -484,10 +453,10 @@ def add_to_wishlist(request):
     description="Remove a specific course from the user's wishlist.",
     parameters=[
         OpenApiParameter(
-            name='course_id',
+            name="course_id",
             type=OpenApiTypes.UUID,
             location=OpenApiParameter.PATH,
-            description='UUID of the course to remove from wishlist'
+            description="UUID of the course to remove from wishlist",
         )
     ],
     responses={
@@ -498,49 +467,38 @@ def add_to_wishlist(request):
                     "Course Removed",
                     value={
                         "message": "Python Programming removed from wishlist",
-                        "wishlist": {
-                            "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "courses": [],
-                            "course_count": 0
-                        }
-                    }
+                        "wishlist": {"id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "courses": [], "course_count": 0},
+                    },
                 ),
                 OpenApiExample(
                     "Not in Wishlist",
                     value={
                         "message": "Python Programming was not in your wishlist",
-                        "wishlist": {
-                            "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "courses": [],
-                            "course_count": 0
-                        }
-                    }
-                )
-            ]
+                        "wishlist": {"id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "courses": [], "course_count": 0},
+                    },
+                ),
+            ],
         ),
         401: OpenApiResponse(description="Authentication required"),
-        404: OpenApiResponse(description="Course not found")
+        404: OpenApiResponse(description="Course not found"),
     },
-    tags=["Wishlist"]
+    tags=["Wishlist"],
 )
-@api_view(['DELETE'])
+@api_view(["DELETE"])
 @permission_classes([permissions.IsAuthenticated])
 def remove_from_wishlist(request, course_id):
     """Remove a course from wishlist"""
     course = get_object_or_404(Course, id=course_id)
     wishlist, created = Wishlist.objects.get_or_create(user=request.user)
-    
+
     if course in wishlist.courses.all():
         wishlist.courses.remove(course)
         message = f"{course.title} removed from wishlist"
     else:
         message = f"{course.title} was not in your wishlist"
-    
-    wishlist_serializer = WishlistSerializer(wishlist, context={'request': request})
-    return Response({
-        'message': message,
-        'wishlist': wishlist_serializer.data
-    })
+
+    wishlist_serializer = WishlistSerializer(wishlist, context={"request": request})
+    return Response({"message": message, "wishlist": wishlist_serializer.data})
 
 
 @extend_schema(
@@ -549,10 +507,10 @@ def remove_from_wishlist(request, course_id):
     request=None,
     parameters=[
         OpenApiParameter(
-            name='course_id',
+            name="course_id",
             type=OpenApiTypes.UUID,
             location=OpenApiParameter.PATH,
-            description='UUID of the course to move to cart'
+            description="UUID of the course to move to cart",
         )
     ],
     responses={
@@ -577,61 +535,54 @@ def remove_from_wishlist(request, course_id):
                                         "header_image": "https://example.com/image.jpg",
                                         "price": "99.99",
                                         "discounted_price": "99.99",
-                                        "has_discount": False
+                                        "has_discount": False,
                                     },
-                                    "subtotal": "99.99"
+                                    "subtotal": "99.99",
                                 }
                             ],
                             "total": "99.99",
-                            "item_count": 1
+                            "item_count": 1,
                         },
-                        "wishlist": {
-                            "id": "4fa85f64-5717-4562-b3fc-2c963f66afa6",
-                            "courses": [],
-                            "course_count": 0
-                        }
-                    }
+                        "wishlist": {"id": "4fa85f64-5717-4562-b3fc-2c963f66afa6", "courses": [], "course_count": 0},
+                    },
                 )
-            ]
+            ],
         ),
         401: OpenApiResponse(description="Authentication required"),
-        404: OpenApiResponse(description="Course not found or not available")
+        404: OpenApiResponse(description="Course not found or not available"),
     },
-    tags=["Wishlist"]
+    tags=["Wishlist"],
 )
-@api_view(['POST'])
+@api_view(["POST"])
 @permission_classes([permissions.IsAuthenticated])
 def move_to_cart(request, course_id):
     """Move a course from wishlist to cart"""
     course = get_object_or_404(Course, id=course_id, is_active=True)
-    
+
     # Check if user is already enrolled in ANY batch of this course
     if not request.user.is_staff:
         if Enrollment.objects.filter(user=request.user, course=course, is_active=True).exists():
-            return Response({
-                'error': f"You are already enrolled in {course.title}",
-                'detail': 'Cannot add enrolled courses to cart',
-                'already_enrolled': True,
-            }, status=status.HTTP_400_BAD_REQUEST)
-    
+            return Response(
+                {
+                    "error": f"You are already enrolled in {course.title}",
+                    "detail": "Cannot add enrolled courses to cart",
+                    "already_enrolled": True,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     # Remove from wishlist
     wishlist, created = Wishlist.objects.get_or_create(user=request.user)
     if course in wishlist.courses.all():
         wishlist.courses.remove(course)
-    
+
     # Add to cart (without batch, user will select batch at checkout)
     cart = get_or_create_cart(request)
-    cart_item, created = CartItem.objects.get_or_create(
-        cart=cart,
-        course=course,
-        batch=None  # User can select batch later
+    cart_item, created = CartItem.objects.get_or_create(cart=cart, course=course, batch=None)  # User can select batch later
+
+    cart_serializer = CartSerializer(cart, context={"request": request})
+    wishlist_serializer = WishlistSerializer(wishlist, context={"request": request})
+
+    return Response(
+        {"message": f"{course.title} moved to cart", "cart": cart_serializer.data, "wishlist": wishlist_serializer.data}
     )
-    
-    cart_serializer = CartSerializer(cart, context={'request': request})
-    wishlist_serializer = WishlistSerializer(wishlist, context={'request': request})
-    
-    return Response({
-        'message': f"{course.title} moved to cart",
-        'cart': cart_serializer.data,
-        'wishlist': wishlist_serializer.data
-    })

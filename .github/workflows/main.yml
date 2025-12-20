@@ -44,16 +44,60 @@ jobs:
           port: ${{ secrets.DEV_SSH_PORT }}
           script: |
             cd /var/www/backend/api
+            
+            # Create venv if doesn't exist
             if [ ! -d "venv" ]; then
               python3 -m venv venv
             fi
             source venv/bin/activate
-            pip install --upgrade pip wheel
-            pip install -r requirements.txt -r requirements-dep.txt
-            python3 manage.py migrate --noinput
+            
+            # Create backups directory
+            mkdir -p backups
+            
+            echo "📦 Creating database backup (keeping last 7 days)..."
+            # Extract password from .env
+            export PGPASSWORD=$(grep DATABASE_URL .env | cut -d':' -f3 | cut -d'@' -f1)
+            
+            # Create backup with date
+            BACKUP_FILE="backups/backup_$(date +%Y%m%d_%H%M%S).sql"
+            pg_dump -U primeacademy -h localhost primeacademydb > "$BACKUP_FILE" 2>/dev/null && \
+            echo "✓ Backup created: $BACKUP_FILE" || echo "⚠️ Backup skipped"
+            
+            unset PGPASSWORD
+            
+            # Keep only last 7 backups (delete older ones)
+            ls -t backups/backup_*.sql | tail -n +8 | xargs -r rm
+            echo "✓ Old backups cleaned (keeping last 7)"
+            
+            echo "📚 Installing dependencies..."
+            pip install --upgrade pip wheel --quiet
+            pip install -r requirements.txt -r requirements-dep.txt --quiet
+            
+            echo "🔍 Current migration status:"
+            python3 manage.py showmigrations api
+            
+            echo "🗄️ Running migrations with safe handling..."
+            python3 manage.py migrate --fake-initial 2>/dev/null || python3 manage.py migrate --noinput
+            
+            echo "📁 Collecting static files..."
             python3 manage.py collectstatic --noinput
+            
+            echo "♻️ Restarting services..."
             sudo systemctl daemon-reload
             sudo systemctl restart primeacademy
-            echo "Gunicorn service restarted successfully"
-
             
+            echo "✅ Deployment complete!"
+            
+            # Wait for service to start
+            sleep 3
+            
+            # Health check
+            if sudo systemctl is-active --quiet primeacademy; then
+              echo "✓ Service is running"
+            else
+              echo "⚠️ Service may have issues"
+              sudo systemctl status primeacademy --no-pager
+            fi
+            
+            echo "📊 Final migration status:"
+            python3 manage.py showmigrations api

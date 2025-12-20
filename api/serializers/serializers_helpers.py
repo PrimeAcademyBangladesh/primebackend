@@ -1,6 +1,7 @@
 """Serializer helpers and mixins for handling HTML fields."""
 
 from typing import Iterable
+
 from rest_framework import serializers
 
 
@@ -43,15 +44,11 @@ class CourseDetailRequiredOnCreateMixin:
 
         # CREATE → required
         if not self.instance and field not in data:
-            raise serializers.ValidationError(
-                {field: "This field is required when creating."}
-            )
+            raise serializers.ValidationError({field: "This field is required when creating."})
 
         # UPDATE → immutable
         if self.instance and field in data:
-            raise serializers.ValidationError(
-                {field: f"{field} cannot be changed after creation."}
-            )
+            raise serializers.ValidationError({field: f"{field} cannot be changed after creation."})
 
         return super().validate(data)
 
@@ -68,8 +65,6 @@ class ParentRequiredOnCreateMixin:
             raise serializers.ValidationError({field: "This field is required."})
 
         if self.instance and field in data:
-            raise serializers.ValidationError(
-                {field: f"{field} cannot be changed after creation."}
-            )
+            raise serializers.ValidationError({field: f"{field} cannot be changed after creation."})
 
         return data

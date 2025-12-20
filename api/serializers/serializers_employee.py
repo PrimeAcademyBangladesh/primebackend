@@ -1,4 +1,5 @@
 from rest_framework import serializers
+
 from api.models.models_employee import Department, Employee
 
 
@@ -14,9 +15,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     department = DepartmentSerializer(read_only=True)
 
     # Write-only FK for department assignment
-    department_id = serializers.PrimaryKeyRelatedField(
-        queryset=Department.objects.all(), source="department", write_only=True
-    )
+    department_id = serializers.PrimaryKeyRelatedField(queryset=Department.objects.all(), source="department", write_only=True)
 
     class Meta:
         model = Employee

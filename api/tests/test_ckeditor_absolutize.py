@@ -12,7 +12,7 @@ class TestAbsolutizeHelper(SimpleTestCase):
         out = absolutize_media_urls(html, request=None)
         m = re.search(r'src=["\'](.*?)["\']', out)
         self.assertIsNotNone(m, "Expected a src attribute in transformed HTML")
-        expected = settings.SITE_BASE_URL.rstrip('/') + '/media/uploads/ckeditor/example.png'
+        expected = settings.SITE_BASE_URL.rstrip("/") + "/media/uploads/ckeditor/example.png"
         self.assertEqual(m.group(1), expected)
 
     def test_leaves_already_absolute_url_unchanged(self):
@@ -20,4 +20,4 @@ class TestAbsolutizeHelper(SimpleTestCase):
         out = absolutize_media_urls(html, request=None)
         m = re.search(r'src=["\'](.*?)["\']', out)
         self.assertIsNotNone(m)
-        self.assertEqual(m.group(1), 'https://cdn.example.com/media/x.png')
+        self.assertEqual(m.group(1), "https://cdn.example.com/media/x.png")

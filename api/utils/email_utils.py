@@ -36,6 +36,7 @@ def send_system_email(
         email.send(fail_silently=fail_silently)
     else:
         from django.core.mail import send_mail
+
         send_mail(
             subject=subject,
             message=message,
@@ -43,4 +44,3 @@ def send_system_email(
             recipient_list=recipient_list,
             fail_silently=fail_silently,
         )
-

@@ -1,14 +1,14 @@
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import filters
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
 from api.models.models_employee import Department, Employee
 from api.permissions import IsAdmin
-from api.serializers.serializers_employee import (DepartmentSerializer,
-                                                  EmployeeSerializer)
+from api.serializers.serializers_employee import DepartmentSerializer, EmployeeSerializer
 from api.utils.pagination import StandardResultsSetPagination
 from api.views.views_base import BaseAdminViewSet
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+
 
 @extend_schema(
     tags=["Employee"],
@@ -29,7 +29,7 @@ class DepartmentViewSet(BaseAdminViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["is_active"]
     search_fields = ["name"]
-    
+
     def get_permissions(self):
         """Force all Employee actions to require admin."""
         return [IsAdmin()]
@@ -57,7 +57,7 @@ class EmployeeViewSet(BaseAdminViewSet):
     # Search using actual model fields
     search_fields = ["employee_name", "email", "phone_number"]
     ordering_fields = ["created_at", "employee_name", "joining_date"]
-    
+
     def get_permissions(self):
         """Force all Employee actions to require admin."""
         return [IsAdmin()]

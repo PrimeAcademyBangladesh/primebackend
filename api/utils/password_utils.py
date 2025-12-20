@@ -3,9 +3,10 @@
 Centralize password strength rules so multiple serializers can reuse
 the same logic without duplication.
 """
-from django.contrib.auth.password_validation import \
-    validate_password as django_validate_password
+
+from django.contrib.auth.password_validation import validate_password as django_validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+
 from rest_framework import serializers
 
 
@@ -28,9 +29,7 @@ def validate_password_strength(value: str, user=None) -> str:
     common_passwords = ["password", "12345678", "qwerty123", "admin123"]
 
     if value.lower() in common_passwords:
-        raise serializers.ValidationError(
-            "This password is too common. Please choose a stronger password."
-        )
+        raise serializers.ValidationError("This password is too common. Please choose a stronger password.")
 
     if len(value) < 8:
         raise serializers.ValidationError("Password must be at least 8 characters.")
@@ -42,8 +41,6 @@ def validate_password_strength(value: str, user=None) -> str:
         raise serializers.ValidationError("Password must contain at least one letter.")
 
     if not any(char in "!@#$%^&*()_+-=[]{}|;:,.<>?/" for char in value):
-        raise serializers.ValidationError(
-            "Password must contain at least one special character."
-        )
+        raise serializers.ValidationError("Password must contain at least one special character.")
 
     return value

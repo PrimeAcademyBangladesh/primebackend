@@ -1,4 +1,3 @@
-
 import os
 from datetime import datetime
 
@@ -9,17 +8,17 @@ def ckeditor_upload_path_by_model(instance, filename):
     Path like: ckeditor/faq/2025/10/20251025_143022_filename.png
     """
     today = datetime.now()
-    
+
     # Get model name from instance
     model_name = instance.__class__.__name__.lower()
-    
+
     # Create unique filename with timestamp
-    timestamp = today.strftime('%Y%m%d_%H%M%S')
+    timestamp = today.strftime("%Y%m%d_%H%M%S")
     unique_filename = f"{timestamp}_{filename}"
-    
+
     # Build path: ckeditor/model_name/YYYY/MM/filename
     base_dir = f"ckeditor/{model_name}/{today.year}/{today.month:02d}"
-    
+
     return os.path.join(base_dir, unique_filename)
 
 
@@ -58,10 +57,15 @@ def absolutize_media_urls(html: str, request=None) -> str:
             return match.group(0)
 
         # Consider media-like URLs only
-        if url.startswith(media_url) or url.startswith("/" + media_url.lstrip("/")) or url.startswith(media_url.lstrip("/")) or url.startswith("/media/"):
+        if (
+            url.startswith(media_url)
+            or url.startswith("/" + media_url.lstrip("/"))
+            or url.startswith(media_url.lstrip("/"))
+            or url.startswith("/media/")
+        ):
             # Ensure path begins with '/'
-            if not url.startswith('/'):
-                url_path = '/' + url
+            if not url.startswith("/"):
+                url_path = "/" + url
             else:
                 url_path = url
 

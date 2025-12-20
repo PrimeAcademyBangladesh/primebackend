@@ -3,8 +3,9 @@ from io import BytesIO
 
 from django.core.files.base import ContentFile
 
-from PIL import Image
 import pillow_heif
+from PIL import Image
+
 pillow_heif.register_heif_opener()
 
 
@@ -12,46 +13,46 @@ def get_compression_settings(original_size_bytes):
     """
     Get optimal compression settings based on original file size.
     Larger files get more aggressive compression to preserve quality while reducing size.
-    
+
     :param original_size_bytes: Original file size in bytes
     :return: dict with initial_quality, min_quality, and quality_step
     """
     size_mb = original_size_bytes / (1024 * 1024)
-    
+
     if size_mb >= 5:  # 5MB+ files: Aggressive compression
         return {
-            'initial_quality': 75,
-            'min_quality': 50,
-            'quality_step': 5,
-            'target_reduction': 0.8,  # Target 80% reduction
+            "initial_quality": 75,
+            "min_quality": 50,
+            "quality_step": 5,
+            "target_reduction": 0.8,  # Target 80% reduction
         }
     elif size_mb >= 3:  # 3-5MB files: Strong compression
         return {
-            'initial_quality': 80,
-            'min_quality': 60,
-            'quality_step': 4,
-            'target_reduction': 0.7,  # Target 70% reduction
+            "initial_quality": 80,
+            "min_quality": 60,
+            "quality_step": 4,
+            "target_reduction": 0.7,  # Target 70% reduction
         }
     elif size_mb >= 1:  # 1-3MB files: Moderate compression
         return {
-            'initial_quality': 85,
-            'min_quality': 70,
-            'quality_step': 3,
-            'target_reduction': 0.5,  # Target 50% reduction
+            "initial_quality": 85,
+            "min_quality": 70,
+            "quality_step": 3,
+            "target_reduction": 0.5,  # Target 50% reduction
         }
     elif size_mb >= 0.5:  # 500KB-1MB files: Light compression
         return {
-            'initial_quality': 90,
-            'min_quality': 80,
-            'quality_step': 2,
-            'target_reduction': 0.3,  # Target 30% reduction
+            "initial_quality": 90,
+            "min_quality": 80,
+            "quality_step": 2,
+            "target_reduction": 0.3,  # Target 30% reduction
         }
     else:  # <500KB files: Minimal compression, preserve quality
         return {
-            'initial_quality': 95,
-            'min_quality': 90,
-            'quality_step': 1,
-            'target_reduction': 0.1,  # Target 10% reduction
+            "initial_quality": 95,
+            "min_quality": 90,
+            "quality_step": 1,
+            "target_reduction": 0.1,  # Target 10% reduction
         }
 
 
@@ -87,21 +88,21 @@ def optimize_image(
             image_field.file.seek(0)
 
         # Determine file size
-        original_size = getattr(image_field, "size", None) or getattr(
-            image_field.file, "size", None
-        )
-        
+        original_size = getattr(image_field, "size", None) or getattr(image_field.file, "size", None)
+
         if not original_size:
             print("Cannot determine original file size, using default compression")
             original_size = 1024 * 1024  # Default to 1MB for compression settings
 
         # Get intelligent compression settings based on file size
         compression_settings = get_compression_settings(original_size)
-        
+
         print(f"📊 Original file: {original_size/1024:.1f}KB")
-        print(f"🎯 Compression strategy: {compression_settings['initial_quality']}% quality, "
-              f"target {compression_settings['target_reduction']*100:.0f}% reduction")
-        
+        print(
+            f"🎯 Compression strategy: {compression_settings['initial_quality']}% quality, "
+            f"target {compression_settings['target_reduction']*100:.0f}% reduction"
+        )
+
         # Check if we should skip aggressive compression (but still convert to WebP)
         skip_aggressive = min_bytes and original_size and original_size <= min_bytes
         if skip_aggressive:
@@ -119,7 +120,7 @@ def optimize_image(
             # Invalid/truncated image - skip optimization silently
             print(f"Skipping optimization: invalid image ({e})")
             return
-        
+
         if img.format == "GIF":
             # Keep original GIF without conversion
             return
@@ -147,23 +148,23 @@ def optimize_image(
                 print(f"🔄 Standard resize: {img.size}")
 
         # Calculate target file size based on original size and target reduction
-        target_size = int(original_size * (1 - compression_settings['target_reduction']))
+        target_size = int(original_size * (1 - compression_settings["target_reduction"]))
         actual_max_bytes = min(max_bytes, target_size) if not skip_aggressive else max_bytes
-        
+
         print(f"🎯 Target size: {target_size/1024:.1f}KB (max: {actual_max_bytes/1024:.1f}KB)")
 
         # Compress to WebP in memory with intelligent quality
         thumb_io = BytesIO()
-        quality = compression_settings['initial_quality']
+        quality = compression_settings["initial_quality"]
         img.save(thumb_io, format="WEBP", quality=quality, method=6)
         content = thumb_io.getvalue()
 
         print(f"📝 Initial WebP ({quality}% quality): {len(content)/1024:.1f}KB")
 
         # Gradually lower quality if needed, but respect minimum quality for file size
-        min_quality = compression_settings['min_quality']
-        quality_step = compression_settings['quality_step']
-        
+        min_quality = compression_settings["min_quality"]
+        quality_step = compression_settings["quality_step"]
+
         while len(content) > actual_max_bytes and quality > min_quality:
             thumb_io = BytesIO()
             quality -= quality_step
@@ -173,7 +174,7 @@ def optimize_image(
 
         # Final size report
         final_size = len(content)
-        reduction = (1 - final_size/original_size) * 100
+        reduction = (1 - final_size / original_size) * 100
         print(f"✅ Final compression: {reduction:.1f}% reduction (quality: {quality}%)")
 
         # Create final WebP file
@@ -191,4 +192,3 @@ def optimize_image(
         import traceback
 
         traceback.print_exc()
-

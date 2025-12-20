@@ -1,11 +1,14 @@
+import uuid
+
+from django.db.models import Prefetch
+from django.shortcuts import get_object_or_404
+
+from drf_spectacular.utils import extend_schema
 from rest_framework import permissions
 from rest_framework.views import APIView
-from django.shortcuts import get_object_or_404
-from django.db.models import Prefetch
-from drf_spectacular.utils import extend_schema
 
 from api.models.models_course import Course, CourseModule
-from api.models.models_module import LiveClass, Assignment, Quiz, CourseResource
+from api.models.models_module import Assignment, CourseResource, LiveClass, Quiz
 from api.models.models_order import Enrollment
 from api.permissions import IsStudent
 from api.serializers.serializers_module import CourseModuleStudentStudyPlanSerializer
@@ -18,7 +21,7 @@ from api.utils.response_utils import api_response
     description="""
     Retrieve the **complete study plan** for a specific course module.
 
-    This endpoint is **student-only** and returns **batch-specific content** 
+    This endpoint is **student-only** and returns **batch-specific content**
     based on the student's active enrollment.
 
     ### What this API provides
@@ -72,12 +75,18 @@ class CourseModuleStudyPlanView(APIView):
 
         student_batch = enrollment.batch
 
+        # Accept either module UUID (id) or slug in the URL segment `module_slug`
+        base_qs = CourseModule.objects.filter(course=course, is_active=True)
+
+        try:
+            # If module_slug is a UUID string, filter by id
+            uuid.UUID(module_slug)
+            module_qs = base_qs.filter(id=module_slug)
+        except Exception:
+            module_qs = base_qs.filter(slug=module_slug)
+
         module = get_object_or_404(
-            CourseModule.objects.filter(
-                course=course,
-                slug=module_slug,
-                is_active=True,
-            ).prefetch_related(
+            module_qs.prefetch_related(
                 Prefetch(
                     "live_classes",
                     queryset=LiveClass.objects.filter(
@@ -86,18 +95,18 @@ class CourseModuleStudyPlanView(APIView):
                     ).order_by("order"),
                 ),
                 Prefetch(
-                    "assignments",
+                    "module_assignments",
                     queryset=Assignment.objects.filter(
                         batch=student_batch,
                         is_active=True,
                     ).order_by("order"),
                 ),
                 Prefetch(
-                    "quizzes",
+                    "module_quizzes",
                     queryset=Quiz.objects.filter(
                         batch=student_batch,
                         is_active=True,
-                    ).order_by("order"),
+                    ).order_by("title"),
                 ),
                 Prefetch(
                     "resources",

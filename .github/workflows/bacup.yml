@@ -1,0 +1,59 @@
+name: Prime Academy CI/CD Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main1234
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements.txt -r requirements-dep.txt
+
+      - name: Deploy to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: ${{ secrets.DEV_SSH_USER }}
+          key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.DEV_SSH_PORT }}
+          source: "./"
+          target: "/var/www/backend/api"
+          strip_components: 1
+          rm: false
+
+      - name: Restart app on VPS
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: ${{ secrets.DEV_SSH_USER }}
+          key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.DEV_SSH_PORT }}
+          script: |
+            cd /var/www/backend/api
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+            source venv/bin/activate
+            pip install --upgrade pip wheel
+            pip install -r requirements.txt -r requirements-dep.txt
+            python3 manage.py migrate --noinput
+            python3 manage.py collectstatic --noinput
+            sudo systemctl daemon-reload
+            sudo systemctl restart primeacademy
+            echo "Gunicorn service restarted successfully"
+
+            

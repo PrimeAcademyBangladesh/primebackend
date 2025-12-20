@@ -13,31 +13,32 @@ Admin Structure:
 - Course Detail & Related: Nested components (tabs, modules, benefits, etc.)
 """
 
-import nested_admin
 from django.contrib import admin
-from django.forms import BaseInlineFormSet
-from django.utils import timezone
-from django.utils.html import format_html
-from django.template.response import TemplateResponse
-from django.urls import reverse
-from django.http import HttpResponseRedirect
 from django.db import models as dj_models
 from django.db.models import Count
+from django.forms import BaseInlineFormSet
+from django.http import HttpResponseRedirect
+from django.template.response import TemplateResponse
+from django.urls import reverse
+from django.utils import timezone
+from django.utils.html import format_html
+
+import nested_admin
 
 from api.admin.base_admin import BaseModelAdmin
 from api.models.models_course import (
     Category,
     Course,
+    CourseContentSection,
     CourseDetail,
     CourseInstructor,
     CourseModule,
+    CourseSectionTab,
+    CourseTabbedContent,
     KeyBenefit,
     SideImageSection,
     SuccessStory,
     WhyEnrol,
-    CourseContentSection,
-    CourseSectionTab,
-    CourseTabbedContent,
 )
 from api.models.models_pricing import Coupon, CoursePrice
 
@@ -260,9 +261,7 @@ class CourseInstructorInline(nested_admin.NestedStackedInline):
         if db_field.name == "teacher":
             from api.models.models_auth import CustomUser
 
-            kwargs["queryset"] = CustomUser.objects.filter(
-                role="teacher", is_active=True
-            )
+            kwargs["queryset"] = CustomUser.objects.filter(role="teacher", is_active=True)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
@@ -331,21 +330,15 @@ class CategoryAdmin(admin.ModelAdmin):
 
     def make_category_show_in_megamenu(self, request, queryset):
         updated = queryset.update(show_in_megamenu=True)
-        self.message_user(
-            request, f"{updated} category(ies) marked to show in megamenu."
-        )
+        self.message_user(request, f"{updated} category(ies) marked to show in megamenu.")
 
-    make_category_show_in_megamenu.short_description = (
-        "Mark selected categories to show in megamenu"
-    )
+    make_category_show_in_megamenu.short_description = "Mark selected categories to show in megamenu"
 
     def remove_category_show_in_megamenu(self, request, queryset):
         updated = queryset.update(show_in_megamenu=False)
         self.message_user(request, f"{updated} category(ies) removed from megamenu.")
 
-    remove_category_show_in_megamenu.short_description = (
-        "Remove selected categories from megamenu"
-    )
+    remove_category_show_in_megamenu.short_description = "Remove selected categories from megamenu"
 
 
 @admin.register(Course)
@@ -358,11 +351,7 @@ class CourseAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
         qs = super().get_queryset(request)
         # Load related pricing and category to avoid per-row queries in list_display
         # Annotate module/course counts if you display them elsewhere
-        return (
-            qs.select_related("category")
-            .prefetch_related("pricing")
-            .annotate(modules_count=Count("modules"))
-        )
+        return qs.select_related("category").prefetch_related("pricing").annotate(modules_count=Count("modules"))
 
     list_display = (
         "title",
@@ -427,9 +416,7 @@ class CourseAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
         try:
             pricing = obj.pricing
             if pricing.is_free:
-                return format_html(
-                    '<span style="color: #2e7d32; font-weight: bold;">FREE</span>'
-                )
+                return format_html('<span style="color: #2e7d32; font-weight: bold;">FREE</span>')
 
             current_price = pricing.get_discounted_price()
             if pricing.is_currently_discounted():
@@ -467,7 +454,7 @@ class CourseAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
         """
         if "apply" in request.POST:
             modules_text = request.POST.get("modules_text", "")
-            lines = [l.strip() for l in modules_text.splitlines() if l.strip()]
+            lines = [line.strip() for line in modules_text.splitlines() if line.strip()]
             created = 0
             skipped = []
             for course in queryset:
@@ -477,12 +464,7 @@ class CourseAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
                     skipped.append(course.title)
                     continue
                 # Determine starting order
-                existing_max = (
-                    CourseModule.objects.filter(course=course).aggregate(
-                        dj_models.Max("order")
-                    )["order__max"]
-                    or 0
-                )
+                existing_max = CourseModule.objects.filter(course=course).aggregate(dj_models.Max("order"))["order__max"] or 0
                 order = existing_max + 1
                 for title in lines:
                     CourseModule.objects.create(
@@ -516,9 +498,7 @@ class CourseAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
         updated = queryset.update(show_in_megamenu=True)
         self.message_user(request, f"{updated} course(s) marked to show in megamenu.")
 
-    make_show_in_megamenu.short_description = (
-        "Mark selected courses to show in megamenu"
-    )
+    make_show_in_megamenu.short_description = "Mark selected courses to show in megamenu"
 
     def remove_show_in_megamenu(self, request, queryset):
         updated = queryset.update(show_in_megamenu=False)
@@ -530,9 +510,7 @@ class CourseAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
         updated = queryset.update(show_in_home_tab=True)
         self.message_user(request, f"{updated} course(s) marked to show in home tab.")
 
-    make_show_in_home_tab.short_description = (
-        "Mark selected courses to show in home tab"
-    )
+    make_show_in_home_tab.short_description = "Mark selected courses to show in home tab"
 
     def remove_show_in_home_tab(self, request, queryset):
         updated = queryset.update(show_in_home_tab=False)
@@ -632,9 +610,7 @@ class CoursePriceAdmin(BaseModelAdmin):
 
     def current_price_display(self, obj):
         if obj.is_free:
-            return format_html(
-                '<span style="color: #2e7d32; font-weight: bold;">FREE</span>'
-            )
+            return format_html('<span style="color: #2e7d32; font-weight: bold;">FREE</span>')
 
         current = obj.get_discounted_price()
         if obj.is_currently_discounted():
@@ -759,11 +735,7 @@ class CouponAdmin(BaseModelAdmin):
     def usage_display(self, obj):
         if obj.max_uses:
             percentage = (obj.used_count / obj.max_uses) * 100
-            color = (
-                "#2e7d32"
-                if percentage < 80
-                else "#ff9800" if percentage < 100 else "#d32f2f"
-            )
+            color = "#2e7d32" if percentage < 80 else "#ff9800" if percentage < 100 else "#d32f2f"
             return format_html(
                 '<span style="color: {};">{} / {} ({}%)</span>',
                 color,
@@ -783,14 +755,10 @@ class CouponAdmin(BaseModelAdmin):
         now = timezone.now()
         if now < obj.valid_from:
             delta = obj.valid_from - now
-            return format_html(
-                '<span style="color: #ff9800;">Starts in {} days</span>', delta.days
-            )
+            return format_html('<span style="color: #ff9800;">Starts in {} days</span>', delta.days)
         elif now > obj.valid_until:
             delta = now - obj.valid_until
-            return format_html(
-                '<span style="color: #999;">Expired {} days ago</span>', delta.days
-            )
+            return format_html('<span style="color: #999;">Expired {} days ago</span>', delta.days)
         else:
             delta = obj.valid_until - now
             return format_html(
@@ -1038,9 +1006,7 @@ class CourseInstructorAdmin(BaseModelAdmin):
         if db_field.name == "teacher":
             from api.models.models_auth import CustomUser
 
-            kwargs["queryset"] = CustomUser.objects.filter(
-                role="teacher", is_active=True
-            )
+            kwargs["queryset"] = CustomUser.objects.filter(role="teacher", is_active=True)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def has_module_permission(self, request):

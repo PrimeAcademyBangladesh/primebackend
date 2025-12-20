@@ -1,7 +1,8 @@
 # api/middleware.py
+from django.core.cache import cache
 from django.http import JsonResponse
 from django.utils.deprecation import MiddlewareMixin
-from django.core.cache import cache
+
 
 class RejectDisabledUserMiddleware(MiddlewareMixin):
     """
@@ -27,19 +28,13 @@ class RejectDisabledUserMiddleware(MiddlewareMixin):
         # Fast cache hit
         if cache.get(cache_key) is True:
             request.session.flush()
-            return JsonResponse(
-                {"detail": "Your account has been disabled."},
-                status=403
-            )
+            return JsonResponse({"detail": "Your account has been disabled."}, status=403)
 
         # Check user flags (NO DB query, user already loaded)
         if not user.is_active or not getattr(user, "is_enabled", True):
             cache.set(cache_key, True, timeout=self.CACHE_TTL)
             request.session.flush()
-            return JsonResponse(
-                {"detail": "Your account has been disabled."},
-                status=403
-            )
+            return JsonResponse({"detail": "Your account has been disabled."}, status=403)
 
         return None
 

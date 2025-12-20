@@ -77,6 +77,7 @@ class FooterSerializer(serializers.ModelSerializer):
     def get_logo_url(self, obj) -> Optional[str]:
         if obj.logo:
             from django.conf import settings
+
             url = obj.logo.url
             site_base = getattr(settings, "SITE_BASE_URL", None)
             if site_base:
@@ -89,6 +90,7 @@ class FooterSerializer(serializers.ModelSerializer):
 
     def get_copyright_year(self, obj) -> int:
         from datetime import date
+
         return date.today().year
 
     # ---------------------------
@@ -138,4 +140,3 @@ class FooterSerializer(serializers.ModelSerializer):
                 SocialLink.objects.create(footer=instance, **social_data)
 
         return instance
-

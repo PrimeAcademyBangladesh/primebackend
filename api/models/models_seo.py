@@ -16,10 +16,7 @@ class BaseSEOModel(TimeStampedModel, OptimizedImageModel):
     """
 
     id = models.UUIDField(
-        primary_key=True,
-        default=uuid.uuid4,
-        editable=False,
-        help_text="Unique UUID identifier for this SEO configuration."
+        primary_key=True, default=uuid.uuid4, editable=False, help_text="Unique UUID identifier for this SEO configuration."
     )
 
     # Page Identification
@@ -62,7 +59,7 @@ class BaseSEOModel(TimeStampedModel, OptimizedImageModel):
         null=True,
         help_text="Image for social shares. Recommended: 1200x630 pixels.",
     )
-    
+
     og_type = models.CharField(
         max_length=50,
         default="website",
@@ -141,28 +138,24 @@ class BaseSEOModel(TimeStampedModel, OptimizedImageModel):
         null=True,
         help_text="🧠 JSON-LD data. Leave empty to auto-generate on save. You can also paste your custom JSON-LD here to override it.",
     )
-    
-    is_active = models.BooleanField(
-        default=True,
-        help_text="Uncheck to disable this SEO configuration."
-    )
-    
-    
+
+    is_active = models.BooleanField(default=True, help_text="Uncheck to disable this SEO configuration.")
+
     IMAGE_FIELDS_OPTIMIZATION = {
-        'og_image': {
-            'max_size': (800, 800),
-            'min_size': (400, 400),
-            'max_bytes': 300*1024,
-            'min_bytes': 100*1024,
-            'max_upload_mb': 2
+        "og_image": {
+            "max_size": (800, 800),
+            "min_size": (400, 400),
+            "max_bytes": 300 * 1024,
+            "min_bytes": 100 * 1024,
+            "max_upload_mb": 2,
         },
-        'twitter_image': {
-            'max_size': (800, 800),
-            'min_size': (400, 400),
-            'max_bytes': 300*1024,
-            'min_bytes': 100*1024,
-            'max_upload_mb': 2
-        }
+        "twitter_image": {
+            "max_size": (800, 800),
+            "min_size": (400, 400),
+            "max_bytes": 300 * 1024,
+            "min_bytes": 100 * 1024,
+            "max_upload_mb": 2,
+        },
     }
 
     class Meta:
@@ -179,12 +172,13 @@ class BaseSEOModel(TimeStampedModel, OptimizedImageModel):
         if self.canonical_url:
             try:
                 from urllib.parse import urlparse
+
                 parsed = urlparse(self.canonical_url)
                 if not parsed.scheme:
-                    base = settings.FRONTEND_URL.rstrip('/')
+                    base = settings.FRONTEND_URL.rstrip("/")
                     path = self.canonical_url
-                    if not path.startswith('/'):
-                        path = '/' + path
+                    if not path.startswith("/"):
+                        path = "/" + path
                     self.canonical_url = f"{base}{path}"
             except Exception:
                 # Be defensive: leave canonical_url unchanged on unexpected errors
@@ -195,23 +189,21 @@ class BaseSEOModel(TimeStampedModel, OptimizedImageModel):
         if self.structured_data:
             try:
                 from django.core.exceptions import ValidationError
+
                 if not isinstance(self.structured_data, dict):
-                    raise ValidationError({
-                        'structured_data': 'Structured data must be a JSON object/dictionary.'
-                    })
+                    raise ValidationError({"structured_data": "Structured data must be a JSON object/dictionary."})
 
                 # Basic JSON-LD presence checks
-                if '@context' not in self.structured_data or '@type' not in self.structured_data:
-                    raise ValidationError({
-                        'structured_data': "Structured data must include '@context' and '@type' keys."
-                    })
+                if "@context" not in self.structured_data or "@type" not in self.structured_data:
+                    raise ValidationError({"structured_data": "Structured data must include '@context' and '@type' keys."})
             except ValidationError:
                 # Re-raise so callers (admin/forms/save) get a proper ValidationError
                 raise
             except Exception:
                 # Any unexpected parsing errors: be defensive and raise a ValidationError
                 from django.core.exceptions import ValidationError
-                raise ValidationError({'structured_data': 'Invalid structured_data format.'})
+
+                raise ValidationError({"structured_data": "Invalid structured_data format."})
 
         super().clean()
 
@@ -249,6 +241,7 @@ class BaseSEOModel(TimeStampedModel, OptimizedImageModel):
         cached_data = cache.get(cache_key)
         if cached_data:
             return cached_data
+
         # Helper to build full URLs like https://.../media/image.jpg
         def build_absolute_uri(image_field):
             if not image_field:
@@ -331,7 +324,9 @@ class BaseSEOModel(TimeStampedModel, OptimizedImageModel):
         # If this is the About page, optimize JSON-LD to include rich Organization info
         try:
             about_slugs = {"about", "about-us", "about_us", "aboutus"}
-            if (self.page_name and self.page_name.lower() in about_slugs) or (self.meta_title and self.meta_title.lower().startswith("about")):
+            if (self.page_name and self.page_name.lower() in about_slugs) or (
+                self.meta_title and self.meta_title.lower().startswith("about")
+            ):
                 # Use AboutPage type and include organization as mainEntity for richer markup
                 data["@type"] = "AboutPage"
                 org = self._get_organization_info()
@@ -368,18 +363,20 @@ class BaseSEOModel(TimeStampedModel, OptimizedImageModel):
 
             if faqs.exists():
                 questions = []
-                for faq in faqs.order_by('item__faq_nav', 'order'):
-                    q_text = strip_tags(faq.question or '')
-                    a_text = strip_tags(faq.answer or '')
+                for faq in faqs.order_by("item__faq_nav", "order"):
+                    q_text = strip_tags(faq.question or "")
+                    a_text = strip_tags(faq.answer or "")
                     if q_text and a_text:
-                        questions.append({
-                            "@type": "Question",
-                            "name": q_text,
-                            "acceptedAnswer": {
-                                "@type": "Answer",
-                                "text": a_text,
-                            },
-                        })
+                        questions.append(
+                            {
+                                "@type": "Question",
+                                "name": q_text,
+                                "acceptedAnswer": {
+                                    "@type": "Answer",
+                                    "text": a_text,
+                                },
+                            }
+                        )
 
                 if questions:
                     # Per schema.org, include FAQ as mainEntity on the WebPage

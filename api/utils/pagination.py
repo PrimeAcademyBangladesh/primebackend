@@ -14,10 +14,11 @@ class StandardResultsSetPagination(PageNumberPagination):
     Standard pagination class for consistent pagination across all API endpoints
     Can be used for users, blogs, courses, products, etc.
     """
+
     page_size = 20
-    page_size_query_param = 'page_size'
+    page_size_query_param = "page_size"
     max_page_size = 60
-    
+
     def get_paginated_response(self, data):
         """
         Return a paginated response with the given data.
@@ -28,12 +29,14 @@ class StandardResultsSetPagination(PageNumberPagination):
         Returns:
             Response: Paginated response with count, next, previous, and results
         """
-        return Response({
-            'count': self.page.paginator.count,
-            'next': self.get_next_link(),
-            'previous': self.get_previous_link(),
-            'results': data
-        })
+        return Response(
+            {
+                "count": self.page.paginator.count,
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link(),
+                "results": data,
+            }
+        )
 
 
 # Generic Mixin for Pagination where use APIView or GenericAPIView
@@ -42,8 +45,9 @@ class PaginatedListMixin:
     Generic mixin to add pagination to any list view
     Works with any Django model - users, blogs, courses, products, etc.
     """
+
     pagination_class = StandardResultsSetPagination
-    
+
     def paginate_queryset(self, queryset, request):
         """
         Paginate any queryset and return paginated data

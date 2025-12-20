@@ -15,20 +15,16 @@ from api.utils.pagination import StandardResultsSetPagination
     tags=["Contact Form display and submission"],
     summary="Submit or view contact messages",
     request=ContactMessageSerializer,
-    responses={
-        201: ContactMessageSerializer,
-        400: "Validation Error"
-    }
+    responses={201: ContactMessageSerializer, 400: "Validation Error"},
 )
-class ContactMessageViewSet(mixins.ListModelMixin,
-                            mixins.CreateModelMixin,
-                            viewsets.GenericViewSet):
+class ContactMessageViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     """
     Provides:
       - POST /api/contact/   → Public can submit a message
       - GET  /api/contact/   → Only admin can view messages
     """
-    queryset = ContactMessage.objects.all().order_by('-created_at')
+
+    queryset = ContactMessage.objects.all().order_by("-created_at")
     serializer_class = ContactMessageSerializer
     # Admin listing: pagination, filters (including date range), search and ordering
     pagination_class = StandardResultsSetPagination
@@ -44,26 +40,24 @@ class ContactMessageViewSet(mixins.ListModelMixin,
 
     def get_permissions(self):
         """Allow anyone to POST but restrict GET to admin users."""
-        if self.action == 'create':
-            permission_classes = [AllowAny]  
+        if self.action == "create":
+            permission_classes = [AllowAny]
         else:
-            permission_classes = [IsStaff]  
+            permission_classes = [IsStaff]
         return [permission() for permission in permission_classes]
-    
+
     def create(self, request, *args, **kwargs):
         """Create a contact message with uniform success/error response."""
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
-            return Response({
-                "success": False,
-                "message": "Validation failed.",
-                "data": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": "Validation failed.", "data": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         self.perform_create(serializer)
 
-        return Response({
-            "success": True,
-            "message": "Your message has been submitted successfully.",
-            "data": serializer.data
-        }, status=status.HTTP_201_CREATED)
+        return Response(
+            {"success": True, "message": "Your message has been submitted successfully.", "data": serializer.data},
+            status=status.HTTP_201_CREATED,
+        )

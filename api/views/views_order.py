@@ -1,10 +1,13 @@
 """Order, OrderItem, and Enrollment API views."""
 
 from django.utils import timezone
+
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import filters, status
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
 
 from api.models.models_order import Enrollment, Order, OrderItem
 from api.permissions import IsAdmin, IsStaff, IsStudent
@@ -22,10 +25,6 @@ from api.serializers.serializers_order import (
 from api.utils.pagination import StandardResultsSetPagination
 from api.utils.response_utils import api_response
 from api.views.views_base import BaseAdminViewSet
-
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-
 
 # ========== Order ViewSet ==========
 
@@ -75,11 +74,7 @@ class OrderViewSet(BaseAdminViewSet):
     - Public: no access
     """
 
-    queryset = (
-        Order.objects.select_related("user", "coupon")
-        .prefetch_related("items__course")
-        .all()
-    )
+    queryset = Order.objects.select_related("user", "coupon").prefetch_related("items__course").all()
 
     serializer_class = OrderListSerializer
     pagination_class = StandardResultsSetPagination
@@ -154,14 +149,9 @@ class OrderViewSet(BaseAdminViewSet):
     def perform_create(self, serializer):
         """Auto-set user to current user on order creation."""
         # Only admin can create orders for anyone, others only for themselves
-        user_role = (
-            self.request.user.role if hasattr(self.request.user, "role") else None
-        )
+        user_role = self.request.user.role if hasattr(self.request.user, "role") else None
 
-        if (
-            "user" in serializer.validated_data
-            and serializer.validated_data["user"] != self.request.user
-        ):
+        if "user" in serializer.validated_data and serializer.validated_data["user"] != self.request.user:
             # Only admin can create orders for others
             if user_role != "admin":
                 from rest_framework.exceptions import PermissionDenied
@@ -221,9 +211,7 @@ class OrderViewSet(BaseAdminViewSet):
         order.save()
 
         serializer = OrderDetailSerializer(order)
-        return api_response(
-            True, f"Order {order.order_number} cancelled successfully", serializer.data
-        )
+        return api_response(True, f"Order {order.order_number} cancelled successfully", serializer.data)
 
     @extend_schema(
         summary="Complete order",
@@ -237,9 +225,7 @@ class OrderViewSet(BaseAdminViewSet):
         order = self.get_object()
 
         if order.status == "completed":
-            return api_response(
-                False, "Order is already completed", {}, status.HTTP_400_BAD_REQUEST
-            )
+            return api_response(False, "Order is already completed", {}, status.HTTP_400_BAD_REQUEST)
 
         # Mark as completed (this also creates enrollments)
         order.mark_as_completed()
@@ -268,17 +254,10 @@ class OrderViewSet(BaseAdminViewSet):
             "total_orders": queryset.count(),
             "completed_orders": queryset.filter(status="completed").count(),
             "pending_orders": queryset.filter(status="pending").count(),
-            "total_revenue": queryset.filter(status="completed").aggregate(
-                total=Sum("total_amount")
-            )["total"]
-            or 0,
-            "average_order_value": queryset.filter(status="completed").aggregate(
-                avg=Avg("total_amount")
-            )["avg"]
-            or 0,
+            "total_revenue": queryset.filter(status="completed").aggregate(total=Sum("total_amount"))["total"] or 0,
+            "average_order_value": queryset.filter(status="completed").aggregate(avg=Avg("total_amount"))["avg"] or 0,
             "orders_by_status": {
-                status_choice[0]: queryset.filter(status=status_choice[0]).count()
-                for status_choice in Order.STATUS_CHOICES
+                status_choice[0]: queryset.filter(status=status_choice[0]).count() for status_choice in Order.STATUS_CHOICES
             },
         }
 
@@ -436,9 +415,7 @@ class EnrollmentViewSet(BaseAdminViewSet):
         elif self.action in ["create", "destroy", "statistics"]:
             return [IsStaff()]
         elif self.action in ["update", "partial_update"]:
-            return [
-                permission() for permission in self.permission_classes
-            ]  # Students can update their own
+            return [permission() for permission in self.permission_classes]  # Students can update their own
         return super().get_permissions()
 
     def filter_public_queryset(self, queryset):
@@ -479,15 +456,10 @@ class EnrollmentViewSet(BaseAdminViewSet):
         enrollment = self.get_object()
 
         # Students can only update their own enrollments
-        if (
-            not self.is_staff_user(self.request.user)
-            and enrollment.user != self.request.user
-        ):
+        if not self.is_staff_user(self.request.user) and enrollment.user != self.request.user:
             from rest_framework.exceptions import PermissionDenied
 
-            raise PermissionDenied(
-                "You don't have permission to update this enrollment."
-            )
+            raise PermissionDenied("You don't have permission to update this enrollment.")
 
         serializer.save()
 
@@ -531,9 +503,7 @@ class EnrollmentViewSet(BaseAdminViewSet):
             )
 
         serializer = self.get_serializer(queryset, many=True)
-        return api_response(
-            True, "Your enrollments retrieved successfully", serializer.data
-        )
+        return api_response(True, "Your enrollments retrieved successfully", serializer.data)
 
     @extend_schema(
         summary="Access course",
@@ -611,14 +581,8 @@ class EnrollmentViewSet(BaseAdminViewSet):
             "active_enrollments": queryset.filter(is_active=True).count(),
             "completed_enrollments": queryset.filter(progress_percentage=100).count(),
             "certificates_issued": queryset.filter(certificate_issued=True).count(),
-            "average_progress": queryset.aggregate(avg=Avg("progress_percentage"))[
-                "avg"
-            ]
-            or 0,
-            "enrollments_by_course": queryset.values("course__title")
-            .annotate(count=Count("id"))
-            .order_by("-count")[:10],
+            "average_progress": queryset.aggregate(avg=Avg("progress_percentage"))["avg"] or 0,
+            "enrollments_by_course": queryset.values("course__title").annotate(count=Count("id")).order_by("-count")[:10],
         }
 
         return api_response(True, "Enrollment statistics retrieved successfully", stats)
-

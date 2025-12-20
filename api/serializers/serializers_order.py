@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 from django.utils import timezone
+
 from rest_framework import serializers
 
 from api.models.models_course import Course
@@ -55,12 +56,6 @@ class OrderInstallmentSerializer(serializers.ModelSerializer):
             "is_paid",
             "created_at",
         ]
-
-    def get_is_overdue(self, obj):
-        """Check if installment is overdue."""
-        return obj.status == "pending" and timezone.now() > obj.due_date
-
-    # ========= Helper Field Serializers ==========
 
     def get_is_overdue(self, obj):
         return obj.is_overdue_now()
@@ -159,9 +154,7 @@ class OrderItemCreateSerializer(serializers.ModelSerializer):
 
         # Check if course exists and is active
         if not course.is_active:
-            raise serializers.ValidationError(
-                "This course is not available for purchase."
-            )
+            raise serializers.ValidationError("This course is not available for purchase.")
 
         if course.status != "published":
             raise serializers.ValidationError("This course is not yet published.")
@@ -172,9 +165,7 @@ class OrderItemCreateSerializer(serializers.ModelSerializer):
             provided_price = attrs.get("price")
 
             if abs(expected_price - provided_price) > Decimal("0.01"):
-                raise serializers.ValidationError(
-                    f"Price mismatch. Expected {expected_price}, got {provided_price}"
-                )
+                raise serializers.ValidationError(f"Price mismatch. Expected {expected_price}, got {provided_price}")
 
         return attrs
 
@@ -188,9 +179,7 @@ class OrderListSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source="user.email", read_only=True)
     user_name = serializers.CharField(source="user.get_full_name", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
-    payment_method_display = serializers.CharField(
-        source="get_payment_method_display", read_only=True
-    )
+    payment_method_display = serializers.CharField(source="get_payment_method_display", read_only=True)
     items_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -233,9 +222,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     user_email = serializers.EmailField(source="user.email", read_only=True)
     user_name = serializers.CharField(source="user.get_full_name", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
-    payment_method_display = serializers.CharField(
-        source="get_payment_method_display", read_only=True
-    )
+    payment_method_display = serializers.CharField(source="get_payment_method_display", read_only=True)
     items = OrderItemSerializer(many=True, read_only=True)
     coupon_code_display = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
@@ -314,11 +301,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
 
     def get_coupon_code_display(self, obj):
         """Display coupon code."""
-        return (
-            obj.coupon_code
-            if obj.coupon_code
-            else (obj.coupon.code if obj.coupon else None)
-        )
+        return obj.coupon_code if obj.coupon_code else (obj.coupon.code if obj.coupon else None)
 
     def get_can_cancel(self, obj):
         """Check if order can be cancelled."""
@@ -349,9 +332,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating orders."""
 
     items = OrderItemCreateSerializer(many=True)
-    user = serializers.PrimaryKeyRelatedField(
-        read_only=True, required=False
-    )  # Auto-set in view
+    user = serializers.PrimaryKeyRelatedField(read_only=True, required=False)  # Auto-set in view
 
     class Meta:
         model = Order
@@ -391,9 +372,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             # For custom payments, description is required
             if not attrs.get("custom_payment_description"):
                 raise serializers.ValidationError(
-                    {
-                        "custom_payment_description": "Description is required for custom payments."
-                    }
+                    {"custom_payment_description": "Description is required for custom payments."}
                 )
 
             # Custom payments can have:
@@ -408,9 +387,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
                 for item in items:
                     course = item.get("course")
                     if course and not course.is_active:
-                        raise serializers.ValidationError(
-                            {"items": f"Course '{course.title}' is not active."}
-                        )
+                        raise serializers.ValidationError({"items": f"Course '{course.title}' is not active."})
 
                 # For custom payments with items, allow flexible pricing
                 # Admin can set any price (scholarship, discount, free enrollment, etc.)
@@ -426,17 +403,11 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 
             # Skip regular coupon validation for custom payments
             # Total calculation for custom payments
-            expected_total = (
-                attrs.get("subtotal", 0)
-                - attrs.get("discount_amount", 0)
-                + attrs.get("tax_amount", 0)
-            )
+            expected_total = attrs.get("subtotal", 0) - attrs.get("discount_amount", 0) + attrs.get("tax_amount", 0)
             provided_total = attrs.get("total_amount")
 
             if abs(expected_total - provided_total) > Decimal("0.01"):
-                raise serializers.ValidationError(
-                    f"Total mismatch. Calculated {expected_total}, provided {provided_total}"
-                )
+                raise serializers.ValidationError(f"Total mismatch. Calculated {expected_total}, provided {provided_total}")
 
             return attrs
 
@@ -454,17 +425,11 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             )
 
         # Validate total calculation
-        expected_total = (
-            attrs.get("subtotal", 0)
-            - attrs.get("discount_amount", 0)
-            + attrs.get("tax_amount", 0)
-        )
+        expected_total = attrs.get("subtotal", 0) - attrs.get("discount_amount", 0) + attrs.get("tax_amount", 0)
         provided_total = attrs.get("total_amount")
 
         if abs(expected_total - provided_total) > Decimal("0.01"):
-            raise serializers.ValidationError(
-                f"Total mismatch. Calculated {expected_total}, provided {provided_total}"
-            )
+            raise serializers.ValidationError(f"Total mismatch. Calculated {expected_total}, provided {provided_total}")
 
         # Validate coupon if provided
         coupon = attrs.get("coupon")
@@ -477,9 +442,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             for item in items:
                 course = item["course"]
                 if not coupon.can_apply_to_course(course):
-                    raise serializers.ValidationError(
-                        f"Coupon '{coupon.code}' cannot be applied to course '{course.title}'"
-                    )
+                    raise serializers.ValidationError(f"Coupon '{coupon.code}' cannot be applied to course '{course.title}'")
 
         # Validate installment settings
         is_installment = attrs.get("is_installment", False)
@@ -487,21 +450,13 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 
         if is_installment:
             if not installment_plan or installment_plan < 2:
-                raise serializers.ValidationError(
-                    {
-                        "installment_plan": "Installment plan must be at least 2 installments."
-                    }
-                )
+                raise serializers.ValidationError({"installment_plan": "Installment plan must be at least 2 installments."})
 
             # Validate minimum amount per installment
             installment_amount = attrs.get("total_amount") / installment_plan
-            if installment_amount < Decimal(
-                "500.00"
-            ):  # Minimum 500 BDT per installment
+            if installment_amount < Decimal("500.00"):  # Minimum 500 BDT per installment
                 raise serializers.ValidationError(
-                    {
-                        "installment_plan": f"Each installment must be at least 500 BDT. Current: {installment_amount:.2f} BDT"
-                    }
+                    {"installment_plan": f"Each installment must be at least 500 BDT. Current: {installment_amount:.2f} BDT"}
                 )
 
         return attrs
@@ -523,11 +478,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             OrderItem.objects.create(order=order, **item_data)
 
         # If installment plan selected, create OrderInstallment records
-        if (
-            order.is_installment
-            and order.installment_plan
-            and order.installment_plan > 1
-        ):
+        if order.is_installment and order.installment_plan and order.installment_plan > 1:
             from datetime import timedelta
 
             # Use Decimal for financial calculations
@@ -558,11 +509,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
 
             # Set next_installment_date to first pending installment
             try:
-                next_installment = (
-                    order.installment_payments.filter(status="pending")
-                    .order_by("installment_number")
-                    .first()
-                )
+                next_installment = order.installment_payments.filter(status="pending").order_by("installment_number").first()
                 if next_installment:
                     order.next_installment_date = next_installment.due_date
             except Exception:
@@ -598,15 +545,11 @@ class OrderUpdateSerializer(serializers.ModelSerializer):
 
             # Don't allow changing from completed
             if current_status == "completed" and value != "completed":
-                raise serializers.ValidationError(
-                    "Cannot change status of a completed order."
-                )
+                raise serializers.ValidationError("Cannot change status of a completed order.")
 
             # Don't allow changing from refunded
             if current_status == "refunded" and value != "refunded":
-                raise serializers.ValidationError(
-                    "Cannot change status of a refunded order."
-                )
+                raise serializers.ValidationError("Cannot change status of a refunded order.")
 
         return value
 
@@ -771,15 +714,11 @@ class EnrollmentCreateSerializer(serializers.ModelSerializer):
 
         # Check if already enrolled
         if Enrollment.objects.filter(user=user, course=course).exists():
-            raise serializers.ValidationError(
-                f"User is already enrolled in '{course.title}'"
-            )
+            raise serializers.ValidationError(f"User is already enrolled in '{course.title}'")
 
         # Check if course is active
         if not course.is_active or course.status != "published":
-            raise serializers.ValidationError(
-                "This course is not available for enrollment."
-            )
+            raise serializers.ValidationError("This course is not available for enrollment.")
 
         return attrs
 
@@ -799,16 +738,12 @@ class EnrollmentUpdateSerializer(serializers.ModelSerializer):
     def validate_progress_percentage(self, value):
         """Validate progress percentage."""
         if value < 0 or value > 100:
-            raise serializers.ValidationError(
-                "Progress percentage must be between 0 and 100."
-            )
+            raise serializers.ValidationError("Progress percentage must be between 0 and 100.")
         return value
 
     def update(self, instance, validated_data):
         """Update enrollment and auto-complete if 100%."""
-        progress = validated_data.get(
-            "progress_percentage", instance.progress_percentage
-        )
+        progress = validated_data.get("progress_percentage", instance.progress_percentage)
 
         # Auto-set completed_at if reaching 100%
         if progress == 100 and not instance.completed_at:
@@ -849,9 +784,7 @@ class CouponApplicationSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("At least one course ID is required.")
 
-        courses = Course.objects.filter(
-            id__in=value, is_active=True, status="published"
-        )
+        courses = Course.objects.filter(id__in=value, is_active=True, status="published")
         if courses.count() != len(value):
             raise serializers.ValidationError("One or more invalid course IDs.")
 
@@ -868,9 +801,7 @@ class CouponApplicationSerializer(serializers.Serializer):
         # Check if coupon applies to all courses
         for course in courses:
             if not coupon.can_apply_to_course(course):
-                raise serializers.ValidationError(
-                    f"Coupon '{coupon.code}' cannot be applied to course '{course.title}'"
-                )
+                raise serializers.ValidationError(f"Coupon '{coupon.code}' cannot be applied to course '{course.title}'")
 
         attrs["coupon"] = coupon
         attrs["courses"] = courses

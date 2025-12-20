@@ -5,9 +5,9 @@ from api.serializers.serializers_helpers import HTMLFieldsMixin
 
 
 class PolicyPageSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
-    html_fields = ['content']
+    html_fields = ["content"]
 
     class Meta:
         model = PolicyPage
-        fields = ['id', 'page_name', 'title', 'content', 'is_active']
-        read_only_fields = ['id']
+        fields = ["id", "page_name", "title", "content", "is_active"]
+        read_only_fields = ["id"]

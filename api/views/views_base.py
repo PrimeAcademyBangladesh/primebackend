@@ -3,6 +3,7 @@ role-based access control."""
 
 from django.core.exceptions import ImproperlyConfigured
 from django.http import Http404
+
 from rest_framework import permissions, status, viewsets
 from rest_framework.exceptions import NotFound
 
@@ -61,7 +62,7 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
         # Public actions (available to anonymous users) - ALWAYS public
         if self.action in PUBLIC_ACTIONS:
             return [permissions.AllowAny()]
-        
+
         # if self.action in PUBLIC_ACTIONS:
         #     if getattr(self, "permission_classes", None):
         #         return [perm() for perm in self.permission_classes]
@@ -92,7 +93,7 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
 
     def is_staff_user(self, user):
         """Check if user has staff/admin role"""
-        return user.is_authenticated and user.role in ["staff", "admin", "superadmin"]
+        return user.is_authenticated and user.role in ["staf", "admin", "superadmin"]
 
     def is_staff_and_teacher_user(self, user):
         """Check if user has staff/admin/teacher role"""
@@ -106,9 +107,7 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
     def get_base_queryset(self):
         """Get the base queryset before any filtering"""
         if self.queryset is None:
-            raise ImproperlyConfigured(
-                f"{self.__class__.__name__} must define queryset"
-            )
+            raise ImproperlyConfigured(f"{self.__class__.__name__} must define queryset")
         return self.queryset.all()
 
     def filter_public_queryset(self, queryset):
@@ -144,9 +143,7 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
         queryset = self.get_base_queryset()
 
         # For public actions, apply public filtering to non-staff users
-        if self.action in ["list", "retrieve", "latest"] and not self.is_staff_user(
-            self.request.user
-        ):
+        if self.action in ["list", "retrieve", "latest"] and not self.is_staff_user(self.request.user):
             queryset = self.filter_public_queryset(queryset)
 
         return queryset
@@ -157,17 +154,12 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
 
     def get_model_name(self):
         if not hasattr(self, "queryset") or self.queryset is None:
-            raise ImproperlyConfigured(
-                f"{self.__class__.__name__} must define queryset"
-            )
+            raise ImproperlyConfigured(f"{self.__class__.__name__} must define queryset")
         return self.queryset.model._meta.verbose_name.title()
 
     def get_lookup_field_for_action(self):
         """Determine which field to use for the current action."""
-        if (
-            self.action in getattr(self, "slug_lookup_only_actions", [])
-            and self.slug_field
-        ):
+        if self.action in getattr(self, "slug_lookup_only_actions", []) and self.slug_field:
             return self.slug_field
         return "pk"
 
@@ -208,15 +200,11 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
                 self.get_paginated_response(serializer.data).data,
             )
         serializer = self.get_serializer(queryset, many=True)
-        return api_response(
-            True, f"{self.get_model_name()}s retrieved successfully", serializer.data
-        )
+        return api_response(True, f"{self.get_model_name()}s retrieved successfully", serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
-        return api_response(
-            True, f"{self.get_model_name()} retrieved successfully", response.data
-        )
+        return api_response(True, f"{self.get_model_name()} retrieved successfully", response.data)
 
     def create(self, request, *args, **kwargs):
         from django.core.exceptions import ValidationError as DjangoValidationError
@@ -234,45 +222,23 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
             )
         except DjangoValidationError as e:
             # Convert Django ValidationError to DRF response
-            error_dict = (
-                e.message_dict
-                if hasattr(e, "message_dict")
-                else {"non_field_errors": [str(e)]}
-            )
+            error_dict = e.message_dict if hasattr(e, "message_dict") else {"non_field_errors": [str(e)]}
             # Extract first error message for the main message field
-            first_error = (
-                next(iter(error_dict.values()))[0]
-                if error_dict
-                else "Validation failed"
-            )
-            return api_response(
-                False, first_error, error_dict, status.HTTP_400_BAD_REQUEST
-            )
+            first_error = next(iter(error_dict.values()))[0] if error_dict else "Validation failed"
+            return api_response(False, first_error, error_dict, status.HTTP_400_BAD_REQUEST)
 
     def update(self, request, *args, **kwargs):
         from django.core.exceptions import ValidationError as DjangoValidationError
 
         try:
             response = super().update(request, *args, **kwargs)
-            return api_response(
-                True, f"{self.get_model_name()} updated successfully", response.data
-            )
+            return api_response(True, f"{self.get_model_name()} updated successfully", response.data)
         except DjangoValidationError as e:
             # Convert Django ValidationError to DRF response
-            error_dict = (
-                e.message_dict
-                if hasattr(e, "message_dict")
-                else {"non_field_errors": [str(e)]}
-            )
+            error_dict = e.message_dict if hasattr(e, "message_dict") else {"non_field_errors": [str(e)]}
             # Extract first error message for the main message field
-            first_error = (
-                next(iter(error_dict.values()))[0]
-                if error_dict
-                else "Validation failed"
-            )
-            return api_response(
-                False, first_error, error_dict, status.HTTP_400_BAD_REQUEST
-            )
+            first_error = next(iter(error_dict.values()))[0] if error_dict else "Validation failed"
+            return api_response(False, first_error, error_dict, status.HTTP_400_BAD_REQUEST)
 
     def partial_update(self, request, *args, **kwargs):
         from django.core.exceptions import ValidationError as DjangoValidationError
@@ -282,25 +248,13 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(instance, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)
-            return api_response(
-                True, f"{self.get_model_name()} updated successfully", serializer.data
-            )
+            return api_response(True, f"{self.get_model_name()} updated successfully", serializer.data)
         except DjangoValidationError as e:
             # Convert Django ValidationError to DRF response
-            error_dict = (
-                e.message_dict
-                if hasattr(e, "message_dict")
-                else {"non_field_errors": [str(e)]}
-            )
+            error_dict = e.message_dict if hasattr(e, "message_dict") else {"non_field_errors": [str(e)]}
             # Extract first error message for the main message field
-            first_error = (
-                next(iter(error_dict.values()))[0]
-                if error_dict
-                else "Validation failed"
-            )
-            return api_response(
-                False, first_error, error_dict, status.HTTP_400_BAD_REQUEST
-            )
+            first_error = next(iter(error_dict.values()))[0] if error_dict else "Validation failed"
+            return api_response(False, first_error, error_dict, status.HTTP_400_BAD_REQUEST)
 
     def destroy(self, request, *args, **kwargs):
         super().destroy(request, *args, **kwargs)

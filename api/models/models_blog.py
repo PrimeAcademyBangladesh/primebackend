@@ -9,6 +9,7 @@ import uuid
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
+
 from django_ckeditor_5.fields import CKEditor5Field
 
 from api.models.images_base_class import OptimizedImageModel
@@ -35,9 +36,7 @@ class BlogCategory(TimeStampedModel):
         db_index=True,
         help_text="Auto-generated URL-friendly version of the name.",
     )
-    is_active = models.BooleanField(
-        default=True, help_text="Uncheck to hide this category from the website."
-    )
+    is_active = models.BooleanField(default=True, help_text="Uncheck to hide this category from the website.")
 
     class Meta:
         ordering = ["name"]
@@ -73,7 +72,7 @@ class Blog(TimeStampedModel, OptimizedImageModel):
         related_name="blogs",
         help_text="Select the category for this blog post.",
     )
-    
+
     title = models.CharField(
         max_length=255,
         unique=True,
@@ -92,7 +91,7 @@ class Blog(TimeStampedModel, OptimizedImageModel):
         help_text="Short description/summary (max 500 chars). Used in previews.",
     )
 
-    content = CKEditor5Field (
+    content = CKEditor5Field(
         blank=True,
         null=True,
         help_text="Full blog post content. Supports HTML and markdown.",
@@ -182,7 +181,7 @@ class Blog(TimeStampedModel, OptimizedImageModel):
                     return request.build_absolute_uri(url_path)
                 except Exception:
                     pass
-            return f"{settings.FRONTEND_URL.rstrip('/')}" + (url_path if url_path.startswith('/') else '/' + url_path)
+            return f"{settings.FRONTEND_URL.rstrip('/')}" + (url_path if url_path.startswith("/") else "/" + url_path)
 
         image_url = build_absolute(self.featured_image.url) if self.featured_image else None
         page_url = build_absolute(self.get_absolute_url())

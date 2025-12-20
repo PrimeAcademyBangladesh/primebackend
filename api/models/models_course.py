@@ -2,6 +2,7 @@ import uuid
 
 from django.db import models
 from django.utils.text import slugify
+
 from django_ckeditor_5.fields import CKEditor5Field
 
 from api.models.images_base_class import OptimizedImageModel
@@ -12,15 +13,9 @@ class Category(TimeStampedModel):
     """Course categories for organizing courses by subject or type."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(
-        max_length=100, unique=True, db_index=True, help_text="Unique category name"
-    )
-    slug = models.SlugField(
-        unique=True, db_index=True, help_text="URL-friendly version of the name"
-    )
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this category is active"
-    )
+    name = models.CharField(max_length=100, unique=True, db_index=True, help_text="Unique category name")
+    slug = models.SlugField(unique=True, db_index=True, help_text="URL-friendly version of the name")
+    is_active = models.BooleanField(default=True, help_text="Whether this category is active")
     show_in_megamenu = models.BooleanField(
         default=False,
         help_text="Whether this category should appear in the site megamenu",
@@ -37,7 +32,8 @@ class Category(TimeStampedModel):
         ]
 
     def save(self, *args, **kwargs):
-        self.slug = slugify(self.name)
+        if not self.slug:
+            self.slug = slugify(self.name)
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -55,13 +51,9 @@ class Course(TimeStampedModel, OptimizedImageModel):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    category = models.ForeignKey(
-        Category, related_name="courses", on_delete=models.CASCADE
-    )
+    category = models.ForeignKey(Category, related_name="courses", on_delete=models.CASCADE)
 
-    title = models.CharField(
-        max_length=200, unique=True, db_index=True, help_text="Unique course title"
-    )
+    title = models.CharField(max_length=200, unique=True, db_index=True, help_text="Unique course title")
     slug = models.SlugField(
         max_length=250,
         unique=True,
@@ -87,18 +79,14 @@ class Course(TimeStampedModel, OptimizedImageModel):
         help_text="Publication status of the course",
     )
 
-    show_in_megamenu = models.BooleanField(
-        default=False, help_text="Whether to display this course in the megamenu"
-    )
+    show_in_megamenu = models.BooleanField(default=False, help_text="Whether to display this course in the megamenu")
 
     show_in_home_tab = models.BooleanField(
         default=False,
         help_text="Whether to display this course in the home tab (homepage category blocks)",
     )
 
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this course is active and visible"
-    )
+    is_active = models.BooleanField(default=True, help_text="Whether this course is active and visible")
 
     # Image optimization configuration
     IMAGE_FIELDS_OPTIMIZATION = {
@@ -111,7 +99,8 @@ class Course(TimeStampedModel, OptimizedImageModel):
     }
 
     def save(self, *args, **kwargs):
-        self.slug = slugify(self.title)
+        if not self.slug:
+            self.slug = slugify(self.title)
         super().save(*args, **kwargs)
 
     class Meta(TimeStampedModel.Meta, OptimizedImageModel.Meta):
@@ -132,21 +121,15 @@ class CourseDetail(TimeStampedModel):
     """Extended course details including hero section and additional content."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    course = models.OneToOneField(
-        Course, related_name="detail", on_delete=models.CASCADE
-    )
-    hero_button = models.CharField(
-        max_length=100, help_text="Text for the hero section button"
-    )
+    course = models.OneToOneField(Course, related_name="detail", on_delete=models.CASCADE)
+    hero_button = models.CharField(max_length=100, help_text="Text for the hero section button")
     hero_text = models.TextField(help_text="Hero section text content")
     hero_description = models.TextField(
         blank=True,
         null=True,
         help_text="Rich text content for detailed hero description",
     )
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this course detail is active"
-    )
+    is_active = models.BooleanField(default=True, help_text="Whether this course detail is active")
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Course Detail"
@@ -202,24 +185,17 @@ class CourseSectionTab(models.Model):
     """Sub-tabs within a course content section."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    section = models.ForeignKey(
-        CourseContentSection, related_name="tabs", on_delete=models.CASCADE
-    )
-    tab_name = models.CharField(
-        max_length=100, help_text="Name of this tab (shown as tab header)"
-    )
-    order = models.PositiveIntegerField(
-        default=0, help_text="Tab order such as 1 , 2, 3 ..."
-    )
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this tab is active and visible"
-    )
+    section = models.ForeignKey(CourseContentSection, related_name="tabs", on_delete=models.CASCADE)
+    tab_name = models.CharField(max_length=100, help_text="Name of this tab (shown as tab header)")
+    order = models.PositiveIntegerField(default=0, help_text="Tab order such as 1 , 2, 3 ...")
+    is_active = models.BooleanField(default=True, help_text="Whether this tab is active and visible")
 
     class Meta:
         verbose_name = "Course Section Tab"
         verbose_name_plural = "Course Section Tabs"
         ordering = ["order"]
-        unique_together = ["section", "order"]
+        # Remove unique_together, use constraints instead
+        constraints = [models.UniqueConstraint(fields=["section", "order"], name="unique_tab_order_per_section")]
 
     def __str__(self):
         return f"{self.section.section_name} - {self.tab_name}"
@@ -239,9 +215,7 @@ class CourseTabbedContent(TimeStampedModel, OptimizedImageModel):
     )
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    tab = models.ForeignKey(
-        CourseSectionTab, related_name="contents", on_delete=models.CASCADE
-    )
+    tab = models.ForeignKey(CourseSectionTab, related_name="contents", on_delete=models.CASCADE)
 
     media_type = models.CharField(
         max_length=10,
@@ -250,16 +224,10 @@ class CourseTabbedContent(TimeStampedModel, OptimizedImageModel):
         help_text="Choose between image or video",
     )
 
-    title = models.CharField(
-        max_length=255, blank=True, help_text="Title of this content item"
-    )
+    title = models.CharField(max_length=255, blank=True, help_text="Title of this content item")
     description = CKEditor5Field(blank=True, help_text="Rich text description/content")
-    button_text = models.CharField(
-        max_length=100, blank=True, help_text="Optional button text"
-    )
-    button_link = models.CharField(
-        max_length=255, blank=True, null=True, help_text="Optional button link"
-    )
+    button_text = models.CharField(max_length=100, blank=True, help_text="Optional button text")
+    button_link = models.CharField(max_length=255, blank=True, null=True, help_text="Optional button link")
 
     # Image field
     image = models.ImageField(
@@ -297,12 +265,8 @@ class CourseTabbedContent(TimeStampedModel, OptimizedImageModel):
         help_text="Video thumbnail (required only when media_type is video)",
     )
 
-    order = models.PositiveIntegerField(
-        default=0, help_text="Display order within the tab"
-    )
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this content is active and visible"
-    )
+    order = models.PositiveIntegerField(default=0, help_text="Display order within the tab")
+    is_active = models.BooleanField(default=True, help_text="Whether this content is active and visible")
 
     # Image optimization settings
     IMAGE_FIELDS_OPTIMIZATION = {
@@ -324,7 +288,7 @@ class CourseTabbedContent(TimeStampedModel, OptimizedImageModel):
         verbose_name = "Course Tabbed Content"
         verbose_name_plural = "Course Tabbed Contents"
         ordering = ["tab", "order"]
-        unique_together = ["tab", "order"]
+        constraints = [models.UniqueConstraint(fields=["tab", "order"], name="unique_content_order_per_tab")]
 
     def __str__(self):
         return f"{self.tab.tab_name} - {self.title}"
@@ -352,9 +316,7 @@ class CourseTabbedContent(TimeStampedModel, OptimizedImageModel):
                 errors["image"] = "Image is required"
 
             if self.video_url and not self.video_provider:
-                errors["video_provider"] = (
-                    "Video provider is required when video URL is set"
-                )
+                errors["video_provider"] = "Video provider is required when video URL is set"
 
         if errors:
             raise ValidationError(errors)
@@ -401,16 +363,12 @@ class WhyEnrol(OptimizedImageModel):
     """Reasons why students should enroll in the course."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    course_detail = models.ForeignKey(
-        CourseDetail, related_name="why_enrol", on_delete=models.CASCADE
-    )
+    course_detail = models.ForeignKey(CourseDetail, related_name="why_enrol", on_delete=models.CASCADE)
     icon = models.ImageField(upload_to="courses/icons/")
     title = models.CharField(max_length=100)
     text = CKEditor5Field(help_text="Rich text content explaining why to enroll")
 
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this why enrol section is active and visible"
-    )
+    is_active = models.BooleanField(default=True, help_text="Whether this why enrol section is active and visible")
 
     # Image optimization configuration
     IMAGE_FIELDS_OPTIMIZATION = {
@@ -437,25 +395,35 @@ class CourseModule(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     course = models.ForeignKey(Course, related_name="modules", on_delete=models.CASCADE)
     title = models.CharField(max_length=200)
-    slug = models.SlugField(max_length=200, unique=True)
+    slug = models.SlugField(max_length=200, db_index=True)
     short_description = CKEditor5Field(help_text="Rich text description of the module")
     order = models.PositiveIntegerField()
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this module is active and visible"
-    )
+    is_active = models.BooleanField(default=True, help_text="Whether this module is active and visible")
 
     class Meta:
         verbose_name = "Course Module/Chapter"
         verbose_name_plural = "Course Modules/Chapters"
         ordering = ["order"]
-        unique_together = ["course", "order"]
+        constraints = [
+            models.UniqueConstraint(fields=["course", "slug"], name="unique_module_slug_per_course"),
+            models.UniqueConstraint(fields=["course", "order"], name="unique_module_order_per_course"),
+        ]
         indexes = [
             models.Index(fields=["course", "order"]),
         ]
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.title)
+            base_slug = slugify(self.title)
+            slug = base_slug
+            counter = 1
+
+            while CourseModule.objects.filter(course=self.course, slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+
+            self.slug = slug
+
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -501,12 +469,8 @@ class CourseInstructor(models.Model):
         default=False,
         help_text="Mark as lead/primary instructor for this course (deprecated: use instructor_type)",
     )
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this instructor assignment is currently active"
-    )
-    assigned_date = models.DateTimeField(
-        auto_now_add=True, help_text="Date when instructor was assigned to this course"
-    )
+    is_active = models.BooleanField(default=True, help_text="Whether this instructor assignment is currently active")
+    assigned_date = models.DateTimeField(auto_now_add=True, help_text="Date when instructor was assigned to this course")
 
     class Meta:
         verbose_name = "Course Instructor"
@@ -524,11 +488,7 @@ class CourseInstructor(models.Model):
         from django.core.exceptions import ValidationError
 
         if self.teacher_id and self.teacher.role != "teacher":
-            raise ValidationError(
-                {
-                    "teacher": "Only users with teacher role can be assigned as instructors."
-                }
-            )
+            raise ValidationError({"teacher": "Only users with teacher role can be assigned as instructors."})
 
     def save(self, *args, **kwargs):
         """Auto-sync is_lead_instructor with instructor_type."""
@@ -582,9 +542,7 @@ class CourseBatch(TimeStampedModel):
         help_text="The course this batch is running for",
     )
 
-    batch_number = models.PositiveIntegerField(
-        help_text="Batch sequence number (1, 2, 3, etc.)"
-    )
+    batch_number = models.PositiveIntegerField(help_text="Batch sequence number (1, 2, 3, etc.)")
 
     batch_name = models.CharField(
         max_length=100,
@@ -614,9 +572,7 @@ class CourseBatch(TimeStampedModel):
     )
 
     # Capacity
-    max_students = models.PositiveIntegerField(
-        default=30, help_text="Maximum number of students allowed in this batch"
-    )
+    max_students = models.PositiveIntegerField(default=30, help_text="Maximum number of students allowed in this batch")
     enrolled_students = models.PositiveIntegerField(
         default=0,
         editable=False,
@@ -660,9 +616,7 @@ class CourseBatch(TimeStampedModel):
     )
 
     # Additional info
-    description = models.TextField(
-        blank=True, help_text="Batch-specific description or notes (optional)"
-    )
+    description = models.TextField(blank=True, help_text="Batch-specific description or notes (optional)")
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Course Batch"
@@ -688,9 +642,7 @@ class CourseBatch(TimeStampedModel):
 
             # Ensure uniqueness
             counter = 1
-            while (
-                CourseBatch.objects.filter(slug=self.slug).exclude(pk=self.pk).exists()
-            ):
+            while CourseBatch.objects.filter(slug=self.slug).exclude(pk=self.pk).exists():
                 self.slug = f"{base_slug}-{counter}"
                 counter += 1
 
@@ -724,18 +676,10 @@ class CourseBatch(TimeStampedModel):
 
     def _check_enrollment_open(self, now):
         """Helper to check if enrollment is open for a given date."""
-        enrollment_start = (
-            self.enrollment_start_date or self.created_at.date()
-            if self.created_at
-            else now
-        )
+        enrollment_start = self.enrollment_start_date or self.created_at.date() if self.created_at else now
         enrollment_end = self.enrollment_end_date or self.start_date
 
-        return (
-            now >= enrollment_start
-            and now <= enrollment_end
-            and self.enrolled_students < self.max_students
-        )
+        return now >= enrollment_start and now <= enrollment_end and self.enrolled_students < self.max_students
 
     def clean(self):
         """Validate batch dates."""
@@ -743,17 +687,11 @@ class CourseBatch(TimeStampedModel):
 
         if self.start_date and self.end_date:
             if self.end_date <= self.start_date:
-                raise ValidationError(
-                    {"end_date": "End date must be after start date."}
-                )
+                raise ValidationError({"end_date": "End date must be after start date."})
 
         if self.enrollment_end_date and self.start_date:
             if self.enrollment_end_date > self.start_date:
-                raise ValidationError(
-                    {
-                        "enrollment_end_date": "Enrollment must close before or on the start date."
-                    }
-                )
+                raise ValidationError({"enrollment_end_date": "Enrollment must close before or on the start date."})
 
     @property
     def is_enrollment_open(self):
@@ -798,9 +736,7 @@ class CourseBatch(TimeStampedModel):
         """Update enrolled_students count from actual enrollments."""
         from api.models.models_order import Enrollment
 
-        self.enrolled_students = Enrollment.objects.filter(
-            batch=self, is_active=True
-        ).count()
+        self.enrolled_students = Enrollment.objects.filter(batch=self, is_active=True).count()
         self.save(update_fields=["enrolled_students"])
 
     def __str__(self):
@@ -812,15 +748,11 @@ class KeyBenefit(OptimizedImageModel):
     """Key benefits students will gain from taking the course."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    course_detail = models.ForeignKey(
-        CourseDetail, related_name="benefits", on_delete=models.CASCADE
-    )
+    course_detail = models.ForeignKey(CourseDetail, related_name="benefits", on_delete=models.CASCADE)
     icon = models.ImageField(upload_to="courses/benefits/")
     title = models.CharField(max_length=100)
     text = CKEditor5Field(help_text="Rich text description of the benefit")
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this benefit is active and visible"
-    )
+    is_active = models.BooleanField(default=True, help_text="Whether this benefit is active and visible")
 
     # Image optimization configuration
     IMAGE_FIELDS_OPTIMIZATION = {
@@ -845,17 +777,13 @@ class SideImageSection(OptimizedImageModel):
     """Side image sections with text and call-to-action buttons."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    course_detail = models.ForeignKey(
-        CourseDetail, related_name="side_image_sections", on_delete=models.CASCADE
-    )
+    course_detail = models.ForeignKey(CourseDetail, related_name="side_image_sections", on_delete=models.CASCADE)
     image = models.ImageField(upload_to="courses/side_sections/")
     title = models.CharField(max_length=200)
     text = CKEditor5Field(help_text="Rich text content for the side section")
     button_text = models.CharField(max_length=100, blank=True)
     button_url = models.URLField(blank=True)
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this side image section is active and visible"
-    )
+    is_active = models.BooleanField(default=True, help_text="Whether this side image section is active and visible")
 
     # Image optimization configuration
     IMAGE_FIELDS_OPTIMIZATION = {
@@ -880,15 +808,11 @@ class SuccessStory(OptimizedImageModel):
     """Student success stories and testimonials for the course."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    course_detail = models.ForeignKey(
-        CourseDetail, related_name="success_stories", on_delete=models.CASCADE
-    )
+    course_detail = models.ForeignKey(CourseDetail, related_name="success_stories", on_delete=models.CASCADE)
     icon = models.ImageField(upload_to="courses/stories/")
     description = CKEditor5Field(help_text="Rich text description of the success story")
     name = models.CharField(max_length=100)
-    is_active = models.BooleanField(
-        default=True, help_text="Whether this success story is active and visible"
-    )
+    is_active = models.BooleanField(default=True, help_text="Whether this success story is active and visible")
 
     # Image optimization configuration
     IMAGE_FIELDS_OPTIMIZATION = {

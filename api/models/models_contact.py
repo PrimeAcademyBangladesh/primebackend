@@ -14,11 +14,10 @@ class ContactMessage(TimeStampedModel):
     message = models.TextField()
     agree_to_policy = models.BooleanField(default=False)
 
-
     class Meta:
         verbose_name = "Contact Message"
         verbose_name_plural = "Contact Messages"
-        ordering = ['-created_at'] 
-        
+        ordering = ["-created_at"]
+
     def __str__(self):
         return f"Message from {self.first_name} {self.last_name}"

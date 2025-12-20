@@ -1,25 +1,26 @@
 """Serializers for course modules, live classes, assignments, and quizzes."""
 
-from rest_framework import serializers
-from django.utils import timezone
 from decimal import Decimal
+
+from django.utils import timezone
+
+from rest_framework import serializers
+
 from api.models.models_course import CourseModule
 from api.models.models_module import (
-    LiveClass,
-    LiveClassAttendance,
     Assignment,
     AssignmentSubmission,
-    Quiz,
-    QuizQuestion,
-    QuizQuestionOption,
-    QuizAttempt,
-    QuizAnswer,
     CourseResource,
     CourseResourceFile,
+    LiveClass,
+    LiveClassAttendance,
+    Quiz,
+    QuizAnswer,
+    QuizAttempt,
+    QuizQuestion,
+    QuizQuestionOption,
 )
-
 from api.serializers.serializers_helpers import HTMLFieldsMixin
-
 
 # ========== Live Class Serializers ==========
 
@@ -27,32 +28,35 @@ from api.serializers.serializers_helpers import HTMLFieldsMixin
 class LiveClassSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     """Serializer for live classes within a module."""
 
+    module_id = serializers.UUIDField(source="module.id", read_only=True)
+    module_title = serializers.CharField(source="module.title", read_only=True)
+    module_slug = serializers.CharField(source="module.slug", read_only=True)
+    module_course_id = serializers.UUIDField(source="module.course.id", read_only=True)
+    module_course_title = serializers.CharField(source="module.course.title", read_only=True)
+    batch_id = serializers.UUIDField(source="batch.id", read_only=True)
+    batch_name = serializers.CharField(source="batch.display_name", read_only=True)
+
     html_fields = ["description"]
 
-    instructor_name = serializers.CharField(
-        source="instructor.get_full_name", read_only=True, allow_null=True
-    )
-    instructor_email = serializers.EmailField(
-        source="instructor.email", read_only=True, allow_null=True
-    )
+    instructor_name = serializers.CharField(source="instructor.get_full_name", read_only=True, allow_null=True)
+    instructor_email = serializers.EmailField(source="instructor.email", read_only=True, allow_null=True)
 
-    # Helper fields
     is_upcoming = serializers.SerializerMethodField()
     is_past = serializers.SerializerMethodField()
     can_join = serializers.SerializerMethodField()
     has_recording = serializers.SerializerMethodField()
-    attendance_marked = (
-        serializers.SerializerMethodField()
-    )  # NEW: Student attendance status
-    has_enrollment = (
-        serializers.SerializerMethodField()
-    )  # NEW: Check if student is enrolled
-    batch_info = serializers.SerializerMethodField()  # NEW: Student's batch information
 
     class Meta:
         model = LiveClass
         fields = [
             "id",
+            "module_course_id",
+            "module_course_title",
+            "module_id",
+            "module_title",
+            "module_slug",
+            "batch_id",
+            "batch_name",
             "title",
             "description",
             "scheduled_date",
@@ -70,9 +74,6 @@ class LiveClassSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             "is_past",
             "can_join",
             "has_recording",
-            "attendance_marked",  # NEW
-            "has_enrollment",  # NEW
-            "batch_info",  # NEW
             "created_at",
             "updated_at",
         ]
@@ -101,65 +102,6 @@ class LiveClassSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     def get_has_recording(self, obj):
         """Check if recording is available"""
         return bool(obj.recording_url)
-
-    def get_attendance_marked(self, obj):
-        """Check if current student has marked attendance"""
-        request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
-            return False
-
-        try:
-            attendance = LiveClassAttendance.objects.filter(
-                live_class=obj, student=request.user, attended=True
-            ).exists()
-            return attendance
-        except Exception:
-            return False
-
-    def get_has_enrollment(self, obj):
-        """Check if current student is enrolled in the course"""
-        request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
-            return False
-
-        try:
-            from api.models.models_order import Enrollment
-
-            return Enrollment.objects.filter(
-                user=request.user, course=obj.module.course.course, is_active=True
-            ).exists()
-        except Exception:
-            return False
-
-    def get_batch_info(self, obj):
-        """Get student's batch information for this course"""
-        request = self.context.get("request")
-        if not request or not request.user.is_authenticated:
-            return None
-
-        try:
-            from api.models.models_order import Enrollment
-
-            enrollment = (
-                Enrollment.objects.filter(
-                    user=request.user, course=obj.module.course.course, is_active=True
-                )
-                .select_related("batch")
-                .first()
-            )
-
-            if enrollment and enrollment.batch:
-                return {
-                    "id": str(enrollment.batch.id),
-                    "batch_number": enrollment.batch.batch_number,
-                    "batch_name": enrollment.batch.batch_name,
-                    "display_name": enrollment.batch.display_name,
-                    "start_date": enrollment.batch.start_date,
-                    "end_date": enrollment.batch.end_date,
-                }
-            return None
-        except Exception:
-            return None
 
 
 class LiveClassCreateUpdateSerializer(serializers.ModelSerializer):
@@ -191,9 +133,7 @@ class LiveClassCreateUpdateSerializer(serializers.ModelSerializer):
 
     def validate_batch(self, value):
         if not value:
-            raise serializers.ValidationError(
-                "Batch is required to create a live class."
-            )
+            raise serializers.ValidationError("Batch is required to create a live class.")
         return value
 
 
@@ -229,9 +169,7 @@ class AssignmentListSerializer(serializers.ModelSerializer):
     module_title = serializers.CharField(source="module.title", read_only=True)
     module_slug = serializers.CharField(source="module.slug", read_only=True)
     module_course_id = serializers.UUIDField(source="module.course.id", read_only=True)
-    module_course_title = serializers.CharField(
-        source="module.course.title", read_only=True
-    )
+    module_course_title = serializers.CharField(source="module.course.title", read_only=True)
     batch_id = serializers.UUIDField(source="batch.id", read_only=True)
     batch_name = serializers.CharField(source="batch.display_name", read_only=True)
 
@@ -289,9 +227,7 @@ class AssignmentCreateUpdateSerializer(serializers.ModelSerializer):
 
     def validate_batch(self, value):
         if not value:
-            raise serializers.ValidationError(
-                "Batch is required when creating an assignment."
-            )
+            raise serializers.ValidationError("Batch is required when creating an assignment.")
         return value
 
 
@@ -361,11 +297,7 @@ class AssignmentStudentSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
 
     def get_obtained_marks(self, obj):
         sub = self._submission(obj)
-        return (
-            float(sub.marks_obtained)
-            if sub and sub.marks_obtained is not None
-            else None
-        )
+        return float(sub.marks_obtained) if sub and sub.marks_obtained is not None else None
 
     def get_can_submit(self, obj):
         if not obj.due_date:
@@ -389,9 +321,7 @@ class AssignmentSubmissionSerializer(HTMLFieldsMixin, serializers.ModelSerialize
     student_name = serializers.CharField(source="student.get_full_name", read_only=True)
     student_email = serializers.EmailField(source="student.email", read_only=True)
     assignment_title = serializers.CharField(source="assignment.title", read_only=True)
-    graded_by_name = serializers.CharField(
-        source="graded_by.get_full_name", read_only=True, allow_null=True
-    )
+    graded_by_name = serializers.CharField(source="graded_by.get_full_name", read_only=True, allow_null=True)
 
     # Helper fields
     percentage = serializers.SerializerMethodField()
@@ -427,9 +357,7 @@ class AssignmentSubmissionSerializer(HTMLFieldsMixin, serializers.ModelSerialize
     def get_percentage(self, obj):
         """Calculate percentage score"""
         if obj.marks_obtained is not None and obj.assignment.total_marks > 0:
-            return round(
-                (float(obj.marks_obtained) / obj.assignment.total_marks) * 100, 2
-            )
+            return round((float(obj.marks_obtained) / obj.assignment.total_marks) * 100, 2)
         return None
 
     def get_is_passed(self, obj):
@@ -458,9 +386,7 @@ class AssignmentSubmissionCreateSerializer(serializers.ModelSerializer):
 class AssignmentGradeSerializer(serializers.Serializer):
     """Serializer for teacher to grade assignment."""
 
-    marks_obtained = serializers.DecimalField(
-        max_digits=6, decimal_places=2, min_value=Decimal("0")
-    )
+    marks_obtained = serializers.DecimalField(max_digits=6, decimal_places=2, min_value=Decimal("0"))
     feedback = serializers.CharField(required=False, allow_blank=True)
     status = serializers.ChoiceField(choices=["graded", "resubmit"], default="graded")
 
@@ -531,16 +457,14 @@ class QuizQuestionSerializer(serializers.ModelSerializer):
 
 class QuizSerializer(serializers.ModelSerializer):
     questions = QuizQuestionSerializer(many=True, read_only=True)
-    created_by_name = serializers.CharField(
-        source="created_by.get_full_name", read_only=True, allow_null=True
-    )
+    created_by_name = serializers.CharField(source="created_by.get_full_name", read_only=True, allow_null=True)
     module_id = serializers.UUIDField(source="module.id", read_only=True)
     module_title = serializers.CharField(source="module.title", read_only=True)
-
-    batch_id = serializers.UUIDField(source="batch.id", read_only=True, allow_null=True)
-    batch_name = serializers.CharField(
-        source="batch.display_name", read_only=True, allow_null=True
-    )
+    module_slug = serializers.CharField(source="module.slug", read_only=True)
+    module_course_id = serializers.UUIDField(source="module.course.id", read_only=True)
+    module_course_title = serializers.CharField(source="module.course.title", read_only=True)
+    batch_id = serializers.UUIDField(source="batch.id", read_only=True)
+    batch_name = serializers.CharField(source="batch.display_name", read_only=True)
 
     question_count = serializers.SerializerMethodField()
     is_available = serializers.SerializerMethodField()
@@ -553,8 +477,11 @@ class QuizSerializer(serializers.ModelSerializer):
         model = Quiz
         fields = [
             "id",
+            "module_course_id",
+            "module_course_title",
             "module_id",
             "module_title",
+            "module_slug",
             "batch_id",
             "batch_name",
             "title",
@@ -617,12 +544,7 @@ class QuizSerializer(serializers.ModelSerializer):
         return self.get_attempts_used(obj) < obj.max_attempts
 
     def get_best_score(self, obj):
-        attempt = (
-            self._student_attempts(obj)
-            .filter(status="submitted")
-            .order_by("-marks_obtained")
-            .first()
-        )
+        attempt = self._student_attempts(obj).filter(status="submitted").order_by("-marks_obtained").first()
         return float(attempt.marks_obtained) if attempt else None
 
     def get_is_completed(self, obj):
@@ -730,21 +652,15 @@ class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
 
             if qtype in ["mcq", "true_false"]:
                 if correct_count != 1:
-                    raise serializers.ValidationError(
-                        "MCQ / True-False questions must have exactly one correct option."
-                    )
+                    raise serializers.ValidationError("MCQ / True-False questions must have exactly one correct option.")
 
             elif qtype == "multiple":
                 if correct_count < 1:
-                    raise serializers.ValidationError(
-                        "Multiple choice questions must have at least one correct option."
-                    )
+                    raise serializers.ValidationError("Multiple choice questions must have at least one correct option.")
 
             if qtype == "true_false":
                 if len(options) != 2:
-                    raise serializers.ValidationError(
-                        "True/False questions must have exactly two options."
-                    )
+                    raise serializers.ValidationError("True/False questions must have exactly two options.")
 
         return data
 
@@ -773,9 +689,7 @@ class QuizAttemptSerializer(serializers.ModelSerializer):
 
 
 class QuizAnswerSerializer(serializers.ModelSerializer):
-    question_text = serializers.CharField(
-        source="question.question_text", read_only=True
-    )
+    question_text = serializers.CharField(source="question.question_text", read_only=True)
     correct_answer = serializers.SerializerMethodField()
 
     class Meta:
@@ -817,9 +731,6 @@ class QuizAnswerSerializer(serializers.ModelSerializer):
 
 
 # ========== Course Resource Serializers ==========
-
-from rest_framework import serializers
-from api.models.models_module import CourseResourceFile
 
 
 class CourseResourceFileSerializer(serializers.ModelSerializer):
@@ -955,9 +866,7 @@ class CourseResourceFileCreateSerializer(serializers.ModelSerializer):
 # ========== Module with Complete Content (STUDENT STUDY PLAN) ==========
 
 
-class CourseModuleStudentStudyPlanSerializer(
-    HTMLFieldsMixin, serializers.ModelSerializer
-):
+class CourseModuleStudentStudyPlanSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     """
     Student-facing Study Plan serializer
 
@@ -976,8 +885,8 @@ class CourseModuleStudentStudyPlanSerializer(
 
     # ---- Content blocks ----
     live_classes = LiveClassSerializer(many=True, read_only=True)
-    assignments = AssignmentStudentSerializer(many=True, read_only=True)
-    quizzes = QuizSerializer(many=True, read_only=True)
+    assignments = AssignmentStudentSerializer(many=True, read_only=True, source="module_assignments")
+    quizzes = QuizSerializer(many=True, read_only=True, source="module_quizzes")
     resources = CourseResourceSerializer(
         many=True,
         read_only=True,
@@ -1014,18 +923,14 @@ class CourseModuleStudentStudyPlanSerializer(
         return obj.live_classes.filter(is_active=True).count()
 
     def get_assignment_count(self, obj):
-        return obj.assignments.filter(is_active=True).count()
+        return obj.module_assignments.filter(is_active=True).count()
 
     def get_quiz_count(self, obj):
         from django.db.models import Count, Q
 
         return (
-            obj.quizzes.filter(is_active=True)
-            .annotate(
-                active_question_count=Count(
-                    "questions", filter=Q(questions__is_active=True)
-                )
-            )
+            obj.module_quizzes.filter(is_active=True)
+            .annotate(active_question_count=Count("questions", filter=Q(questions__is_active=True)))
             .filter(active_question_count__gt=0)
             .count()
         )

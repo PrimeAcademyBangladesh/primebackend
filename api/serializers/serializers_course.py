@@ -1,26 +1,23 @@
 from rest_framework import serializers
 
+from api.models.models_auth import CustomUser
 from api.models.models_course import (
     Category,
     Course,
     CourseBatch,
+    CourseContentSection,
     CourseDetail,
     CourseInstructor,
     CourseModule,
+    CourseSectionTab,
+    CourseTabbedContent,
     KeyBenefit,
     SideImageSection,
     SuccessStory,
     WhyEnrol,
-    CourseContentSection,
-    CourseSectionTab,
-    CourseTabbedContent,
 )
 from api.models.models_pricing import Coupon, CoursePrice
-from api.serializers.serializers_helpers import (
-    HTMLFieldsMixin,
-    CourseDetailRequiredOnCreateMixin,
-)
-from api.models.models_auth import CustomUser
+from api.serializers.serializers_helpers import CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin
 
 # ========== Category Serializers ==========
 
@@ -59,9 +56,7 @@ class CategorySerializer(serializers.ModelSerializer):
             queryset = queryset.exclude(pk=self.instance.pk)
 
         if queryset.exists():
-            raise serializers.ValidationError(
-                "A category with this name already exists."
-            )
+            raise serializers.ValidationError("A category with this name already exists.")
 
         return value
 
@@ -202,11 +197,7 @@ class CourseModuleSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
         """Get the earliest live class date for this module."""
         from api.models.models_module import LiveClass
 
-        first_class = (
-            LiveClass.objects.filter(module=obj, is_active=True)
-            .order_by("scheduled_date")
-            .first()
-        )
+        first_class = LiveClass.objects.filter(module=obj, is_active=True).order_by("scheduled_date").first()
 
         if first_class:
             return first_class.scheduled_date
@@ -253,8 +244,9 @@ class CourseModuleCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSeria
 
     def validate_course(self, value):
         """Validate and get Course object."""
-        from api.models.models_course import Course
         import uuid
+
+        from api.models.models_course import Course
 
         if not value:
             raise serializers.ValidationError("This field is required.")
@@ -269,9 +261,7 @@ class CourseModuleCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSeria
             try:
                 course_obj = Course.objects.get(slug=value)
             except Course.DoesNotExist:
-                raise serializers.ValidationError(
-                    f'Course with identifier "{value}" not found.'
-                )
+                raise serializers.ValidationError(f'Course with identifier "{value}" not found.')
 
         # ✅ Return Course directly (not CourseDetail)
         return course_obj
@@ -287,11 +277,7 @@ class CourseModuleCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSeria
                 query = query.exclude(pk=self.instance.pk)
 
             if query.exists():
-                raise serializers.ValidationError(
-                    {
-                        "order": f"A module with order {order} already exists for this course."
-                    }
-                )
+                raise serializers.ValidationError({"order": f"A module with order {order} already exists for this course."})
 
         return data
 
@@ -346,9 +332,7 @@ class CourseInstructorSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source="teacher.get_full_name", read_only=True)
     teacher_email = serializers.EmailField(source="teacher.email", read_only=True)
     teacher_id = serializers.UUIDField(source="teacher.id", read_only=True)
-    instructor_type_display = serializers.CharField(
-        source="get_instructor_type_display", read_only=True
-    )
+    instructor_type_display = serializers.CharField(source="get_instructor_type_display", read_only=True)
     module_titles = serializers.SerializerMethodField()
     modules_count = serializers.SerializerMethodField()
 
@@ -420,9 +404,7 @@ class CourseInstructorCreateUpdateSerializer(serializers.ModelSerializer):
     def validate_teacher(self, value):
         """Ensure the selected user is a valid active teacher."""
         if value.role != "teacher":
-            raise serializers.ValidationError(
-                "Only users with teacher role can be assigned as instructors."
-            )
+            raise serializers.ValidationError("Only users with teacher role can be assigned as instructors.")
         if not value.is_active:
             raise serializers.ValidationError("Cannot assign an inactive teacher.")
         return value
@@ -441,15 +423,11 @@ class CourseInstructorCreateUpdateSerializer(serializers.ModelSerializer):
             if not course:
                 raise serializers.ValidationError({"course": "This field is required."})
             if not teacher:
-                raise serializers.ValidationError(
-                    {"teacher": "This field is required."}
-                )
+                raise serializers.ValidationError({"teacher": "This field is required."})
 
             if CourseInstructor.objects.filter(course=course, teacher=teacher).exists():
                 raise serializers.ValidationError(
-                    {
-                        "teacher": f"{teacher.get_full_name()} is already assigned to this course."
-                    }
+                    {"teacher": f"{teacher.get_full_name()} is already assigned to this course."}
                 )
 
         # ======================
@@ -457,13 +435,9 @@ class CourseInstructorCreateUpdateSerializer(serializers.ModelSerializer):
         # ======================
         else:
             if "course" in data:
-                raise serializers.ValidationError(
-                    {"course": "Course cannot be changed after assignment."}
-                )
+                raise serializers.ValidationError({"course": "Course cannot be changed after assignment."})
             if "teacher" in data:
-                raise serializers.ValidationError(
-                    {"teacher": "Teacher cannot be changed after assignment."}
-                )
+                raise serializers.ValidationError({"teacher": "Teacher cannot be changed after assignment."})
 
         return data
 
@@ -534,19 +508,13 @@ class CourseBatchSerializer(serializers.ModelSerializer):
     def get_is_enrolled(self, obj):
         """Check if the current user is enrolled in this batch."""
         request = self.context.get("request")
-        if (
-            not request
-            or not getattr(request, "user", None)
-            or not request.user.is_authenticated
-        ):
+        if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
             return False
 
         try:
             from api.models.models_order import Enrollment
 
-            return Enrollment.objects.filter(
-                user=request.user, batch=obj, is_active=True
-            ).exists()
+            return Enrollment.objects.filter(user=request.user, batch=obj, is_active=True).exists()
         except Exception:
             return False
 
@@ -554,11 +522,7 @@ class CourseBatchSerializer(serializers.ModelSerializer):
         """Check if this batch has installment payment available."""
         # Batch-specific override
         if obj.installment_available is not None:
-            return (
-                obj.installment_available
-                and obj.installment_count is not None
-                and obj.installment_count > 0
-            )
+            return obj.installment_available and obj.installment_count is not None and obj.installment_count > 0
 
         # Course default
         if hasattr(obj.course, "pricing") and obj.course.pricing:
@@ -648,19 +612,13 @@ class CourseBatchMinimalSerializer(serializers.ModelSerializer):
     def get_is_enrolled(self, obj):
         """Check if the current user is enrolled in this batch."""
         request = self.context.get("request")
-        if (
-            not request
-            or not getattr(request, "user", None)
-            or not request.user.is_authenticated
-        ):
+        if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
             return False
 
         try:
             from api.models.models_order import Enrollment
 
-            return Enrollment.objects.filter(
-                user=request.user, batch=obj, is_active=True
-            ).exists()
+            return Enrollment.objects.filter(user=request.user, batch=obj, is_active=True).exists()
         except Exception:
             return False
 
@@ -668,11 +626,7 @@ class CourseBatchMinimalSerializer(serializers.ModelSerializer):
         """Check if this batch has installment payment available."""
         # Batch-specific override
         if obj.installment_available is not None:
-            return (
-                obj.installment_available
-                and obj.installment_count is not None
-                and obj.installment_count > 0
-            )
+            return obj.installment_available and obj.installment_count is not None and obj.installment_count > 0
 
         # Course default
         if hasattr(obj.course, "pricing") and obj.course.pricing:
@@ -732,9 +686,7 @@ class CourseBatchCreateUpdateSerializer(serializers.ModelSerializer):
 
     # Make fields optional for updates (required=False allows partial updates)
     max_students = serializers.IntegerField(required=False, min_value=1)
-    status = serializers.ChoiceField(
-        choices=CourseBatch.BATCH_STATUS_CHOICES, required=False
-    )
+    status = serializers.ChoiceField(choices=CourseBatch.BATCH_STATUS_CHOICES, required=False)
 
     class Meta:
         model = CourseBatch
@@ -772,28 +724,20 @@ class CourseBatchCreateUpdateSerializer(serializers.ModelSerializer):
         # Check for duplicate batch number (only on create)
         if not self.instance:
             if course and batch_number:
-                if CourseBatch.objects.filter(
-                    course=course, batch_number=batch_number
-                ).exists():
+                if CourseBatch.objects.filter(course=course, batch_number=batch_number).exists():
                     raise serializers.ValidationError(
-                        {
-                            "batch_number": f"Batch {batch_number} already exists for this course."
-                        }
+                        {"batch_number": f"Batch {batch_number} already exists for this course."}
                     )
 
         # Validate dates
         if start_date and end_date:
             if end_date <= start_date:
-                raise serializers.ValidationError(
-                    {"end_date": "End date must be after start date."}
-                )
+                raise serializers.ValidationError({"end_date": "End date must be after start date."})
 
         if enrollment_end_date and start_date:
             if enrollment_end_date > start_date:
                 raise serializers.ValidationError(
-                    {
-                        "enrollment_end_date": "Enrollment must close before or on the start date."
-                    }
+                    {"enrollment_end_date": "Enrollment must close before or on the start date."}
                 )
 
         return data
@@ -805,21 +749,13 @@ class CourseBatchCreateUpdateSerializer(serializers.ModelSerializer):
 class CoursePriceSerializer(serializers.ModelSerializer):
     """Serializer for course pricing with computed fields."""
 
-    effective_price = serializers.DecimalField(
-        max_digits=10, decimal_places=2, read_only=True, source="get_discounted_price"
-    )
-    savings = serializers.DecimalField(
-        max_digits=10, decimal_places=2, read_only=True, source="get_savings"
-    )
+    effective_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, source="get_discounted_price")
+    savings = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, source="get_savings")
     installment_amount = serializers.DecimalField(
         max_digits=10, decimal_places=2, read_only=True, source="get_installment_amount"
     )
-    is_discounted = serializers.BooleanField(
-        read_only=True, source="is_currently_discounted"
-    )
-    currency_display = serializers.CharField(
-        source="get_currency_display", read_only=True
-    )
+    is_discounted = serializers.BooleanField(read_only=True, source="is_currently_discounted")
+    currency_display = serializers.CharField(source="get_currency_display", read_only=True)
     installment_preview = serializers.SerializerMethodField()
 
     def get_installment_preview(self, obj):
@@ -836,9 +772,7 @@ class CoursePriceSerializer(serializers.ModelSerializer):
             "amount": float(installment_amount) if installment_amount else 0,
             "total": float(total_price),
             "description": (
-                f"Pay in {obj.installment_count} installments of ৳{installment_amount:,.2f}"
-                if installment_amount
-                else None
+                f"Pay in {obj.installment_count} installments of ৳{installment_amount:,.2f}" if installment_amount else None
             ),
         }
 
@@ -885,16 +819,12 @@ class CoursePriceSerializer(serializers.ModelSerializer):
 
         if discount_start and discount_end:
             if discount_start >= discount_end:
-                raise serializers.ValidationError(
-                    {"discount_end_date": "Discount end date must be after start date."}
-                )
+                raise serializers.ValidationError({"discount_end_date": "Discount end date must be after start date."})
 
         # Validate discount percentage
         discount_percentage = data.get("discount_percentage", 0)
         if discount_percentage > 100:
-            raise serializers.ValidationError(
-                {"discount_percentage": "Discount percentage cannot exceed 100%."}
-            )
+            raise serializers.ValidationError({"discount_percentage": "Discount percentage cannot exceed 100%."})
 
         # Validate installment settings
         installment_available = data.get("installment_available", False)
@@ -902,15 +832,11 @@ class CoursePriceSerializer(serializers.ModelSerializer):
 
         if installment_available and not installment_count:
             raise serializers.ValidationError(
-                {
-                    "installment_count": "Installment count is required when installments are available."
-                }
+                {"installment_count": "Installment count is required when installments are available."}
             )
 
         if installment_count and installment_count < 2:
-            raise serializers.ValidationError(
-                {"installment_count": "Installment count must be at least 2."}
-            )
+            raise serializers.ValidationError({"installment_count": "Installment count must be at least 2."})
 
         return data
 
@@ -942,6 +868,7 @@ class CourseDetailSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     """Serializer for course details with all nested components (READ-ONLY for nested data)."""
 
     html_fields = ["hero_description"]
+    hero_image = serializers.SerializerMethodField()
 
     # Nested read-only fields
     content_sections = CourseContentSectionSerializer(many=True, read_only=True)
@@ -959,6 +886,7 @@ class CourseDetailSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
         model = CourseDetail
         fields = [
             "id",
+            "hero_image",
             "course",
             "course_title",
             "course_slug",
@@ -977,11 +905,32 @@ class CourseDetailSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "hero_image",
             "course_title",
             "course_slug",
             "created_at",
             "updated_at",
         ]
+
+    def get_hero_image(self, obj):
+        """Return absolute URL for course hero/header image with fallback."""
+        request = self.context.get("request")
+
+        header_image_url = None
+        try:
+            if hasattr(obj, "course") and obj.course.header_image:
+                header_image_url = obj.course.header_image.url
+        except Exception:
+            header_image_url = None
+
+        if not header_image_url:
+            from django.templatetags.static import static
+
+            header_image_url = static("default_images/default_course.webp")
+
+        if request:
+            return request.build_absolute_uri(header_image_url)
+        return header_image_url
 
 
 class CourseDetailCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
@@ -1002,9 +951,7 @@ class CourseDetailCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSeria
     def validate_course(self, value):
         """Ensure course exists and is active."""
         if not value.is_active:
-            raise serializers.ValidationError(
-                "Cannot create detail for an inactive course."
-            )
+            raise serializers.ValidationError("Cannot create detail for an inactive course.")
 
         # Check if detail already exists (only on create)
         if not self.instance and hasattr(value, "detail"):
@@ -1017,18 +964,14 @@ class CourseDetailCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSeria
     def validate_hero_button(self, value):
         """Validate hero button text length."""
         if len(value) > 100:
-            raise serializers.ValidationError(
-                "Hero button text must be 100 characters or less."
-            )
+            raise serializers.ValidationError("Hero button text must be 100 characters or less.")
         return value
 
 
 # ========== Nested Component Create/Update Serializers ==========
 
 
-class CourseContentSectionCreateUpdateSerializer(
-    CourseDetailRequiredOnCreateMixin, serializers.ModelSerializer
-):
+class CourseContentSectionCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, serializers.ModelSerializer):
     """Serializer for creating/updating content sections.
 
     IMPORTANT: Use 'course_detail' field with CourseDetail UUID.
@@ -1055,24 +998,16 @@ class CourseContentSectionCreateUpdateSerializer(
         """Validate order uniqueness per course."""
         data = super().validate(data)
 
-        course_detail = data.get("course_detail") or (
-            self.instance.course_detail if self.instance else None
-        )
+        course_detail = data.get("course_detail") or (self.instance.course_detail if self.instance else None)
         order = data.get("order")
 
         if course_detail and order is not None:
-            query = CourseContentSection.objects.filter(
-                course_detail=course_detail, order=order
-            )
+            query = CourseContentSection.objects.filter(course_detail=course_detail, order=order)
             if self.instance:
                 query = query.exclude(pk=self.instance.pk)
 
             if query.exists():
-                raise serializers.ValidationError(
-                    {
-                        "order": f"A section with order {order} already exists for this course."
-                    }
-                )
+                raise serializers.ValidationError({"order": f"A section with order {order} already exists for this course."})
 
         return data
 
@@ -1112,18 +1047,12 @@ class CourseSectionTabCreateUpdateSerializer(serializers.ModelSerializer):
                 qs = qs.exclude(pk=self.instance.pk)
 
             if qs.exists():
-                raise serializers.ValidationError(
-                    {
-                        "order": f"A tab with order {order} already exists in this section."
-                    }
-                )
+                raise serializers.ValidationError({"order": f"A tab with order {order} already exists in this section."})
 
         return data
 
 
-class CourseTabbedContentCreateUpdateSerializer(
-    HTMLFieldsMixin, serializers.ModelSerializer
-):
+class CourseTabbedContentCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
     """Serializer for creating/updating tabbed content items."""
 
     html_fields = ["description"]
@@ -1168,9 +1097,7 @@ class CourseTabbedContentCreateUpdateSerializer(
         # ======================
         # Media validation
         # ======================
-        media_type = data.get(
-            "media_type", self.instance.media_type if self.instance else "image"
-        )
+        media_type = data.get("media_type", self.instance.media_type if self.instance else "image")
 
         image = data.get("image")
         video_url = data.get("video_url")
@@ -1179,27 +1106,15 @@ class CourseTabbedContentCreateUpdateSerializer(
 
         if media_type == "image":
             if not image and not self.instance:
-                raise serializers.ValidationError(
-                    {"image": "Image is required for image media type."}
-                )
+                raise serializers.ValidationError({"image": "Image is required for image media type."})
 
         elif media_type == "video":
             if not video_url:
-                raise serializers.ValidationError(
-                    {"video_url": "Video URL is required for video media type."}
-                )
+                raise serializers.ValidationError({"video_url": "Video URL is required for video media type."})
             if not video_provider:
-                raise serializers.ValidationError(
-                    {
-                        "video_provider": "Video provider is required for video media type."
-                    }
-                )
+                raise serializers.ValidationError({"video_provider": "Video provider is required for video media type."})
             if not video_thumbnail and not self.instance:
-                raise serializers.ValidationError(
-                    {
-                        "video_thumbnail": "Video thumbnail is required for video media type."
-                    }
-                )
+                raise serializers.ValidationError({"video_thumbnail": "Video thumbnail is required for video media type."})
 
         # ======================
         # Order uniqueness
@@ -1213,16 +1128,12 @@ class CourseTabbedContentCreateUpdateSerializer(
                 qs = qs.exclude(pk=self.instance.pk)
 
             if qs.exists():
-                raise serializers.ValidationError(
-                    {"order": f"Content with order {order} already exists in this tab."}
-                )
+                raise serializers.ValidationError({"order": f"Content with order {order} already exists in this tab."})
 
         return data
 
 
-class WhyEnrolCreateUpdateSerializer(
-    CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer
-):
+class WhyEnrolCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer):
     """
     Serializer for creating/updating why enrol sections.
     """
@@ -1240,9 +1151,7 @@ class WhyEnrolCreateUpdateSerializer(
         read_only_fields = ["id"]
 
 
-class KeyBenefitCreateUpdateSerializer(
-    CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer
-):
+class KeyBenefitCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer):
     """
     Serializer for creating/updating key benefits.
     """
@@ -1260,9 +1169,7 @@ class KeyBenefitCreateUpdateSerializer(
         read_only_fields = ["id"]
 
 
-class SideImageSectionCreateUpdateSerializer(
-    CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer
-):
+class SideImageSectionCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer):
     """
     Serializer for creating/updating side image sections.
     """
@@ -1289,9 +1196,7 @@ class SideImageSectionCreateUpdateSerializer(
         read_only_fields = ["id"]
 
 
-class SuccessStoryCreateUpdateSerializer(
-    CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer
-):
+class SuccessStoryCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer):
     """
     Serializer for creating/updating success stories.
 
@@ -1363,18 +1268,12 @@ class CourseListSerializer(serializers.ModelSerializer):
         if hasattr(obj, "is_purchased"):
             return bool(getattr(obj, "is_purchased"))
 
-        if (
-            not request
-            or not getattr(request, "user", None)
-            or not request.user.is_authenticated
-        ):
+        if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
             return False
         try:
             from api.models.models_order import Enrollment
 
-            return Enrollment.objects.filter(
-                user=request.user, course=obj, is_active=True
-            ).exists()
+            return Enrollment.objects.filter(user=request.user, course=obj, is_active=True).exists()
         except Exception:
             return False
 
@@ -1382,9 +1281,7 @@ class CourseListSerializer(serializers.ModelSerializer):
         """Return active batches for this course with enrollment status."""
         request = self.context.get("request")
         batches = obj.batches.filter(is_active=True).order_by("start_date")[:5]
-        return CourseBatchMinimalSerializer(
-            batches, many=True, context={"request": request}
-        ).data
+        return CourseBatchMinimalSerializer(batches, many=True, context={"request": request}).data
 
 
 class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
@@ -1434,10 +1331,6 @@ class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             return []
         modules_qs = obj.modules.filter(is_active=True).order_by("order")
 
-        # Always return a preview/sample of the first N modules for the course
-        # regardless of authentication state. Full list can be retrieved from
-        # `GET /api/courses/<slug>/modules/` or via `data.detail.modules` when
-        # explicitly needed by admin/authenticated flows.
         sample_limit = 5
         sample_modules = modules_qs[:sample_limit]
         return CourseModuleMinimalSerializer(sample_modules, many=True).data
@@ -1449,18 +1342,12 @@ class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
         if hasattr(obj, "is_purchased"):
             return bool(getattr(obj, "is_purchased"))
 
-        if (
-            not request
-            or not getattr(request, "user", None)
-            or not request.user.is_authenticated
-        ):
+        if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
             return False
         try:
             from api.models.models_order import Enrollment
 
-            return Enrollment.objects.filter(
-                user=request.user, course=obj, is_active=True
-            ).exists()
+            return Enrollment.objects.filter(user=request.user, course=obj, is_active=True).exists()
         except Exception:
             return False
 
@@ -1495,9 +1382,7 @@ class CourseCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer)
     def validate_category(self, value):
         """Ensure category is active."""
         if not value.is_active:
-            raise serializers.ValidationError(
-                "Cannot assign course to an inactive category."
-            )
+            raise serializers.ValidationError("Cannot assign course to an inactive category.")
         return value
 
 
@@ -1507,9 +1392,7 @@ class CourseCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer)
 class CouponSerializer(serializers.ModelSerializer):
     """Serializer for coupons."""
 
-    discount_type_display = serializers.CharField(
-        source="get_discount_type_display", read_only=True
-    )
+    discount_type_display = serializers.CharField(source="get_discount_type_display", read_only=True)
     is_valid_now = serializers.SerializerMethodField()
     validity_message = serializers.SerializerMethodField()
     applicable_courses = serializers.SerializerMethodField()
@@ -1594,18 +1477,14 @@ class CouponCreateUpdateSerializer(serializers.ModelSerializer):
 
         if valid_from and valid_until:
             if valid_from >= valid_until:
-                raise serializers.ValidationError(
-                    {"valid_until": "Valid until date must be after valid from date."}
-                )
+                raise serializers.ValidationError({"valid_until": "Valid until date must be after valid from date."})
 
         # Validate discount value based on type
         discount_type = data.get("discount_type")
         discount_value = data.get("discount_value")
 
         if discount_type == "percentage" and discount_value > 100:
-            raise serializers.ValidationError(
-                {"discount_value": "Percentage discount cannot exceed 100%."}
-            )
+            raise serializers.ValidationError({"discount_value": "Percentage discount cannot exceed 100%."})
 
         return data
 
@@ -1662,9 +1541,7 @@ class CouponValidationSerializer(serializers.Serializer):
             raise serializers.ValidationError({"course_id": "Invalid course."})
 
         if not coupon.can_apply_to_course(course):
-            raise serializers.ValidationError(
-                {"code": "This coupon is not applicable to the selected course."}
-            )
+            raise serializers.ValidationError({"code": "This coupon is not applicable to the selected course."})
 
         # Add coupon and course to validated data for use in view
         data["coupon"] = coupon

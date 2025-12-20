@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.html import strip_tags
 from django.utils.text import slugify
+
 from django_ckeditor_5.fields import CKEditor5Field
 
 from api.utils.helper_models import TimeStampedModel
@@ -16,14 +17,14 @@ class FAQItem(TimeStampedModel):
     faq_nav_slug = models.SlugField(max_length=100, blank=True)
     order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
-    
+
     class Meta:
-        ordering = ['faq_nav', 'order', 'created_at']
+        ordering = ["faq_nav", "order", "created_at"]
         verbose_name_plural = "FAQ Items"
 
     def __str__(self):
         return f"{self.faq_nav} - {self.title}"
-    
+
     def save(self, *args, **kwargs):
         if not self.faq_nav_slug and self.faq_nav:
             self.faq_nav_slug = slugify(self.faq_nav)
@@ -32,14 +33,14 @@ class FAQItem(TimeStampedModel):
 
 class FAQ(TimeStampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    item = models.ForeignKey(FAQItem, on_delete=models.CASCADE, related_name='faqs')
+    item = models.ForeignKey(FAQItem, on_delete=models.CASCADE, related_name="faqs")
     question = models.TextField(blank=False, null=False)
     answer = CKEditor5Field(blank=False, null=False)
     order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        ordering = ['item', 'order', 'created_at']
+        ordering = ["item", "order", "created_at"]
 
     def clean(self):
         super().clean()
@@ -63,15 +64,6 @@ class FAQ(TimeStampedModel):
         return strip_tags(self.question)[:100] if self.question else f"FAQ {self.id}"
 
 
-
-
-
-
-
-
-
-
-
 # import uuid
 
 # from django.core.exceptions import ValidationError
@@ -89,14 +81,14 @@ class FAQ(TimeStampedModel):
 #     faq_nav_slug = models.SlugField(max_length=100, blank=True)
 #     order = models.PositiveIntegerField(default=0)
 #     is_active = models.BooleanField(default=True)
-    
+
 #     class Meta:
 #         ordering = ['faq_nav', 'order', 'created_at']
 #         verbose_name_plural = "FAQ Items"
 
 #     def __str__(self):
 #         return f"{self.faq_nav} - {self.title}"
-    
+
 #     def save(self, *args, **kwargs):
 #         if not self.faq_nav_slug and self.faq_nav:
 #             self.faq_nav_slug = slugify(self.faq_nav)

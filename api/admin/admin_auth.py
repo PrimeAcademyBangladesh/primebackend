@@ -22,7 +22,6 @@ admin.site.site_title = "Prime Academy Portal"
 admin.site.index_title = "Welcome to Prime Academy Admin"
 
 
-
 # -----------------------------
 # User Forms
 # -----------------------------
@@ -55,10 +54,7 @@ class CustomUserChangeForm(forms.ModelForm):
 
     class Meta:
         model = CustomUser
-        fields = (
-            "email", "first_name", "last_name", "phone",
-            "password", "is_active", "is_staff", "is_superuser", "role"
-        )
+        fields = ("email", "first_name", "last_name", "phone", "password", "is_active", "is_staff", "is_superuser", "role")
 
     def clean_password(self):
         return self.initial["password"]
@@ -73,7 +69,7 @@ class ProfileInline(admin.StackedInline):
     verbose_name_plural = "Profile"
     verbose_name = "Background Information"
     autocomplete_fields = ("skills",)
-    
+
     extra = 1
 
     def get_queryset(self, request):
@@ -83,6 +79,7 @@ class ProfileInline(admin.StackedInline):
 # -----------------------------
 # Custom User Admin
 # -----------------------------
+
 
 @admin.register(CustomUser)
 class CustomUserAdmin(DjangoUserAdmin):
@@ -99,20 +96,21 @@ class CustomUserAdmin(DjangoUserAdmin):
     fieldsets = (
         (None, {"fields": ("email", "password")}),
         (_("Personal info"), {"fields": ("first_name", "last_name", "phone", "student_id")}),
-        (_("Permissions"), {
-            "fields": (
-                "role", "is_active", "is_staff", "is_enabled", "is_superuser",
-                "groups", "user_permissions"
-            )
-        }),
+        (
+            _("Permissions"),
+            {"fields": ("role", "is_active", "is_staff", "is_enabled", "is_superuser", "groups", "user_permissions")},
+        ),
         (_("Important dates"), {"fields": ("last_login", "date_joined")}),
     )
 
     add_fieldsets = (
-        (None, {
-            "classes": ("wide",),
-            "fields": ("email", "first_name", "last_name", "phone", "role", "password1", "password2"),
-        }),
+        (
+            None,
+            {
+                "classes": ("wide",),
+                "fields": ("email", "first_name", "last_name", "phone", "role", "password1", "password2"),
+            },
+        ),
     )
 
     def save_model(self, request, obj, form, change):
@@ -131,9 +129,10 @@ class CustomUserAdmin(DjangoUserAdmin):
         if obj:
             return self.readonly_fields + ("role", "email")
         return self.readonly_fields
-    
+
     class Media:
-        css = {'all': ('admin/css/ckeditor-custom.css',)}
+        css = {"all": ("admin/css/ckeditor-custom.css",)}
+
 
 # -----------------------------
 # Hidden Admins
@@ -152,4 +151,3 @@ class HiddenSkillAdmin(admin.ModelAdmin):
 
     def has_module_permission(self, request):
         return False
-

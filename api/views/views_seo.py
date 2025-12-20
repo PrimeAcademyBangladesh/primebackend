@@ -2,16 +2,15 @@
 
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 
 from api import permissions
 from api.models.models_seo import PageSEO
 from api.permissions import IsStaff
-from api.serializers.serializers_seo import (PageSEOCreateUpdateSerializer,
-                                             PageSEOSerializer)
+from api.serializers.serializers_seo import PageSEOCreateUpdateSerializer, PageSEOSerializer
 from api.utils.response_utils import api_response
 from api.views.views_base import BaseAdminViewSet
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 
 @extend_schema(tags=["SEO Management"])

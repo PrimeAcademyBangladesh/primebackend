@@ -2,24 +2,21 @@
 
 from django.core.cache import cache
 from django.db import IntegrityError
-from drf_spectacular.utils import (OpenApiResponse, extend_schema,
-                                   extend_schema_view)
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import permissions, status
 from rest_framework.exceptions import NotFound
-from rest_framework.generics import (CreateAPIView, DestroyAPIView,
-                                     RetrieveAPIView, UpdateAPIView)
+from rest_framework.generics import CreateAPIView, DestroyAPIView, RetrieveAPIView, UpdateAPIView
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
 from api.models.models_footer import Footer
 from api.permissions import IsAdmin
 from api.serializers.serializers_footer import FooterSerializer
 from api.utils.response_utils import api_response
 from api.utils.resposne_return import APIResponseSerializer
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 CACHE_KEY = "footer_api_response"
 CACHE_TIMEOUT = 60 * 30  # 30 minutes
-
-
 
 
 @extend_schema(
@@ -39,9 +36,7 @@ class FooterPublicView(RetrieveAPIView):
         if cached:
             return cached
 
-        footer = Footer.objects.prefetch_related(
-            "link_groups__links", "social_links"
-        ).first()
+        footer = Footer.objects.prefetch_related("link_groups__links", "social_links").first()
         if footer:
             cache.set(CACHE_KEY, footer, CACHE_TIMEOUT)
         return footer
@@ -52,9 +47,7 @@ class FooterPublicView(RetrieveAPIView):
             return api_response(False, "No footer found", {}, status.HTTP_404_NOT_FOUND)
 
         serializer = self.get_serializer(instance, context={"request": request})
-        return api_response(
-            True, "Footer retrieved successfully", serializer.data, status.HTTP_200_OK
-        )
+        return api_response(True, "Footer retrieved successfully", serializer.data, status.HTTP_200_OK)
 
 
 @extend_schema_view(
@@ -83,17 +76,14 @@ class FooterPublicView(RetrieveAPIView):
         tags=["Footer"],
         summary="Delete footer",
         description="Delete the footer instance.",
-        responses={
-            204: OpenApiResponse(description="Footer deleted"),
-            404: OpenApiResponse(description="Footer not found")
-        },
-    )
+        responses={204: OpenApiResponse(description="Footer deleted"), 404: OpenApiResponse(description="Footer not found")},
+    ),
 )
 class FooterAdminView(CreateAPIView, UpdateAPIView, DestroyAPIView):
     serializer_class = FooterSerializer
     permission_classes = [IsAdmin]
     parser_classes = (MultiPartParser, FormParser, JSONParser)
-    
+
     def get_object(self):
         footer = Footer.objects.first()
         if not footer:
@@ -128,13 +118,9 @@ class FooterAdminView(CreateAPIView, UpdateAPIView, DestroyAPIView):
     def update(self, request, *args, **kwargs):
         response = super().update(request, *args, **kwargs)
         cache.delete(CACHE_KEY)
-        return api_response(
-            True, "Footer updated successfully", response.data, status.HTTP_200_OK
-        )
+        return api_response(True, "Footer updated successfully", response.data, status.HTTP_200_OK)
 
     def destroy(self, request, *args, **kwargs):
         super().destroy(request, *args, **kwargs)
         cache.delete(CACHE_KEY)
-        return api_response(
-            True, "Footer deleted successfully", {}, status.HTTP_204_NO_CONTENT
-        )
+        return api_response(True, "Footer deleted successfully", {}, status.HTTP_204_NO_CONTENT)

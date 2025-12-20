@@ -1,12 +1,13 @@
 """Payment gateway views for SSLCommerz integration."""
 
-import logging
+
 import traceback
 from decimal import Decimal
 
 from django.conf import settings
 from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -73,9 +74,7 @@ class PaymentInitiateView(APIView):
         order_id = request.data.get("order_id")
 
         if not order_id:
-            return api_response(
-                False, "Order ID is required", {}, status.HTTP_400_BAD_REQUEST
-            )
+            return api_response(False, "Order ID is required", {}, status.HTTP_400_BAD_REQUEST)
 
         try:
             # Get order and verify ownership
@@ -106,11 +105,7 @@ class PaymentInitiateView(APIView):
                 # Calculate payment amount (installment or full)
                 amount_to_pay = order.total_amount
                 if order.is_installment:
-                    installment = (
-                        order.installment_payments.filter(status="pending")
-                        .order_by("installment_number")
-                        .first()
-                    )
+                    installment = order.installment_payments.filter(status="pending").order_by("installment_number").first()
                     if installment:
                         amount_to_pay = installment.amount
 
@@ -181,14 +176,8 @@ def payment_webhook(request):
     """
     SSLCommerz IPN Handler — FIXED INSTALLMENT LOGIC
     """
-    # import logging
-
-    logger = logging.getLogger(__name__)
 
     try:
-        logger.info("=== Webhook received ===")
-        logger.info(request.data)
-
         tran_id = request.data.get("tran_id")
         val_id = request.data.get("val_id")
         amount = request.data.get("amount")
@@ -223,11 +212,7 @@ def payment_webhook(request):
         if order.is_installment:
             # from api.models.models_order import OrderInstallment
 
-            next_installment = (
-                order.installment_payments.filter(status="pending")
-                .order_by("installment_number")
-                .first()
-            )
+            next_installment = order.installment_payments.filter(status="pending").order_by("installment_number").first()
 
             if not next_installment:
                 return Response({"error": "No pending installment"}, status=400)
@@ -246,9 +231,7 @@ def payment_webhook(request):
                 )
 
             # Mark paid
-            next_installment.mark_as_paid(
-                payment_id=val_id, payment_method="ssl_commerce"
-            )
+            next_installment.mark_as_paid(payment_id=val_id, payment_method="ssl_commerce")
 
             order.refresh_from_db()
 
@@ -318,8 +301,6 @@ def payment_success_redirect(request):
     """
     from django.http import HttpResponseForbidden, HttpResponseRedirect, JsonResponse
 
-    logger = logging.getLogger(__name__)
-
     try:
         if request.method == "POST":
             store_id = request.POST.get("store_id")
@@ -331,7 +312,6 @@ def payment_success_redirect(request):
             tran_id = request.POST.get("tran_id")
             val_id = request.POST.get("val_id")
             amount = request.POST.get("amount")
-            payment_status = request.POST.get("status")
 
             try:
                 order = Order.objects.get(order_number=tran_id)
@@ -347,15 +327,11 @@ def payment_success_redirect(request):
                 # ---------------------------------------------------
                 if order.is_installment:
                     next_installment = (
-                        order.installment_payments.filter(status="pending")
-                        .order_by("installment_number")
-                        .first()
+                        order.installment_payments.filter(status="pending").order_by("installment_number").first()
                     )
 
                     if next_installment:
-                        next_installment.mark_as_paid(
-                            payment_id=val_id, payment_method="ssl_commerce"
-                        )
+                        next_installment.mark_as_paid(payment_id=val_id, payment_method="ssl_commerce")
 
                         order.refresh_from_db()
 
@@ -385,32 +361,22 @@ def payment_success_redirect(request):
                     order.mark_as_completed()
 
             # Redirect user safely
-            return HttpResponseRedirect(
-                f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}"
-            )
+            return HttpResponseRedirect(f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}")
 
         # GET request fallback
         tran_id = request.GET.get("tran_id")
-        return HttpResponseRedirect(
-            f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}"
-        )
+        return HttpResponseRedirect(f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}")
 
     except Exception as e:
-        return JsonResponse(
-            {"error": str(e), "trace": traceback.format_exc()}, status=500
-        )
+        return JsonResponse({"error": str(e), "trace": traceback.format_exc()}, status=500)
 
 
 @csrf_exempt
 def payment_fail_redirect(request):
     """Plain Django view - Redirect failed payments to frontend."""
-    import logging
 
     from django.conf import settings
     from django.http import HttpResponseForbidden, HttpResponseRedirect
-
-    logger = logging.getLogger(__name__)
-    logger.info(f"Payment fail redirect - Method: {request.method}")
 
     # SECURITY: Verify request is from SSLCommerz (for POST requests)
     if request.method == "POST":
@@ -418,7 +384,6 @@ def payment_fail_redirect(request):
         expected_store_id = getattr(settings, "SSLCOMMERZ_STORE_ID", "")
 
         if store_id != expected_store_id:
-            logger.warning(f"Invalid store_id in fail redirect: {store_id}")
             return HttpResponseForbidden("Invalid request")
 
     tran_id = request.POST.get("tran_id", "") or request.GET.get("tran_id", "")
@@ -429,13 +394,9 @@ def payment_fail_redirect(request):
 @csrf_exempt
 def payment_cancel_redirect(request):
     """Plain Django view - Redirect cancelled payments to frontend."""
-    import logging
 
     from django.conf import settings
     from django.http import HttpResponseForbidden, HttpResponseRedirect
-
-    logger = logging.getLogger(__name__)
-    logger.info(f"Payment cancel redirect - Method: {request.method}")
 
     # SECURITY: Verify request is from SSLCommerz (for POST requests)
     if request.method == "POST":
@@ -443,7 +404,6 @@ def payment_cancel_redirect(request):
         expected_store_id = getattr(settings, "SSLCOMMERZ_STORE_ID", "")
 
         if store_id != expected_store_id:
-            logger.warning(f"Invalid store_id in cancel redirect: {store_id}")
             return HttpResponseForbidden("Invalid request")
 
     tran_id = request.POST.get("tran_id", "") or request.GET.get("tran_id", "")
@@ -518,9 +478,7 @@ def verify_payment(request):
         order_number = request.data.get("order_number")
 
     if not order_number:
-        return api_response(
-            False, "Order number is required", {}, status.HTTP_400_BAD_REQUEST
-        )
+        return api_response(False, "Order number is required", {}, status.HTTP_400_BAD_REQUEST)
 
     try:
         order = Order.objects.get(order_number=order_number)
@@ -537,11 +495,7 @@ def verify_payment(request):
                 )
 
         # Get enrolled courses
-        enrolled_courses = list(
-            order.enrollments.filter(is_active=True).values_list(
-                "course__title", flat=True
-            )
-        )
+        enrolled_courses = list(order.enrollments.filter(is_active=True).values_list("course__title", flat=True))
 
         return api_response(
             True,
@@ -716,9 +670,7 @@ class InstallmentPaymentInitiateView(APIView):
         order_id = request.data.get("order_id")
 
         if not order_id:
-            return api_response(
-                False, "Order ID is required", {}, status.HTTP_400_BAD_REQUEST
-            )
+            return api_response(False, "Order ID is required", {}, status.HTTP_400_BAD_REQUEST)
 
         try:
             order = Order.objects.get(id=order_id)
@@ -742,11 +694,7 @@ class InstallmentPaymentInitiateView(APIView):
                 )
 
             # Find next pending installment
-            next_installment = (
-                order.installment_payments.filter(status="pending")
-                .order_by("installment_number")
-                .first()
-            )
+            next_installment = order.installment_payments.filter(status="pending").order_by("installment_number").first()
 
             if not next_installment:
                 return api_response(
@@ -785,9 +733,7 @@ class InstallmentPaymentInitiateView(APIView):
             return api_response(False, "Order not found", {}, status.HTTP_404_NOT_FOUND)
 
         except Exception as e:
-            return api_response(
-                False, str(e), {}, status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return api_response(False, str(e), {}, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema(
@@ -835,11 +781,7 @@ class InstallmentSummaryView(APIView):
             if not order.is_installment:
                 return api_response(False, "Order is not installment based", {}, 400)
 
-            next_installment = (
-                order.installment_payments.filter(status="pending")
-                .order_by("installment_number")
-                .first()
-            )
+            next_installment = order.installment_payments.filter(status="pending").order_by("installment_number").first()
 
             next_data = None
             if next_installment:
@@ -866,321 +808,3 @@ class InstallmentSummaryView(APIView):
 
         except Order.DoesNotExist:
             return api_response(False, "Order not found", {}, 404)
-
-
-# @extend_schema(
-#     summary="Payment webhook (IPN) from SSLCommerz",
-#     description="Receives payment notifications from SSLCommerz. This endpoint is called by SSLCommerz automatically after payment.",
-#     request={
-#         'application/x-www-form-urlencoded': {
-#             'type': 'object',
-#             'properties': {
-#                 'tran_id': {'type': 'string', 'description': 'Transaction ID (order_number)'},
-#                 'val_id': {'type': 'string', 'description': 'Validation ID'},
-#                 'amount': {'type': 'string', 'description': 'Payment amount'},
-#                 'status': {'type': 'string', 'description': 'Payment status'},
-#             }
-#         }
-#     },
-#     responses={200: {'description': 'Webhook processed'}},
-#     tags=['Course - Payment']
-# )
-# @csrf_exempt
-# @api_view(['POST'])
-# @permission_classes([AllowAny])
-# def payment_webhook(request):
-#     """
-#     SSLCommerz IPN (Instant Payment Notification) webhook.
-
-#     This endpoint receives payment status updates from SSLCommerz.
-#     It validates the payment and automatically completes the order.
-#     """
-#     import logging
-#     logger = logging.getLogger(__name__)
-
-#     try:
-#         # Log incoming webhook data for debugging
-#         logger.info(f"Payment webhook received: {request.POST.dict() if hasattr(request.POST, 'dict') else request.data}")
-
-#         # Extract data from POST request
-#         tran_id = request.data.get('tran_id') or request.POST.get('tran_id')
-#         val_id = request.data.get('val_id') or request.POST.get('val_id')
-#         payment_status = request.data.get('status') or request.POST.get('status')
-#         amount = request.data.get('amount') or request.POST.get('amount')
-#         bank_tran_id = request.data.get('bank_tran_id') or request.POST.get('bank_tran_id')
-#         card_type = request.data.get('card_type') or request.POST.get('card_type')
-
-#         if not tran_id or not val_id:
-#             logger.error(f"Missing required parameters. tran_id: {tran_id}, val_id: {val_id}")
-#             return Response({'error': 'Missing required parameters'}, status=400)
-
-#         # Find order by transaction ID (order_number)
-#         try:
-#             order = Order.objects.get(order_number=tran_id)
-#         except Order.DoesNotExist:
-#             return Response({'error': 'Order not found'}, status=404)
-
-#         # Initialize gateway
-#         gateway = SSLCommerzPayment()
-
-#         # Verify webhook signature (optional but recommended)
-#         # if not gateway.verify_webhook_signature(request.POST.dict()):
-#         #     return Response({'error': 'Invalid signature'}, status=403)
-
-#         # Validate payment with SSLCommerz
-#         # NOTE: For installments, we're validating the installment amount, not total
-#         payment_amount = Decimal(amount) if amount else order.total_amount
-#         is_valid, validation_data = gateway.validate_payment(val_id, payment_amount)
-
-#         if is_valid and payment_status in ['VALID', 'VALIDATED']:
-#             # Payment successful
-#             logger.info(f"Payment validated for order {tran_id}. Amount: {payment_amount}")
-
-#             order.payment_method = 'ssl_commerce'
-
-#             # Handle installment payments
-#             if order.is_installment:
-#                 logger.info(f"Processing installment payment for order {order.order_number}")
-
-#                 # Find the next pending installment
-#                 from api.models.models_order import OrderInstallment
-#                 next_installment = order.installment_payments.filter(
-#                     status='pending'
-#                 ).order_by('installment_number').first()
-
-#                 if next_installment:
-#                     # Mark this installment as paid
-#                     next_installment.mark_as_paid(
-#                         payment_id=bank_tran_id or val_id,
-#                         payment_method=card_type or 'ssl_commerce'
-#                     )
-#                     logger.info(f"Marked installment {next_installment.installment_number} as paid")
-
-#                     # Refresh order to get updated installments_paid count
-#                     order.refresh_from_db()
-
-#                     # Check if all installments are paid
-#                     if order.is_fully_paid():
-#                         order.status = 'completed'
-#                         order.completed_at = timezone.now()
-#                         order.payment_status = 'completed'
-#                         logger.info(f"All installments paid. Order {order.order_number} completed")
-#                     else:
-#                         order.status = 'processing'
-#                         order.payment_status = 'partial'
-#                         logger.info(f"Installment {order.installments_paid}/{order.installment_plan} paid")
-
-#                     # Store payment details in notes
-#                     existing_notes = order.notes or ''
-#                     new_note = f"Installment {order.installments_paid} - Val ID: {val_id}, Bank Tran ID: {bank_tran_id}, Card: {card_type}"
-#                     order.notes = f"{existing_notes}\n{new_note}" if existing_notes else new_note
-#                     order.save()
-
-#                     # Create enrollments for partial payment (first installment grants access)
-#                     if order.installments_paid >= 1:
-#                         logger.info(f"Creating enrollments for order {order.order_number}...")
-#                         order.mark_as_completed()
-
-#                     enrollment_count = order.enrollments.count()
-
-#                     return Response({
-#                         'success': True,
-#                         'message': f'Installment {order.installments_paid}/{order.installment_plan} payment verified',
-#                         'order_number': order.order_number,
-#                         'installments_paid': order.installments_paid,
-#                         'installment_plan': order.installment_plan,
-#                         'payment_status': order.payment_status,
-#                         'enrollments_created': enrollment_count
-#                     })
-#                 else:
-#                     logger.warning(f"No pending installment found for order {order.order_number}")
-#             else:
-#                 # Full payment (not installment)
-#                 logger.info(f"Processing full payment for order {tran_id}")
-
-#                 order.status = 'completed'
-#                 order.completed_at = timezone.now()
-#                 order.payment_id = bank_tran_id or val_id
-#                 order.payment_status = 'completed'
-
-#                 # Store payment details in notes
-#                 order.notes = f"SSLCommerz Payment - Val ID: {val_id}, Bank Tran ID: {bank_tran_id}, Card: {card_type}"
-#                 order.save()
-
-#                 # Create enrollments automatically
-#                 logger.info(f"Creating enrollments for order {order.order_number}...")
-#                 order.mark_as_completed()
-
-#                 enrollment_count = order.enrollments.count()
-#                 logger.info(f"Order {order.order_number} completed. Created {enrollment_count} enrollments.")
-
-#                 return Response({
-#                     'success': True,
-#                     'message': 'Payment verified and order completed',
-#                     'order_number': order.order_number,
-#                     'enrollments_created': enrollment_count
-#                 })
-#         else:
-#             # Payment failed or invalid
-#             order.status = 'failed'
-#             order.notes = f"Payment failed - Status: {payment_status}, Validation: {validation_data}"
-#             order.save()
-
-#             return Response({
-#                 'success': False,
-#                 'message': 'Payment validation failed',
-#                 'order_number': order.order_number
-#             })
-
-#     except Exception as e:
-#         return Response({'error': str(e)}, status=500)
-
-
-# @csrf_exempt
-# def payment_success_redirect(request):
-#     """
-#     Plain Django view - Receives POST from SSLCommerz and redirects to frontend with GET.
-
-#     SSLCommerz sends POST after payment. This backend endpoint:
-#     1. Receives POST with payment data
-#     2. Verifies request is from SSLCommerz (checks store_id)
-#     3. Validates the payment with SSLCommerz
-#     4. Updates order status if payment is valid
-#     5. Redirects to frontend success page with GET + query params
-
-#     Frontend receives clean GET request and can handle it properly.
-
-#     NOTE: This is a plain Django view (not DRF) to avoid authentication issues.
-#     """
-#     from django.http import HttpResponseRedirect, HttpResponseForbidden, JsonResponse
-#     from django.conf import settings
-#     import logging
-#     import traceback
-
-#     logger = logging.getLogger(__name__)
-
-#     try:
-#         logger.info(f"=== Payment Success Redirect ===")
-#         logger.info(f"Method: {request.method}")
-#         logger.info(f"POST data: {dict(request.POST)}")
-#         logger.info(f"GET data: {dict(request.GET)}")
-#         logger.info(f"Headers: {dict(request.headers)}")
-
-#         if request.method == "POST":
-#             # SECURITY: Verify request is from SSLCommerz
-#             store_id = request.POST.get("store_id", "")
-#             expected_store_id = getattr(settings, "SSLCOMMERZ_STORE_ID", "")
-
-#             if store_id != expected_store_id:
-#                 logger.warning(f"Invalid store_id in payment redirect: {store_id}")
-#                 return HttpResponseForbidden("Invalid request")
-
-#             # Extract data from SSLCommerz POST
-#             tran_id = request.POST.get("tran_id", "")
-#             value_a = request.POST.get("value_a", "")  # order_id
-#             payment_status = request.POST.get("status", "")
-#             val_id = request.POST.get("val_id", "")
-#             amount = request.POST.get("amount", "")
-#             bank_tran_id = request.POST.get("bank_tran_id", "")
-#             card_type = request.POST.get("card_type", "")
-
-#             # Try to validate and complete the order here
-#             try:
-#                 order = Order.objects.get(order_number=tran_id)
-
-#                 # Only validate if not already completed
-#                 if order.status != "completed" and val_id:
-#                     gateway = SSLCommerzPayment()
-#                     payment_amount = Decimal(amount) if amount else order.total_amount
-#                     is_valid, validation_data = gateway.validate_payment(
-#                         val_id, payment_amount
-#                     )
-
-#                     if is_valid and payment_status in ["VALID", "VALIDATED"]:
-#                         # Payment successful
-#                         logger.info(
-#                             f"Payment validated for order {tran_id} in success redirect"
-#                         )
-
-#                         order.payment_method = "ssl_commerce"
-
-#                         # Handle installment payments
-#                         if order.is_installment:
-#                             from api.models.models_order import OrderInstallment
-
-#                             next_installment = (
-#                                 order.installment_payments.filter(status="pending")
-#                                 .order_by("installment_number")
-#                                 .first()
-#                             )
-
-#                             if next_installment:
-#                                 next_installment.mark_as_paid(
-#                                     payment_id=bank_tran_id or val_id,
-#                                     payment_method=card_type or "ssl_commerce",
-#                                 )
-#                                 order.refresh_from_db()
-
-#                                 if order.is_fully_paid():
-#                                     order.status = "completed"
-#                                     order.completed_at = timezone.now()
-#                                     order.payment_status = "completed"
-#                                 else:
-#                                     order.status = "processing"
-#                                     order.payment_status = "partial"
-
-#                                 existing_notes = order.notes or ""
-#                                 new_note = f"Installment {order.installments_paid} - Val ID: {val_id}, Bank Tran ID: {bank_tran_id}, Card: {card_type}"
-#                                 order.notes = (
-#                                     f"{existing_notes}\n{new_note}"
-#                                     if existing_notes
-#                                     else new_note
-#                                 )
-#                                 order.save()
-
-#                                 if order.installments_paid >= 1:
-#                                     order.mark_as_completed()
-
-#                                 logger.info(
-#                                     f"Installment {order.installments_paid}/{order.installment_plan} paid in success redirect"
-#                                 )
-#                         else:
-#                             # Full payment
-#                             order.status = "completed"
-#                             order.completed_at = timezone.now()
-#                             order.payment_id = bank_tran_id or val_id
-#                             order.payment_status = "completed"
-#                             order.notes = f"SSLCommerz Payment - Val ID: {val_id}, Bank Tran ID: {bank_tran_id}, Card: {card_type}"
-#                             order.save()
-
-#                             # Create enrollments
-#                             order.mark_as_completed()
-#                             logger.info(
-#                                 f"Order {order.order_number} completed in success redirect"
-#                             )
-
-#             except Order.DoesNotExist:
-#                 logger.error(f"Order not found for tran_id: {tran_id}")
-#             except Exception as validation_error:
-#                 logger.error(
-#                     f"Error validating payment in success redirect: {str(validation_error)}"
-#                 )
-
-#             # Build frontend URL with query parameters
-#             frontend_url = f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}&value_a={value_a}&status={payment_status}"
-
-#             return HttpResponseRedirect(frontend_url)
-
-#         # If GET request (direct access), also redirect to frontend
-#         tran_id = request.GET.get("tran_id", "")
-#         value_a = request.GET.get("value_a", "")
-#         payment_status = request.GET.get("status", "")
-#         frontend_url = f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}&value_a={value_a}&status={payment_status}"
-#         return HttpResponseRedirect(frontend_url)
-
-#     except Exception as e:
-#         logger.error(f"Error in payment_success_redirect: {str(e)}")
-#         logger.error(traceback.format_exc())
-#         return JsonResponse(
-#             {"error": str(e), "traceback": traceback.format_exc()}, status=500
-#         )

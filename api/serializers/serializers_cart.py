@@ -1,7 +1,8 @@
 """Cart and Wishlist Serializers"""
 
-from rest_framework import serializers
 from decimal import Decimal
+
+from rest_framework import serializers
 
 from api.models.models_cart import Cart, CartItem, Wishlist
 from api.models.models_course import Course
@@ -113,9 +114,7 @@ class CartItemSerializer(serializers.ModelSerializer):
                     pricing = obj.course.pricing
                     if pricing.installment_available and pricing.installment_count:
                         has_installment = True
-                        total_price = (
-                            obj.batch.custom_price or pricing.get_discounted_price()
-                        )
+                        total_price = obj.batch.custom_price or pricing.get_discounted_price()
                         per_installment = total_price / pricing.installment_count
                         installment_preview = {
                             "available": True,
@@ -204,15 +203,9 @@ class CartSerializer(serializers.ModelSerializer):
             has_installment = False
             if item.batch:
                 if item.batch.installment_available is not None:
-                    has_installment = (
-                        item.batch.installment_available
-                        and item.batch.installment_count
-                    )
+                    has_installment = item.batch.installment_available and item.batch.installment_count
                 elif hasattr(item.course, "pricing") and item.course.pricing:
-                    has_installment = (
-                        item.course.pricing.installment_available
-                        and item.course.pricing.installment_count
-                    )
+                    has_installment = item.course.pricing.installment_available and item.course.pricing.installment_count
 
             if has_installment:
                 installment_items.append(item_data)
@@ -290,18 +283,14 @@ class AddToCartSerializer(serializers.Serializer):
 
         # ❌ Neither provided
         if not course_id and not batch_id:
-            raise serializers.ValidationError(
-                "Either course or batch must be provided."
-            )
+            raise serializers.ValidationError("Either course or batch must be provided.")
 
         # ✅ If batch is provided → derive course
         if batch_id:
             try:
                 batch = CourseBatch.objects.get(id=batch_id, is_active=True)
             except CourseBatch.DoesNotExist:
-                raise serializers.ValidationError(
-                    {"batch_id": "Batch not found or is not available."}
-                )
+                raise serializers.ValidationError({"batch_id": "Batch not found or is not available."})
 
             data["batch"] = batch
             data["course"] = batch.course
@@ -311,9 +300,7 @@ class AddToCartSerializer(serializers.Serializer):
         try:
             course = Course.objects.get(id=course_id, is_active=True)
         except Course.DoesNotExist:
-            raise serializers.ValidationError(
-                {"course_id": "Course not found or is not available."}
-            )
+            raise serializers.ValidationError({"course_id": "Course not found or is not available."})
 
         data["course"] = course
         data["batch"] = None
@@ -391,10 +378,8 @@ class AddToWishlistSerializer(serializers.Serializer):
     course_id = serializers.UUIDField(required=True)
 
     def validate_course_id(self, value):
-        """Validate that course exists and is active"""
-        try:
-            course = Course.objects.get(id=value, is_active=True)
-        except Course.DoesNotExist:
+        """Ensure course exists and is active"""
+        if not Course.objects.filter(id=value, is_active=True).exists():
             raise serializers.ValidationError("Course not found or is not available.")
         return value
 

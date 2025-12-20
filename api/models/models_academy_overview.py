@@ -9,7 +9,7 @@ class AcademyOverview(TimeStampedModel):
 
     learners_count = models.PositiveIntegerField(default=0)
     learners_short = models.CharField(max_length=150, blank=True, null=True)
-    
+
     partners_count = models.PositiveIntegerField(default=0)
     partners_short = models.CharField(max_length=150, blank=True, null=True)
 
@@ -18,10 +18,10 @@ class AcademyOverview(TimeStampedModel):
 
     partnerships_title = models.CharField(max_length=50, blank=True, null=True)
     partnerships_short = models.CharField(max_length=150, blank=True, null=True)
-    
+
     button_text = models.CharField(max_length=100, default="Explore Prime Academy")
     button_url = models.CharField(max_length=150, blank=True, null=True)
-    
+
     is_active = models.BooleanField(default=True)
 
     class Meta:

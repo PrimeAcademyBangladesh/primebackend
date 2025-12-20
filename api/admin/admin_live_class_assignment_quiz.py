@@ -9,26 +9,26 @@ This module provides comprehensive admin interfaces for managing:
 Uses nested_admin for complex hierarchical structures.
 """
 
-import nested_admin
-from django.contrib import admin
 from django import forms
+from django.contrib import admin
+from django.db.models import Avg, Count, Q
 from django.utils import timezone
 from django.utils.html import format_html
-from django.db.models import Count, Avg, Q
+
+import nested_admin
 
 from api.admin.base_admin import BaseModelAdmin
+from api.models.models_course import Course, CourseModule
 from api.models.models_module import (
-    LiveClass,
     Assignment,
     AssignmentSubmission,
+    LiveClass,
     Quiz,
+    QuizAnswer,
+    QuizAttempt,
     QuizQuestion,
     QuizQuestionOption,
-    QuizAttempt,
-    QuizAnswer,
 )
-from api.models.models_course import Course, CourseModule
-
 
 # ========== Quiz Nested Inlines ==========
 
@@ -131,9 +131,7 @@ class LiveClassAdmin(BaseModelAdmin):
                     self.fields["course"].initial = module.course.slug
 
             # Limit module queryset to active modules; modules will be loaded via AJAX when course selected
-            self.fields["module"].queryset = CourseModule.objects.filter(
-                is_active=True
-            ).select_related("course")
+            self.fields["module"].queryset = CourseModule.objects.filter(is_active=True).select_related("course")
 
         def clean(self):
             cleaned = super().clean()
@@ -142,9 +140,7 @@ class LiveClassAdmin(BaseModelAdmin):
             if course and module:
                 # Module.course is Course; compare module.course.slug to selected course.slug
                 if not (module.course and module.course.slug == course.slug):
-                    raise forms.ValidationError(
-                        "Selected module does not belong to the chosen course."
-                    )
+                    raise forms.ValidationError("Selected module does not belong to the chosen course.")
             return cleaned
 
     form = LiveClassAdminForm
@@ -230,9 +226,7 @@ class LiveClassAdmin(BaseModelAdmin):
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         """Show only active modules in dropdown."""
         if db_field.name == "module":
-            kwargs["queryset"] = db_field.related_model.objects.filter(
-                is_active=True
-            ).select_related("course")
+            kwargs["queryset"] = db_field.related_model.objects.filter(is_active=True).select_related("course")
 
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
@@ -282,9 +276,7 @@ class LiveClassAdmin(BaseModelAdmin):
         else:
             date_str = obj.scheduled_date.strftime("%Y-%m-%d %H:%M")
             days_left = delta.days
-            return format_html(
-                "<span>{}<br><small>in {} days</small></span>", date_str, days_left
-            )
+            return format_html("<span>{}<br><small>in {} days</small></span>", date_str, days_left)
 
     scheduled_date_display.short_description = "Scheduled"
     scheduled_date_display.admin_order_field = "scheduled_date"
@@ -316,9 +308,7 @@ class LiveClassAdmin(BaseModelAdmin):
             if total > 0:
                 percentage = (attended / total) * 100
                 percentage_str = "{:.0f}%".format(float(percentage))
-                return format_html(
-                    "<span>{} / {} ({})</span>", attended, total, percentage_str
-                )
+                return format_html("<span>{} / {} ({})</span>", attended, total, percentage_str)
             return "No attendees"
         return "-"
 
@@ -342,14 +332,10 @@ class LiveClassAdmin(BaseModelAdmin):
             attended_list = [a for a in attendances if a.attended]
             attended = len(attended_list)
 
-            attendance_rate = (
-                (attended / total_students * 100) if total_students > 0 else 0
-            )
+            attendance_rate = (attended / total_students * 100) if total_students > 0 else 0
 
             if attended_list:
-                avg_duration = sum(
-                    a.duration_minutes for a in attended_list if a.duration_minutes
-                ) / len(attended_list)
+                avg_duration = sum(a.duration_minutes for a in attended_list if a.duration_minutes) / len(attended_list)
             else:
                 avg_duration = 0
 
@@ -511,9 +497,7 @@ class AssignmentAdmin(BaseModelAdmin):
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         """Show only active modules in dropdown."""
         if db_field.name == "module":
-            kwargs["queryset"] = db_field.related_model.objects.filter(
-                is_active=True
-            ).select_related("course")
+            kwargs["queryset"] = db_field.related_model.objects.filter(is_active=True).select_related("course")
 
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
@@ -577,9 +561,7 @@ class AssignmentAdmin(BaseModelAdmin):
         else:
             date_str = obj.due_date.strftime("%Y-%m-%d %H:%M")
             days_left = delta.days
-            return format_html(
-                "<span>{}<br><small>{} days left</small></span>", date_str, days_left
-            )
+            return format_html("<span>{}<br><small>{} days left</small></span>", date_str, days_left)
 
     due_date_display.short_description = "Due Date"
     due_date_display.admin_order_field = "due_date"
@@ -622,16 +604,9 @@ class AssignmentAdmin(BaseModelAdmin):
             total_submissions = obj.submissions.count()
             graded = obj.submissions.filter(status="graded").count()
             pending = obj.submissions.filter(status="pending").count()
-            passed = obj.submissions.filter(
-                status="graded", marks_obtained__gte=obj.passing_marks
-            ).count()
+            passed = obj.submissions.filter(status="graded", marks_obtained__gte=obj.passing_marks).count()
 
-            avg_marks = (
-                obj.submissions.filter(status="graded").aggregate(
-                    avg=Avg("marks_obtained")
-                )["avg"]
-                or 0
-            )
+            avg_marks = obj.submissions.filter(status="graded").aggregate(avg=Avg("marks_obtained"))["avg"] or 0
 
             pass_rate = (passed / graded * 100) if graded > 0 else 0
 
@@ -787,18 +762,14 @@ class AssignmentSubmissionAdmin(BaseModelAdmin):
 
     def grade_as_graded(self, request, queryset):
         """Mark as graded."""
-        updated = queryset.update(
-            status="graded", graded_by=request.user, graded_at=timezone.now()
-        )
+        updated = queryset.update(status="graded", graded_by=request.user, graded_at=timezone.now())
         self.message_user(request, f"{updated} submissions marked as graded.")
 
     grade_as_graded.short_description = "Mark as graded"
 
     def mark_for_resubmission(self, request, queryset):
         """Mark for resubmission."""
-        updated = queryset.update(
-            status="resubmit", graded_by=request.user, graded_at=timezone.now()
-        )
+        updated = queryset.update(status="resubmit", graded_by=request.user, graded_at=timezone.now())
         self.message_user(request, f"{updated} submissions marked for resubmission.")
 
     mark_for_resubmission.short_description = "Mark for resubmission"
@@ -893,9 +864,7 @@ class QuizAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         """Show only active modules in dropdown."""
         if db_field.name == "module":
-            kwargs["queryset"] = db_field.related_model.objects.filter(
-                is_active=True
-            ).select_related("course")
+            kwargs["queryset"] = db_field.related_model.objects.filter(is_active=True).select_related("course")
 
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
@@ -939,9 +908,7 @@ class QuizAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
         icon = icons.get(obj.difficulty, "")
         difficulty_text = obj.get_difficulty_display()
 
-        return format_html(
-            '<span style="color: {};">{} {}</span>', color, icon, difficulty_text
-        )
+        return format_html('<span style="color: {};">{} {}</span>', color, icon, difficulty_text)
 
     difficulty_display.short_description = "Difficulty"
     difficulty_display.admin_order_field = "difficulty"
@@ -1150,9 +1117,7 @@ class QuizQuestionOptionAdmin(BaseModelAdmin):
     def is_correct_display(self, obj):
         """Display if option is correct."""
         if obj.is_correct:
-            return format_html(
-                '<span style="color: #2e7d32; font-weight: bold;">✓ Correct</span>'
-            )
+            return format_html('<span style="color: #2e7d32; font-weight: bold;">✓ Correct</span>')
         return format_html('<span style="color: #999;">Incorrect</span>')
 
     is_correct_display.short_description = "Correct Answer?"
@@ -1229,11 +1194,7 @@ class QuizAttemptAdmin(BaseModelAdmin):
         """Display percentage with color."""
         percentage = float(obj.percentage)
         percentage_fmt = f"{percentage:.1f}"  # No % sign here
-        passing_percentage = (
-            (obj.quiz.passing_marks / obj.quiz.total_marks) * 100
-            if obj.quiz.total_marks > 0
-            else 0
-        )
+        passing_percentage = (obj.quiz.passing_marks / obj.quiz.total_marks) * 100 if obj.quiz.total_marks > 0 else 0
 
         color = "#2e7d32" if percentage >= passing_percentage else "#d32f2f"
 
@@ -1249,9 +1210,7 @@ class QuizAttemptAdmin(BaseModelAdmin):
     def passed_display(self, obj):
         """Display pass/fail status."""
         if obj.passed:
-            return format_html(
-                '<span style="color: #2e7d32; font-weight: bold;">✓ PASSED</span>'
-            )
+            return format_html('<span style="color: #2e7d32; font-weight: bold;">✓ PASSED</span>')
         return format_html('<span style="color: #d32f2f;">✗ Failed</span>')
 
     passed_display.short_description = "Result"
@@ -1310,18 +1269,14 @@ class QuizAnswerAdmin(BaseModelAdmin):
     def question_preview(self, obj):
         """Display question preview."""
         text = obj.question.question_text[:40]
-        return format_html(
-            '<span title="{}">{}</span>', obj.question.question_text, text
-        )
+        return format_html('<span title="{}">{}</span>', obj.question.question_text, text)
 
     question_preview.short_description = "Question"
 
     def is_correct_display(self, obj):
         """Display if answer is correct."""
         if obj.is_correct:
-            return format_html(
-                '<span style="color: #2e7d32; font-weight: bold;">✓ Correct</span>'
-            )
+            return format_html('<span style="color: #2e7d32; font-weight: bold;">✓ Correct</span>')
         return format_html('<span style="color: #d32f2f;">✗ Incorrect</span>')
 
     is_correct_display.short_description = "Correct?"

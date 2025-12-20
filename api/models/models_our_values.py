@@ -4,29 +4,23 @@ import uuid
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.text import slugify
+
 from django_ckeditor_5.fields import CKEditor5Field
 
 from api.models.images_base_class import OptimizedImageModel
 from api.models.models_service import PageService  # Add this import
 from api.utils.helper_models import TimeStampedModel
 from api.utils.video_utils import extract_video_id as utils_extract_video_id
-from api.utils.video_utils import \
-    validate_video_url as utils_validate_video_url
+from api.utils.video_utils import validate_video_url as utils_validate_video_url
 
 
 class ValueTabSection(TimeStampedModel):
     """Main section like 'OUR VALUES' that contains multiple value tabs"""
 
-    id = models.UUIDField(
-        primary_key=True, default=uuid.uuid4, editable=False, unique=True, db_index=True
-    )
-    title = models.CharField(
-        max_length=100, help_text="Section title (e.g., 'OUR VALUES')"
-    )
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    title = models.CharField(max_length=100, help_text="Section title (e.g., 'OUR VALUES')")
     slug = models.SlugField(max_length=100, unique=True, db_index=True)
-    subtitle = models.CharField(
-        max_length=255, blank=True, help_text="Optional subtitle"
-    )
+    subtitle = models.CharField(max_length=255, blank=True, help_text="Optional subtitle")
     page = models.ForeignKey(
         PageService,  # Direct reference instead of string
         on_delete=models.CASCADE,
@@ -53,15 +47,9 @@ class ValueTabSection(TimeStampedModel):
 class ValueTab(TimeStampedModel):
     """Individual value tabs like 'Be The Expert', 'Be The Customer', 'Be The Future'"""
 
-    id = models.UUIDField(
-        primary_key=True, default=uuid.uuid4, editable=False, unique=True, db_index=True
-    )
-    value_section = models.ForeignKey(
-        ValueTabSection, on_delete=models.CASCADE, related_name="value_tabs"
-    )
-    title = models.CharField(
-        max_length=100, help_text="Tab name (e.g., 'Be The Expert')"
-    )
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    value_section = models.ForeignKey(ValueTabSection, on_delete=models.CASCADE, related_name="value_tabs")
+    title = models.CharField(max_length=100, help_text="Tab name (e.g., 'Be The Expert')")
     slug = models.SlugField(max_length=100, db_index=True)
     order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
@@ -94,9 +82,7 @@ class ValueTabContent(TimeStampedModel, OptimizedImageModel):
         ("vimeo", "Vimeo"),
     )
 
-    id = models.UUIDField(
-        primary_key=True, default=uuid.uuid4, editable=False, unique=True, db_index=True
-    )
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False, unique=True, db_index=True)
     value_tab = models.OneToOneField(
         ValueTab,
         on_delete=models.CASCADE,
@@ -128,9 +114,7 @@ class ValueTabContent(TimeStampedModel, OptimizedImageModel):
         null=True,
         help_text="Video provider (YouTube or Vimeo)",
     )
-    video_url = models.URLField(
-        max_length=500, blank=True, null=True, help_text="Full video URL"
-    )
+    video_url = models.URLField(max_length=500, blank=True, null=True, help_text="Full video URL")
     video_id = models.CharField(
         max_length=100,
         blank=True,
@@ -146,18 +130,12 @@ class ValueTabContent(TimeStampedModel, OptimizedImageModel):
     )
 
     # Content fields (right side)
-    title = models.CharField(
-        max_length=255, help_text="Content title (e.g., 'BE THE EXPERT')"
-    )
+    title = models.CharField(max_length=255, help_text="Content title (e.g., 'BE THE EXPERT')")
     description = CKEditor5Field(help_text="Main content text")
 
     # Optional button
-    button_text = models.CharField(
-        max_length=100, blank=True, help_text="Optional button text"
-    )
-    button_url = models.CharField(
-        max_length=255, blank=True, null=True, help_text="Optional button URL"
-    )
+    button_text = models.CharField(max_length=100, blank=True, help_text="Optional button text")
+    button_url = models.CharField(max_length=255, blank=True, null=True, help_text="Optional button URL")
 
     is_active = models.BooleanField(default=True)
 
@@ -196,35 +174,19 @@ class ValueTabContent(TimeStampedModel, OptimizedImageModel):
 
         if self.media_type == "video":
             if not self.video_url:
-                raise ValidationError(
-                    {"video_url": "Video URL is required when media type is video."}
-                )
+                raise ValidationError({"video_url": "Video URL is required when media type is video."})
             if not self.video_provider:
-                raise ValidationError(
-                    {
-                        "video_provider": "Video provider is required when media type is video."
-                    }
-                )
+                raise ValidationError({"video_provider": "Video provider is required when media type is video."})
             if not self.video_thumbnail:
-                raise ValidationError(
-                    {
-                        "video_thumbnail": "Video thumbnail is required when media type is video."
-                    }
-                )
+                raise ValidationError({"video_thumbnail": "Video thumbnail is required when media type is video."})
             if not self.validate_video_url():
-                raise ValidationError(
-                    {"video_url": f"Invalid {self.video_provider} URL format."}
-                )
+                raise ValidationError({"video_url": f"Invalid {self.video_provider} URL format."})
 
         if self.media_type == "image" and not self.image:
-            raise ValidationError(
-                {"image": "Image is required when media type is image."}
-            )
+            raise ValidationError({"image": "Image is required when media type is image."})
 
         if self.button_text and not self.button_url:
-            raise ValidationError(
-                {"button_url": "Button URL is required when button text is provided."}
-            )
+            raise ValidationError({"button_url": "Button URL is required when button text is provided."})
 
     def validate_video_url(self):
         """Validate video URL based on provider"""

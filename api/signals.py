@@ -14,12 +14,21 @@ from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from api.models.models_course import (
-    Category, Course, CourseContentSection, CourseSectionTab, CourseTabbedContent,
-    CourseDetail, WhyEnrol, CourseModule, KeyBenefit, SideImageSection, SuccessStory
+    Category,
+    Course,
+    CourseContentSection,
+    CourseDetail,
+    CourseModule,
+    CourseSectionTab,
+    CourseTabbedContent,
+    KeyBenefit,
+    SideImageSection,
+    SuccessStory,
+    WhyEnrol,
 )
 from api.models.models_footer import Footer, LinkGroup, QuickLink, SocialLink
 from api.models.models_pricing import CoursePrice
-from api.utils.cache_utils import clear_course_caches, clear_category_caches
+from api.utils.cache_utils import clear_category_caches, clear_course_caches
 
 from .models import Profile
 
@@ -29,11 +38,13 @@ logger = logging.getLogger(__name__)
 # User Profile related signals
 # -----------------------------
 
+
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_user_profile(sender, instance, created, **kwargs):
     # Skip if created from admin inline
     if created and not getattr(instance, "_created_from_admin", False):
         Profile.objects.create(user=instance)
+
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def save_user_profile(sender, instance, **kwargs):
@@ -47,14 +58,14 @@ def save_user_profile(sender, instance, **kwargs):
         Profile.objects.create(user=instance)
 
 
-
 # -----------------------------
 # Footer related signals
 # -----------------------------
 
 CACHE_KEY = "footer_api_response"
 
-MEGAMENU_NAV_CACHE_KEY = 'megamenu_nav_v1'
+MEGAMENU_NAV_CACHE_KEY = "megamenu_nav_v1"
+
 
 def clear_megamenu_cache():
     """Clear cached compact megamenu payload (legacy support)."""
@@ -64,9 +75,11 @@ def clear_megamenu_cache():
     except Exception:
         logger.exception("Failed to clear megamenu cache")
 
+
 def clear_footer_cache():
     """Clear cached footer response."""
     cache.delete(CACHE_KEY)
+
 
 def touch_footer(footer: Footer):
     """Update footer timestamp + clear cache."""
@@ -101,9 +114,11 @@ def update_footer_on_footer_change(sender, instance, **kwargs):
 # Generic file cleanup
 # ---------------------------
 
+
 def delete_file(path):
     if path and os.path.isfile(path):
         os.remove(path)
+
 
 @receiver(pre_save)
 def auto_delete_file_on_change(sender, instance, **kwargs):
@@ -112,8 +127,7 @@ def auto_delete_file_on_change(sender, instance, **kwargs):
     when a FileField/ImageField is updated.
     """
     # Only act on models with FileField/ImageField
-    file_fields = [f for f in sender._meta.get_fields() 
-                   if isinstance(f, models.FileField)]
+    file_fields = [f for f in sender._meta.get_fields() if isinstance(f, models.FileField)]
     if not file_fields:
         return
 
@@ -131,14 +145,14 @@ def auto_delete_file_on_change(sender, instance, **kwargs):
         if old_file and old_file != new_file:
             delete_file(old_file.path)
 
+
 @receiver(post_delete)
 def auto_delete_file_on_delete(sender, instance, **kwargs):
     """
     Deletes all FileField/ImageField files from filesystem
     when a model instance is deleted.
     """
-    file_fields = [f for f in sender._meta.get_fields() 
-                   if isinstance(f, models.FileField)]
+    file_fields = [f for f in sender._meta.get_fields() if isinstance(f, models.FileField)]
     for field in file_fields:
         file = getattr(instance, field.name)
         if file:
@@ -165,8 +179,7 @@ def _noop_post_delete_user(sender, instance, **kwargs):
 def blacklist_user_tokens_on_delete(sender, instance, **kwargs):
     try:
         # Import locally to avoid hard dependency if token_blacklist not installed
-        from rest_framework_simplejwt.token_blacklist.models import (
-            BlacklistedToken, OutstandingToken)
+        from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
     except Exception:
         # Token blacklist not available in this environment; nothing to do.
         logger.debug("token_blacklist app not available; skipping token blacklist on user delete")

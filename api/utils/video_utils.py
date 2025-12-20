@@ -3,6 +3,7 @@
 Provides validate_video_url(provider, url) -> bool and
 extract_video_id(provider, url) -> Optional[str].
 """
+
 from __future__ import annotations
 
 import re

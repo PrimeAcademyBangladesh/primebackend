@@ -1,8 +1,7 @@
 from drf_spectacular.utils import extend_schema
 
 from api.models.models_academy_overview import AcademyOverview
-from api.serializers.serializers_academy_overview import \
-    AcademyOverviewSerializer
+from api.serializers.serializers_academy_overview import AcademyOverviewSerializer
 from api.views.views_base import BaseAdminViewSet
 
 

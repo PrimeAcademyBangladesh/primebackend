@@ -33,14 +33,13 @@ def api_response(success: bool, message: str, data=None, status_code=status.HTTP
     return Response({"success": success, "message": message, "data": data}, status=status_code)
 
 
-
 def custom_exception_handler(exc, context):
     """
     Custom exception handler that formats all errors to match api_response format.
     """
     # Call REST framework's default exception handler first
     response = exception_handler(exc, context)
-    
+
     if response is not None:
         # Extract clean error message from nested structures
         def extract_clean_message(error_data):
@@ -52,28 +51,28 @@ def custom_exception_handler(exc, context):
                 # Get first value from dictionary and recurse
                 first_value = next(iter(error_data.values()))
                 return extract_clean_message(first_value)
-            elif hasattr(error_data, 'code') and hasattr(error_data, 'detail'):
+            elif hasattr(error_data, "code") and hasattr(error_data, "detail"):
                 # Handle ErrorDetail objects - return just the string
                 return str(error_data)
             else:
                 # Return string representation
                 return str(error_data)
-        
+
         # Extract message from exception detail or response data
-        if hasattr(exc, 'detail'):
+        if hasattr(exc, "detail"):
             message = extract_clean_message(exc.detail)
         else:
             message = extract_clean_message(response.data)
-        
+
         # Determine appropriate status code
         status_code = response.status_code
-        
+
         # For validation errors in login, use 401 instead of 400
-        if isinstance(exc, ValidationError) and 'login' in str(context['request'].path):
+        if isinstance(exc, ValidationError) and "login" in str(context["request"].path):
             status_code = status.HTTP_401_UNAUTHORIZED
-        
+
         return api_response(False, message, response.data, status_code)
-    
+
     # For unhandled exceptions
     # Print exception traceback to stdout for debugging in tests (temporary)
     try:
@@ -87,4 +86,3 @@ def custom_exception_handler(exc, context):
         {},
         status.HTTP_500_INTERNAL_SERVER_ERROR,
     )
-

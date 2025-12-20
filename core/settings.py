@@ -143,9 +143,7 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ],
     # Use JWT for authentication by default
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ),
+    "DEFAULT_AUTHENTICATION_CLASSES": ("rest_framework_simplejwt.authentication.JWTAuthentication",),
     "EXCEPTION_HANDLER": "api.utils.response_utils.custom_exception_handler",
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     # Throttling DISABLED for development
@@ -296,9 +294,7 @@ CORS_ALLOW_CREDENTIALS = True
 # Session and CSRF cookie settings
 SESSION_COOKIE_SAMESITE = "Lax"  # Changed from 'None'
 SESSION_COOKIE_SECURE = False  # Required for HTTP
-SESSION_COOKIE_HTTPONLY = (
-    True  # Recommended True for security (False if JS needs access)
-)
+SESSION_COOKIE_HTTPONLY = True  # Recommended True for security (False if JS needs access)
 SESSION_COOKIE_AGE = 1209600
 
 CSRF_COOKIE_SAMESITE = "Lax"  # Changed from 'None'
@@ -394,7 +390,7 @@ SEO_CONFIG = {
 CUSTOM_COLOR_PALETTE = [
     {"color": "#053867", "label": "Primary"},
     {"color": "#f7b922", "label": "Secondary"},
-    {"color": "#ffffff", "label": "White"},
+    {"color": "#fffff", "label": "White"},
     {"color": "#000000", "label": "Black"},
     {"color": "#e0e0e0", "label": "Gray"},
     {"color": "#e53935", "label": "Red"},
@@ -444,7 +440,7 @@ CKEDITOR_5_CONFIGS = {
             ],
             "styles": ["full", "alignLeft", "alignCenter", "alignRight"],
             # 👇 Upload configuration for custom API
-            "upload": {"types": ["jpeg", "jpg", "png", "gif", "webp"]},
+            "upload": {"types": ["jpeg", "jpg", "png", "gi", "webp"]},
         },
         "table": {
             "contentToolbar": [
@@ -569,7 +565,7 @@ CKEDITOR_5_CONFIGS = {
                 "alignCenter",
             ],
             # 👇 Upload configuration for custom API
-            "upload": {"types": ["jpeg", "jpg", "png", "gif", "webp"]},
+            "upload": {"types": ["jpeg", "jpg", "png", "gi", "webp"]},
         },
         "table": {
             "contentToolbar": [
@@ -643,7 +639,7 @@ CKEDITOR_5_FILE_UPLOAD_URL = "/api/ckeditor/upload/"
 
 # File upload settings
 CKEDITOR_5_ALLOW_ALL_FILE_TYPES = False
-CKEDITOR_5_UPLOAD_FILE_TYPES = ["jpeg", "jpg", "png", "gif", "webp", "heic", "heif"]
+CKEDITOR_5_UPLOAD_FILE_TYPES = ["jpeg", "jpg", "png", "gi", "webp", "heic", "heif"]
 CKEDITOR_5_FILE_UPLOAD_PERMISSION = "staff"
 
 # File size limits (optional)

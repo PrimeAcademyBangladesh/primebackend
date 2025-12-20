@@ -6,20 +6,21 @@ from api.models.models_faq import FAQ, FAQItem
 class FAQSerializer(serializers.ModelSerializer):
     class Meta:
         model = FAQ
-        fields = ['id', 'question', 'answer', 'order', 'is_active']
-        read_only_fields = ['id']
+        fields = ["id", "question", "answer", "order", "is_active"]
+        read_only_fields = ["id"]
+
 
 class FAQItemSerializer(serializers.ModelSerializer):
     faqs = FAQSerializer(many=True, required=False)
-    faq_nav_order = serializers.IntegerField(source='order', required=False)
+    faq_nav_order = serializers.IntegerField(source="order", required=False)
 
     class Meta:
         model = FAQItem
-        fields = ['id', 'title', 'faq_nav', 'faq_nav_slug', 'faq_nav_order', 'is_active', 'faqs']
-        read_only_fields = ['faq_nav_slug']
+        fields = ["id", "title", "faq_nav", "faq_nav_slug", "faq_nav_order", "is_active", "faqs"]
+        read_only_fields = ["faq_nav_slug"]
 
     def create(self, validated_data):
-        faqs_data = validated_data.pop('faqs', [])
+        faqs_data = validated_data.pop("faqs", [])
         item = FAQItem.objects.create(**validated_data)
 
         for faq_data in faqs_data:
@@ -27,7 +28,7 @@ class FAQItemSerializer(serializers.ModelSerializer):
         return item
 
     def update(self, instance, validated_data):
-        faqs_data = validated_data.pop('faqs', [])
+        faqs_data = validated_data.pop("faqs", [])
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
@@ -38,11 +39,6 @@ class FAQItemSerializer(serializers.ModelSerializer):
                 FAQ.objects.create(item=instance, **faq_data)
 
         return instance
-
-
-
-
-
 
 
 # from django.utils.html import strip_tags
@@ -106,7 +102,7 @@ class FAQItemSerializer(serializers.ModelSerializer):
 #             ret["question"] = None
 #         if not strip_tags(ret.get("answer", "")).strip():
 #             ret["answer"] = None
-       
+
 #         request = self.context.get('request') if hasattr(self, 'context') else None
 #         if ret.get('answer'):
 #             from api.utils.ckeditor_paths import absolutize_media_urls

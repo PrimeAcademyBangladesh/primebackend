@@ -43,9 +43,10 @@ class HeroSectionAdmin(BaseModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         """Make page_name readonly after creation"""
         if obj:  # editing an existing object
-            return self.readonly_fields + ['page_name']
+            return self.readonly_fields + ["page_name"]
         return self.readonly_fields
-    
+
+
 # ===============================end hero section admin===============================
 
 # ===============================start brand section admin===============================

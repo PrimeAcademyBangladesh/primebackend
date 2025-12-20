@@ -172,8 +172,8 @@ class EmployeeAdmin(admin.ModelAdmin):
         if obj.employee_image:
             try:
                 return mark_safe(
-                    f"""
-                    <img src="{obj.employee_image.url}" 
+                    """
+                    <img src="{obj.employee_image.url}"
                          style="width:40px;height:40px;object-fit:cover;
                                 border-radius:4px;border:1px solid #ddd;" />
                 """
@@ -189,8 +189,8 @@ class EmployeeAdmin(admin.ModelAdmin):
         if obj.employee_image:
             try:
                 return mark_safe(
-                    f"""
-                    <img src="{obj.employee_image.url}" 
+                    """
+                    <img src="{obj.employee_image.url}"
                          style="width:150px;height:150px;object-fit:cover;
                                 border-radius:6px;border:1px solid #ccc;margin-top:5px;" />
                 """

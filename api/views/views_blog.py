@@ -4,56 +4,60 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import filters, permissions, status
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
 from api.models.models_blog import Blog, BlogCategory
 from api.permissions import IsStaff
-from api.serializers.serializers_blog import (BlogCategorySerializer,
-                                              BlogSerializer)
+from api.serializers.serializers_blog import BlogCategorySerializer, BlogSerializer
+from api.utils.cache_utils import CACHE_KEY_BLOG_DETAIL, CACHE_KEY_BLOG_LIST, cache_response
 from api.utils.filters_utils import BlogFilter
 from api.utils.pagination import StandardResultsSetPagination
 from api.utils.response_utils import api_response
-from api.utils.cache_utils import cache_response, CACHE_KEY_BLOG_LIST, CACHE_KEY_BLOG_DETAIL
 from api.views.views_base import BaseAdminViewSet
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 
 @extend_schema_view(
-    list=extend_schema(summary="List all active blog categories", responses={200: BlogCategorySerializer}, tags=['Blog Category']),
-    retrieve=extend_schema(summary="Retrieve a blog category by slug", responses={200: BlogCategorySerializer}, tags=['Blog Category']),
-    create=extend_schema(summary="Create a blog category", responses={201: BlogCategorySerializer}, tags=['Blog Category']),
-    update=extend_schema(summary="Update a blog category", responses={200: BlogCategorySerializer}, tags=['Blog Category']),
-    partial_update=extend_schema(summary="Partially update a blog category", responses={200: BlogCategorySerializer}, tags=['Blog Category']),
-    destroy=extend_schema(summary="Delete a blog category", responses={204: None}, tags=['Blog Category']),
+    list=extend_schema(
+        summary="List all active blog categories", responses={200: BlogCategorySerializer}, tags=["Blog Category"]
+    ),
+    retrieve=extend_schema(
+        summary="Retrieve a blog category by slug", responses={200: BlogCategorySerializer}, tags=["Blog Category"]
+    ),
+    create=extend_schema(summary="Create a blog category", responses={201: BlogCategorySerializer}, tags=["Blog Category"]),
+    update=extend_schema(summary="Update a blog category", responses={200: BlogCategorySerializer}, tags=["Blog Category"]),
+    partial_update=extend_schema(
+        summary="Partially update a blog category", responses={200: BlogCategorySerializer}, tags=["Blog Category"]
+    ),
+    destroy=extend_schema(summary="Delete a blog category", responses={204: None}, tags=["Blog Category"]),
 )
 class BlogCategoryViewSet(BaseAdminViewSet):
     """CRUD for Blog Categories"""
+
     queryset = BlogCategory.objects.all()
     serializer_class = BlogCategorySerializer
     permission_classes = [IsStaff]
     slug_field = "slug"
     slug_lookup_only_actions = ["retrieve"]
-    
-    
+
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["is_active"]
     search_fields = ["name", "slug"]
     ordering_fields = ["name", "created_at"]
-    
+
     def get_permissions(self):
         """Override to allow staff to destroy blog categories."""
         # Allow staff for all actions including destroy
         from rest_framework import permissions
+
         if self.action in ["list", "retrieve", "latest", "featured", "home_categories", "megamenu_nav", "by_category"]:
             return [permissions.AllowAny()]
         return [IsStaff()]
-   
-    
 
 
 @extend_schema_view(
     list=extend_schema(summary="List blogs", responses={200: BlogSerializer}, tags=["Blogs"]),
-    create=extend_schema(summary="Create a blog", responses={201: BlogSerializer}, tags=['Blogs']),
+    create=extend_schema(summary="Create a blog", responses={201: BlogSerializer}, tags=["Blogs"]),
     retrieve=extend_schema(summary="Retrieve blog by slug", responses={200: BlogSerializer}, tags=["Blogs"]),
     update=extend_schema(summary="Update blog by ID", responses={200: BlogSerializer}, tags=["Blogs"]),
     partial_update=extend_schema(summary="Partially update blog by ID", responses={200: BlogSerializer}, tags=["Blogs"]),
@@ -62,6 +66,7 @@ class BlogCategoryViewSet(BaseAdminViewSet):
 )
 class BlogViewSet(BaseAdminViewSet):
     """Blog CRUD: slug for retrieve, ID for update/delete."""
+
     queryset = Blog.objects.select_related("category").all()
     serializer_class = BlogSerializer
     pagination_class = StandardResultsSetPagination
@@ -69,7 +74,7 @@ class BlogViewSet(BaseAdminViewSet):
     slug_field = "slug"
     slug_lookup_only_actions = ["retrieve"]
     parser_classes = (MultiPartParser, FormParser, JSONParser)
-    
+
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = BlogFilter
     search_fields = ["title", "excerpt", "content"]
@@ -80,8 +85,7 @@ class BlogViewSet(BaseAdminViewSet):
     def list(self, request, *args, **kwargs):
         """List blogs - cached for 10 minutes."""
         return super().list(request, *args, **kwargs)
-    
-    
+
     def retrieve(self, request, *args, **kwargs):
         user = getattr(request, "user", None)
         is_staff_user = self.is_staff_user(user)
@@ -97,22 +101,19 @@ class BlogViewSet(BaseAdminViewSet):
     def _cached_retrieve(self, request, *args, **kwargs):
         return super(BlogViewSet, self).retrieve(request, *args, **kwargs)
 
-    
-    
-    
     # def retrieve(self, request, *args, **kwargs):
     #     """Retrieve blog detail.
-        
+
     #     Staff users bypass cache to see updates immediately.
     #     Public users get cached response for performance.
     #     """
     #     user = getattr(request, 'user', None)
     #     is_staff_user = self.is_staff_user(user)
-        
+
     #     # Staff users bypass cache to see latest changes
     #     if is_staff_user:
     #         return super().retrieve(request, *args, **kwargs)
-        
+
     #     # Public users get cached response (decorator already imported at top)
     #     @cache_response(timeout=1800, key_prefix=CACHE_KEY_BLOG_DETAIL)
     #     def cached_retrieve(self, request, *args, **kwargs):
@@ -120,11 +121,10 @@ class BlogViewSet(BaseAdminViewSet):
 
     #     return cached_retrieve(self, request, *args, **kwargs)
 
-    @cache_response(timeout=900, key_prefix='blog_latest')
+    @cache_response(timeout=900, key_prefix="blog_latest")
     @action(detail=False, methods=["get"], permission_classes=[permissions.AllowAny])
     def latest(self, request):
         """Retrieve the latest 3 published blogs that are marked to show on home page."""
         qs = self.get_queryset().filter(show_in_home_latest=True).order_by("-published_at")[:3]
         serializer = self.get_serializer(qs, many=True)
         return api_response(True, "Latest blogs retrieved successfully", {"results": serializer.data}, status.HTTP_200_OK)
-

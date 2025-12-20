@@ -1,14 +1,14 @@
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+
 from django_ckeditor_5.fields import CKEditor5Field
+
+from api.models.models_course import CourseBatch, CourseModule
 from api.utils.helper_models import TimeStampedModel
-
-from django.core.exceptions import ValidationError
-
-from api.models.models_course import CourseModule, CourseBatch
 
 
 # Live Classes within a module
@@ -90,9 +90,7 @@ class LiveClassAttendance(TimeStampedModel):
     """Track student attendance for live classes."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    live_class = models.ForeignKey(
-        LiveClass, related_name="attendances", on_delete=models.CASCADE
-    )
+    live_class = models.ForeignKey(LiveClass, related_name="attendances", on_delete=models.CASCADE)
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -102,9 +100,7 @@ class LiveClassAttendance(TimeStampedModel):
     attended = models.BooleanField(default=False)
     joined_at = models.DateTimeField(null=True, blank=True)
     left_at = models.DateTimeField(null=True, blank=True)
-    duration_minutes = models.PositiveIntegerField(
-        default=0, help_text="How long the student attended (in minutes)"
-    )
+    duration_minutes = models.PositiveIntegerField(default=0, help_text="How long the student attended (in minutes)")
 
     class Meta:
         verbose_name = "Live Class Attendance"
@@ -128,16 +124,10 @@ class Assignment(TimeStampedModel):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    module = models.ForeignKey(
-        "CourseModule", related_name="module_assignments", on_delete=models.CASCADE
-    )
+    module = models.ForeignKey("CourseModule", related_name="module_assignments", on_delete=models.CASCADE)
     title = models.CharField(max_length=200)
-    description = CKEditor5Field(
-        help_text="Detailed assignment instructions and requirements"
-    )
-    assignment_type = models.CharField(
-        max_length=20, choices=TYPE_CHOICES, default="written"
-    )
+    description = CKEditor5Field(help_text="Detailed assignment instructions and requirements")
+    assignment_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default="written")
 
     # Files and resources
     attachment = models.FileField(
@@ -148,25 +138,15 @@ class Assignment(TimeStampedModel):
     )
 
     # Grading
-    total_marks = models.PositiveIntegerField(
-        default=100, help_text="Maximum marks for this assignment"
-    )
-    passing_marks = models.PositiveIntegerField(
-        default=40, help_text="Minimum marks required to pass"
-    )
+    total_marks = models.PositiveIntegerField(default=100, help_text="Maximum marks for this assignment")
+    passing_marks = models.PositiveIntegerField(default=40, help_text="Minimum marks required to pass")
 
     # Deadlines
     due_date = models.DateTimeField(help_text="Submission deadline")
-    late_submission_allowed = models.BooleanField(
-        default=True, help_text="Allow submissions after due date"
-    )
-    late_submission_penalty = models.PositiveIntegerField(
-        default=10, help_text="Percentage penalty for late submission"
-    )
+    late_submission_allowed = models.BooleanField(default=True, help_text="Allow submissions after due date")
+    late_submission_penalty = models.PositiveIntegerField(default=10, help_text="Percentage penalty for late submission")
 
-    order = models.PositiveIntegerField(
-        help_text="Order of this assignment within the module"
-    )
+    order = models.PositiveIntegerField(help_text="Order of this assignment within the module")
     is_active = models.BooleanField(default=True)
 
     created_by = models.ForeignKey(
@@ -210,9 +190,7 @@ class AssignmentSubmission(TimeStampedModel):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    assignment = models.ForeignKey(
-        Assignment, related_name="submissions", on_delete=models.CASCADE
-    )
+    assignment = models.ForeignKey(Assignment, related_name="submissions", on_delete=models.CASCADE)
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -221,28 +199,20 @@ class AssignmentSubmission(TimeStampedModel):
     )
 
     # Submission
-    submission_text = CKEditor5Field(
-        blank=True, null=True, help_text="Text answer or description"
-    )
+    submission_text = CKEditor5Field(blank=True, null=True, help_text="Text answer or description")
     submission_file = models.FileField(
         upload_to="assignments/submissions/",
         blank=True,
         null=True,
         help_text="Uploaded assignment file",
     )
-    submission_url = models.URLField(
-        blank=True, help_text="URL for online submissions (GitHub, Google Drive, etc.)"
-    )
+    submission_url = models.URLField(blank=True, help_text="URL for online submissions (GitHub, Google Drive, etc.)")
 
     submitted_at = models.DateTimeField(auto_now_add=True)
-    is_late = models.BooleanField(
-        default=False, help_text="Whether this submission was after the deadline"
-    )
+    is_late = models.BooleanField(default=False, help_text="Whether this submission was after the deadline")
 
     # Grading
-    status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default="submitted"
-    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="submitted")
     marks_obtained = models.DecimalField(
         max_digits=6,
         decimal_places=2,
@@ -284,42 +254,24 @@ class Quiz(TimeStampedModel):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    module = models.ForeignKey(
-        "CourseModule", related_name="module_quizzes", on_delete=models.CASCADE
-    )
+    module = models.ForeignKey("CourseModule", related_name="module_quizzes", on_delete=models.CASCADE)
     title = models.CharField(max_length=200)
-    description = CKEditor5Field(
-        blank=True, null=True, help_text="Instructions and overview for the quiz"
-    )
+    description = CKEditor5Field(blank=True, null=True, help_text="Instructions and overview for the quiz")
 
     # Quiz settings
     total_marks = models.PositiveIntegerField(default=100)
     passing_marks = models.PositiveIntegerField(default=40)
-    duration_minutes = models.PositiveIntegerField(
-        default=30, help_text="Time limit for the quiz in minutes"
-    )
-    difficulty = models.CharField(
-        max_length=10, choices=DIFFICULTY_CHOICES, default="medium"
-    )
+    duration_minutes = models.PositiveIntegerField(default=30, help_text="Time limit for the quiz in minutes")
+    difficulty = models.CharField(max_length=10, choices=DIFFICULTY_CHOICES, default="medium")
 
     # Attempt settings
-    max_attempts = models.PositiveIntegerField(
-        default=1, help_text="Maximum number of attempts allowed"
-    )
-    show_correct_answers = models.BooleanField(
-        default=True, help_text="Show correct answers after submission"
-    )
-    randomize_questions = models.BooleanField(
-        default=False, help_text="Randomize question order for each attempt"
-    )
+    max_attempts = models.PositiveIntegerField(default=1, help_text="Maximum number of attempts allowed")
+    show_correct_answers = models.BooleanField(default=True, help_text="Show correct answers after submission")
+    randomize_questions = models.BooleanField(default=False, help_text="Randomize question order for each attempt")
 
     # Availability
-    available_from = models.DateTimeField(
-        null=True, blank=True, help_text="When the quiz becomes available"
-    )
-    available_until = models.DateTimeField(
-        null=True, blank=True, help_text="When the quiz closes"
-    )
+    available_from = models.DateTimeField(null=True, blank=True, help_text="When the quiz becomes available")
+    available_until = models.DateTimeField(null=True, blank=True, help_text="When the quiz closes")
 
     is_active = models.BooleanField(default=True)
 
@@ -361,23 +313,15 @@ class QuizQuestion(TimeStampedModel):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     quiz = models.ForeignKey(Quiz, related_name="questions", on_delete=models.CASCADE)
-    question_text = CKEditor5Field(
-        help_text="The question text (supports rich formatting)"
-    )
-    question_type = models.CharField(
-        max_length=20, choices=QUESTION_TYPE_CHOICES, default="mcq"
-    )
+    question_text = CKEditor5Field(help_text="The question text (supports rich formatting)")
+    question_type = models.CharField(max_length=20, choices=QUESTION_TYPE_CHOICES, default="mcq")
 
     marks = models.PositiveIntegerField(default=1, help_text="Points for this question")
     order = models.PositiveIntegerField(help_text="Display order of the question")
 
-    correct_answer_text = models.TextField(
-        blank=True, help_text="Expected answer for short answer questions"
-    )
+    correct_answer_text = models.TextField(blank=True, help_text="Expected answer for short answer questions")
 
-    explanation = CKEditor5Field(
-        blank=True, null=True, help_text="Explanation shown after answering"
-    )
+    explanation = CKEditor5Field(blank=True, null=True, help_text="Explanation shown after answering")
 
     is_active = models.BooleanField(default=True)
 
@@ -396,13 +340,9 @@ class QuizQuestionOption(TimeStampedModel):
     """Answer options for multiple choice questions."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    question = models.ForeignKey(
-        QuizQuestion, related_name="options", on_delete=models.CASCADE
-    )
+    question = models.ForeignKey(QuizQuestion, related_name="options", on_delete=models.CASCADE)
     option_text = models.TextField(help_text="The answer option text")
-    is_correct = models.BooleanField(
-        default=False, help_text="Check if this is a correct answer"
-    )
+    is_correct = models.BooleanField(default=False, help_text="Check if this is a correct answer")
     order = models.PositiveIntegerField(help_text="Display order of the option")
 
     class Meta:
@@ -433,16 +373,12 @@ class QuizAttempt(TimeStampedModel):
         limit_choices_to={"role": "student"},
     )
 
-    attempt_number = models.PositiveIntegerField(
-        default=1, help_text="Which attempt this is (1, 2, 3...)"
-    )
+    attempt_number = models.PositiveIntegerField(default=1, help_text="Which attempt this is (1, 2, 3...)")
 
     started_at = models.DateTimeField(auto_now_add=True)
     submitted_at = models.DateTimeField(null=True, blank=True)
 
-    status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default="in_progress"
-    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="in_progress")
 
     marks_obtained = models.DecimalField(max_digits=6, decimal_places=2, default=0)
     percentage = models.DecimalField(
@@ -467,22 +403,14 @@ class QuizAnswer(TimeStampedModel):
     """Individual answers within a quiz attempt."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    attempt = models.ForeignKey(
-        QuizAttempt, related_name="answers", on_delete=models.CASCADE
-    )
+    attempt = models.ForeignKey(QuizAttempt, related_name="answers", on_delete=models.CASCADE)
     question = models.ForeignKey(QuizQuestion, on_delete=models.CASCADE)
 
-    selected_options = models.ManyToManyField(
-        QuizQuestionOption, blank=True, help_text="Selected answer options (for MCQ)"
-    )
+    selected_options = models.ManyToManyField(QuizQuestionOption, blank=True, help_text="Selected answer options (for MCQ)")
 
-    answer_text = models.TextField(
-        blank=True, help_text="Text answer (for short answer/essay questions)"
-    )
+    answer_text = models.TextField(blank=True, help_text="Text answer (for short answer/essay questions)")
 
-    is_correct = models.BooleanField(
-        default=False, help_text="Whether the answer is correct (auto-graded for MCQ)"
-    )
+    is_correct = models.BooleanField(default=False, help_text="Whether the answer is correct (auto-graded for MCQ)")
     marks_awarded = models.DecimalField(
         max_digits=6,
         decimal_places=2,
@@ -511,7 +439,7 @@ class CourseResource(TimeStampedModel):
     """
 
     RESOURCE_TYPE_CHOICES = [
-        ("pdf", "PDF Document"),
+        ("pd", "PDF Document"),
         ("video", "Video"),
         ("slide", "Presentation Slides"),
         ("code", "Code / Project Files"),
@@ -615,9 +543,7 @@ class CourseResource(TimeStampedModel):
         has_attached_files = self.pk and self.files.exists()
 
         if not self.file and not self.external_url and not has_attached_files:
-            raise ValidationError(
-                "A resource must have a file, external URL, or attached files."
-            )
+            raise ValidationError("A resource must have a file, external URL, or attached files.")
 
     # ---------- Helpers ----------
     def increment_download_count(self):

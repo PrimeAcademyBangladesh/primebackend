@@ -4,6 +4,7 @@ import logging
 
 from django.contrib.auth import authenticate
 from django.core.signing import TimestampSigner
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -22,9 +23,7 @@ logger = logging.getLogger(__name__)
 class StudentRegistrationSerializer(serializers.ModelSerializer):
     """Student Register Serializer"""
 
-    password = serializers.CharField(
-        write_only=True, required=True, style={"input_type": "password"}, min_length=8
-    )
+    password = serializers.CharField(write_only=True, required=True, style={"input_type": "password"}, min_length=8)
     password2 = serializers.CharField(
         write_only=True,
         required=True,
@@ -51,20 +50,12 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
     )
 
     student_id = serializers.CharField(read_only=True)
-    
-    
+
     class Meta:
         """Model configuration for StudentRegistrationSerializer."""
+
         model = CustomUser
-        fields = [
-            "email",
-            "student_id",
-            "password", 
-            "password2",
-            "first_name",
-            "last_name",
-            "phone",
-            "is_enabled"]
+        fields = ["email", "student_id", "password", "password2", "first_name", "last_name", "phone", "is_enabled"]
 
     def validate_phone(self, value):
         """Validate phone number format."""
@@ -72,35 +63,25 @@ class StudentRegistrationSerializer(serializers.ModelSerializer):
         clean_phone = "".join(filter(str.isdigit, value))
 
         if len(clean_phone) <= 10:
-            raise serializers.ValidationError(
-                "Phone number must be more than 10 digits."
-            )
+            raise serializers.ValidationError("Phone number must be more than 10 digits.")
         return clean_phone
 
     def validate_first_name(self, value):
         """Validate first name."""
         cleaned = value.strip()
         if len(cleaned) < 2:
-            raise serializers.ValidationError(
-                "First name must be at least 2 characters long."
-            )
+            raise serializers.ValidationError("First name must be at least 2 characters long.")
         if not cleaned.replace(" ", "").isalpha():
-            raise serializers.ValidationError(
-                "First name can only contain letters and spaces."
-            )
+            raise serializers.ValidationError("First name can only contain letters and spaces.")
         return cleaned
 
     def validate_last_name(self, value):
         """Validate last name."""
         cleaned = value.strip()
         if len(cleaned) < 2:
-            raise serializers.ValidationError(
-                "Last name must be at least 2 characters long."
-            )
+            raise serializers.ValidationError("Last name must be at least 2 characters long.")
         if not cleaned.replace(" ", "").isalpha():
-            raise serializers.ValidationError(
-                "Last name can only contain letters and spaces."
-            )
+            raise serializers.ValidationError("Last name can only contain letters and spaces.")
         return cleaned
 
     def validate_password(self, value):
@@ -157,9 +138,7 @@ class TeacherCreateSerializer(serializers.ModelSerializer):
         """Create an active teacher user (no email verification)."""
         password = validated_data.pop("password", None)
         validated_data.setdefault("is_active", True)
-        user = CustomUser.objects.create_user(
-            role=CustomUser.Role.TEACHER, password=password, **validated_data
-        )
+        user = CustomUser.objects.create_user(role=CustomUser.Role.TEACHER, password=password, **validated_data)
         return user
 
 
@@ -190,9 +169,7 @@ class LoginSerializer(serializers.Serializer):
         if allowed is not None:
             roles = allowed if isinstance(allowed, (list, tuple, set)) else [allowed]
             if getattr(user, "role", None) not in roles:
-                raise serializers.ValidationError(
-                    {"detail": "User does not have permission to login here."}
-                )
+                raise serializers.ValidationError({"detail": "User does not have permission to login here."})
 
         attrs["user"] = user
         return attrs
@@ -201,9 +178,7 @@ class LoginSerializer(serializers.Serializer):
 class LogoutSerializer(serializers.Serializer):
     """Serializer for logout requests (expects refresh token)."""
 
-    refresh = serializers.CharField(
-        help_text="The refresh token to blacklist", write_only=True
-    )
+    refresh = serializers.CharField(help_text="The refresh token to blacklist", write_only=True)
 
 
 class SkillSerializer(serializers.ModelSerializer):
@@ -222,6 +197,7 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         """Configuration for ProfileSerializer fields."""
+
         model = Profile
         fields = ["title", "image", "bio", "education", "skills"]
 
@@ -232,6 +208,7 @@ class ProfileSerializer(serializers.ModelSerializer):
         """
         if obj.image:
             from django.conf import settings
+
             url = obj.image.url
             site_base = getattr(settings, "SITE_BASE_URL", None)
             if site_base:
@@ -241,30 +218,31 @@ class ProfileSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(url)
             return url
         return None
-    
+
     def to_representation(self, instance):
         rep = super().to_representation(instance)
         # Request may be None; absolutize_media_urls will use SITE_BASE_URL
-        request = self.context.get('request') if hasattr(self, 'context') else None
-        if rep.get('bio'):
+        request = self.context.get("request") if hasattr(self, "context") else None
+        if rep.get("bio"):
             from api.utils.ckeditor_paths import absolutize_media_urls
+
             try:
-                rep['bio'] = absolutize_media_urls(rep['bio'], request)
+                rep["bio"] = absolutize_media_urls(rep["bio"], request)
             except Exception:
                 pass
         return rep
 
+
 class ProfileUpdateSerializer(serializers.ModelSerializer):
     """Serializer for UPDATE operations - accepts skill names with auto-creation"""
+
     skills = serializers.ListField(
-        child=serializers.CharField(max_length=50),
-        write_only=True,
-        required=False,
-        allow_empty=True
+        child=serializers.CharField(max_length=50), write_only=True, required=False, allow_empty=True
     )
 
     class Meta:
         """Configuration for ProfileUpdateSerializer fields."""
+
         model = Profile
         fields = ["title", "image", "bio", "education", "skills"]
         extra_kwargs = {
@@ -274,33 +252,32 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         """Update the Profile instance and attach Skill objects by IDs."""
-        skill_ids = validated_data.pop('skills', None)
+        skill_ids = validated_data.pop("skills", None)
         instance = super().update(instance, validated_data)
-        
+
         if skill_ids is not None:
             # Remove duplicates while preserving order
             unique_skill_ids = list(dict.fromkeys(skill_ids))
-            
+
             # Validate that all skill IDs exist
             skill_objects = Skill.objects.filter(id__in=unique_skill_ids, is_active=True)
-            
+
             # Check if all provided IDs were found
             if len(skill_objects) != len(unique_skill_ids):
-                found_ids = set(skill_objects.values_list('id', flat=True))
+                found_ids = set(skill_objects.values_list("id", flat=True))
                 missing_ids = set(unique_skill_ids) - found_ids
-                raise serializers.ValidationError({
-                    'skills': f'Skills with IDs {sorted(missing_ids)} do not exist or are inactive.'
-                })
-            
+                raise serializers.ValidationError(
+                    {"skills": f"Skills with IDs {sorted(missing_ids)} do not exist or are inactive."}
+                )
+
             instance.skills.set(skill_objects)
-        
+
         return instance
-    
 
     def to_representation(self, instance):
         """Convert back to read format with nested skills"""
         representation = super().to_representation(instance)
-        representation['skills'] = SkillSerializer(instance.skills.all(), many=True).data
+        representation["skills"] = SkillSerializer(instance.skills.all(), many=True).data
         return representation
 
 
@@ -313,6 +290,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         """Configuration for UserProfileSerializer fields."""
+
         model = CustomUser
         # Expose `phone` as read-only because all phone changes are performed
         # via a dedicated, email-confirmed flow to protect account security.
@@ -323,28 +301,28 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "full_name",
-            'is_enabled',
-            'student_id',
+            "is_enabled",
+            "student_id",
             "role",
             "profile",
-            "date_joined"
+            "date_joined",
         ]
         # Prevent direct editing of sensitive identity fields through the
         # generic user profile serializer. Email and student_id changes must
         # go through their dedicated flows. Also make admin-controlled flags
         # read-only here so the frontend and future code cannot accidentally
         # write them via the generic profile endpoint.
-        read_only_fields = ["phone", 'student_id', 'email', 'is_active']
-    
+        read_only_fields = ["phone", "student_id", "email", "is_active"]
+
     @extend_schema_field(OpenApiTypes.STR)
     def get_role(self, obj):
         """Return display value for user role."""
         return obj.get_role_display()
-    
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        if instance.role == 'teacher':
-            data.pop('student_id', None)
+        if instance.role == "teacher":
+            data.pop("student_id", None)
         return data
 
 
@@ -360,19 +338,20 @@ class StudentProfileUpdateSerializer(serializers.ModelSerializer):
         changes must go through the email-confirmed change flow implemented
         via `RequestPhoneChangeSerializer` and `ConfirmPhoneChangeSerializer`.
         """
+
         model = CustomUser
-        fields = ["first_name", "last_name", 'is_enabled', "profile"] 
+        fields = ["first_name", "last_name", "is_enabled", "profile"]
 
     def update(self, instance, validated_data):
         """Update the CustomUser instance and optionally its nested profile."""
         # Defensive: ensure protected fields cannot be updated through this
         # serializer even if a client includes them in the payload.
-        for protected in ('phone', 'is_active'):
+        for protected in ("phone", "is_active"):
             if protected in validated_data:
                 validated_data.pop(protected)
 
         profile_data = validated_data.pop("profile", None)
-        
+
         # Update user fields
         instance.first_name = validated_data.get("first_name", instance.first_name)
         instance.last_name = validated_data.get("last_name", instance.last_name)
@@ -385,10 +364,7 @@ class StudentProfileUpdateSerializer(serializers.ModelSerializer):
         if profile_data:
             profile, created = Profile.objects.get_or_create(user=instance)
             profile_serializer = ProfileUpdateSerializer(
-                instance=profile,
-                data=profile_data,
-                partial=True,
-                context=self.context
+                instance=profile, data=profile_data, partial=True, context=self.context
             )
             profile_serializer.is_valid(raise_exception=True)
             profile_serializer.save()
@@ -403,14 +379,15 @@ class TeacherProfileUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         """Meta options for TeacherProfileUpdateSerializer."""
+
         model = CustomUser
-        fields = ["first_name", "last_name", 'is_enabled',  "profile"]
+        fields = ["first_name", "last_name", "is_enabled", "profile"]
 
     def update(self, instance, validated_data):
         """Update user and nested profile fields."""
         # Defensive: ensure protected fields cannot be updated through this
         # serializer even if a client includes them in the payload.
-        for protected in ('phone', 'is_active'):
+        for protected in ("phone", "is_active"):
             if protected in validated_data:
                 validated_data.pop(protected)
 
@@ -445,9 +422,7 @@ class ResendVerificationEmailSerializer(serializers.Serializer):
         Ensure the email belongs to an inactive student account.
         """
 
-        user = CustomUser.objects.filter(
-            email=value, role=CustomUser.Role.STUDENT
-        ).first()
+        user = CustomUser.objects.filter(email=value, role=CustomUser.Role.STUDENT).first()
 
         if not user:
             raise serializers.ValidationError("Student with this email not found.")
@@ -456,9 +431,7 @@ class ResendVerificationEmailSerializer(serializers.Serializer):
 
         # Do not allow resending verification for explicitly disabled accounts
         if not getattr(user, "is_enabled", True):
-            raise serializers.ValidationError(
-                "Account is disabled. Please contact the admin to enable your account."
-            )
+            raise serializers.ValidationError("Account is disabled. Please contact the admin to enable your account.")
 
         self.context["user"] = user
         return value
@@ -493,20 +466,18 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     def validate(self, attrs):
         """Check that new passwords match."""
         if attrs["new_password"] != attrs["new_password2"]:
-            raise serializers.ValidationError(
-                {"new_password2": "Password confirmation does not match."}
-            )
+            raise serializers.ValidationError({"new_password2": "Password confirmation does not match."})
         return attrs
 
     def validate_new_password(self, value):
         # If serializer context included a user (e.g., during reset-confirm or change-password),
         # pass it to Django's validators so similarity checks can run.
-        user = self.context.get('user') if hasattr(self, 'context') else None
+        user = self.context.get("user") if hasattr(self, "context") else None
         # Also support passing request in context
-        if not user and hasattr(self, 'context'):
-            req = self.context.get('request')
+        if not user and hasattr(self, "context"):
+            req = self.context.get("request")
             if req:
-                user = getattr(req, 'user', None)
+                user = getattr(req, "user", None)
         return validate_password_strength(value, user=user)
 
 
@@ -514,34 +485,30 @@ class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(required=True, write_only=True)
     new_password = serializers.CharField(required=True, write_only=True, min_length=8)
     new_password2 = serializers.CharField(required=True, write_only=True)
-    
+
     def validate(self, attrs):
         """Validate old and new passwords for change operation."""
-        old_password = attrs.get('old_password')
-        new_password = attrs.get('new_password')
-        new_password2 = attrs.get('new_password2')
-        
+        old_password = attrs.get("old_password")
+        new_password = attrs.get("new_password")
+        new_password2 = attrs.get("new_password2")
+
         # Check if new passwords match
         if new_password != new_password2:
-            raise serializers.ValidationError({
-                "new_password2": "New passwords do not match."
-            })
-        
+            raise serializers.ValidationError({"new_password2": "New passwords do not match."})
+
         # Check if new password is same as old password
         if old_password == new_password:
-            raise serializers.ValidationError({
-                "new_password": "New password cannot be the same as old password."
-            })
-        
+            raise serializers.ValidationError({"new_password": "New password cannot be the same as old password."})
+
         return attrs
-    
+
     def validate_new_password(self, value):
         """Validate password strength using centralized helper."""
-        user = self.context.get('user') if hasattr(self, 'context') else None
-        if not user and hasattr(self, 'context'):
-            req = self.context.get('request')
+        user = self.context.get("user") if hasattr(self, "context") else None
+        if not user and hasattr(self, "context"):
+            req = self.context.get("request")
             if req:
-                user = getattr(req, 'user', None)
+                user = getattr(req, "user", None)
         return validate_password_strength(value, user=user)
 
 
@@ -569,7 +536,6 @@ class VerifyEmailSerializer(serializers.Serializer):
     token = serializers.CharField(required=True, help_text="Signed verification token")
 
 
-
 class RequestPhoneChangeSerializer(serializers.Serializer):
     """Allow an authenticated student to change their phone number directly."""
 
@@ -582,4 +548,3 @@ class RequestPhoneChangeSerializer(serializers.Serializer):
         if CustomUser.objects.filter(phone=clean_phone).exists():
             raise serializers.ValidationError("This phone number is already in use.")
         return clean_phone
-

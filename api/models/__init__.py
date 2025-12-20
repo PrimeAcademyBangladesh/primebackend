@@ -8,9 +8,7 @@ from .models_cart import Cart, CartItem, Wishlist
 from .models_course import CourseBatch
 from .models_custom_payment import CustomPayment
 from .models_footer import Footer, LinkGroup, QuickLink, SocialLink
-from .models_progress import (
+from .models_progress import (  # OLD models removed: ModuleAssignment, ModuleQuiz, StudentAssignmentSubmission, StudentQuizAttempt; Use NEW system: Quiz, Assignment, LiveClass from models_module.py
     CourseProgress,
     StudentModuleProgress,
-    # OLD models removed: ModuleAssignment, ModuleQuiz, StudentAssignmentSubmission, StudentQuizAttempt
-    # Use NEW system: Quiz, Assignment, LiveClass from models_module.py
 )

@@ -19,9 +19,9 @@ from django.conf import settings
 from django.core import signing
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.utils import timezone
+
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import (OpenApiExample, extend_schema,
-                                   extend_schema_view)
+from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
 from rest_framework import filters, generics, permissions, status
 from rest_framework.generics import CreateAPIView, GenericAPIView
 from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
@@ -33,13 +33,21 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from api.models.models_auth import CustomUser, Profile, Skill
 from api.permissions import IsAdmin, IsStaff, IsStudent, IsTeacher
 from api.serializers.serializers_auth import (
-    ChangePasswordSerializer, LoginSerializer, LogoutSerializer,
-    PasswordResetConfirmSerializer, PasswordResetSerializer,
-    RequestPhoneChangeSerializer, ResendVerificationEmailSerializer,
-    SkillSerializer, StudentProfileUpdateSerializer,
-    StudentRegistrationSerializer, TeacherCreateSerializer,
-    TeacherProfileUpdateSerializer, UserProfileSerializer,
-    VerifyEmailSerializer)
+    ChangePasswordSerializer,
+    LoginSerializer,
+    LogoutSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetSerializer,
+    RequestPhoneChangeSerializer,
+    ResendVerificationEmailSerializer,
+    SkillSerializer,
+    StudentProfileUpdateSerializer,
+    StudentRegistrationSerializer,
+    TeacherCreateSerializer,
+    TeacherProfileUpdateSerializer,
+    UserProfileSerializer,
+    VerifyEmailSerializer,
+)
 from api.utils.email_utils import send_system_email
 from api.utils.filters_utils import UserFilter
 from api.utils.pagination import StandardResultsSetPagination
@@ -60,7 +68,7 @@ logger = logging.getLogger(__name__)
     tags=["Students"],
     summary="Register a new student",
     description="Registers a new student and sends a verification email.",
-    responses=APIResponseSerializer
+    responses=APIResponseSerializer,
 )
 class StudentRegisterView(CreateAPIView):
     """Register a new student and send verification email."""
@@ -73,7 +81,7 @@ class StudentRegisterView(CreateAPIView):
         response = super().create(request, *args, **kwargs)
         msg = "Student registered successfully. Please check your email for verification."
         return api_response(True, msg, response.data, response.status_code)
-    
+
 
 # Student login view
 @extend_schema(
@@ -113,6 +121,7 @@ class StudentRegisterView(CreateAPIView):
 )
 class StudentLoginView(SecureLoginView):
     """Login view for students only."""
+
     serializer_class = LoginSerializer
     role_allowed = CustomUser.Role.STUDENT
 
@@ -154,6 +163,7 @@ class StudentLoginView(SecureLoginView):
 )
 class TeacherLoginView(SecureLoginView):
     """Login view for teachers only."""
+
     serializer_class = LoginSerializer
     role_allowed = CustomUser.Role.TEACHER
 
@@ -184,8 +194,6 @@ class LogoutView(APIView):
 # =============================================
 # USER PROFILE VIEWS
 # =============================================
-
-
 
 
 @extend_schema(
@@ -263,35 +271,30 @@ class CurrentUserProfileView(generics.RetrieveUpdateAPIView):
 )
 class AdminStudentViewSet(BaseAdminViewSet):
     """Admin viewset for managing students."""
+
     pagination_class = StandardResultsSetPagination
     queryset = CustomUser.objects.filter(role=CustomUser.Role.STUDENT).order_by("-date_joined")
-    
-    
-    filter_backends = [
-        DjangoFilterBackend,
-        filters.SearchFilter,
-        filters.OrderingFilter
-    ]
-    
+
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+
     filterset_class = UserFilter
-    
+
     search_fields = ["email", "first_name", "last_name", "phone", "student_id"]
     # Allow admins to explicitly order by common user fields
     ordering_fields = ["date_joined", "last_login", "email"]
-    
+
     # Handle full_name ordering by combining first_name and last_name
     def get_ordering(self):
         """Handle full_name ordering by combining first_name and last_name."""
-        ordering = self.request.query_params.get('ordering', '')
-        
-        if ordering == 'full_name':
-            return ['first_name', 'last_name']
-        elif ordering == '-full_name':
-            return ['-first_name', '-last_name']
-        
+        ordering = self.request.query_params.get("ordering", "")
+
+        if ordering == "full_name":
+            return ["first_name", "last_name"]
+        elif ordering == "-full_name":
+            return ["-first_name", "-last_name"]
+
         return super().get_ordering()
 
-    
     def get_serializer_class(self):
         """Return serializer class based on action."""
         if self.action == "create":
@@ -299,27 +302,26 @@ class AdminStudentViewSet(BaseAdminViewSet):
         if self.action in ("list", "retrieve"):
             return UserProfileSerializer
         return StudentProfileUpdateSerializer
-    
-    
+
     def get_permissions(self):
         return [IsAdmin()]
-    
+
     def update(self, request, *args, **kwargs):
         response = super().update(request, *args, **kwargs)
         try:
             instance = self.get_object()
-            data = UserProfileSerializer(instance, context={'request': request}).data
+            data = UserProfileSerializer(instance, context={"request": request}).data
         except Exception:
-            data = getattr(response, 'data', {})
+            data = getattr(response, "data", {})
         return api_response(True, "Student updated successfully.", data)
 
     def partial_update(self, request, *args, **kwargs):
         response = super().partial_update(request, *args, **kwargs)
         try:
             instance = self.get_object()
-            data = UserProfileSerializer(instance, context={'request': request}).data
+            data = UserProfileSerializer(instance, context={"request": request}).data
         except Exception:
-            data = getattr(response, 'data', {})
+            data = getattr(response, "data", {})
         return api_response(True, "Student updated successfully.", data)
 
 
@@ -334,15 +336,11 @@ class AdminTeacherViewSet(BaseAdminViewSet):
 
     pagination_class = StandardResultsSetPagination
     queryset = CustomUser.objects.filter(role=CustomUser.Role.TEACHER).order_by("-date_joined")
-    
-    filter_backends = [
-        DjangoFilterBackend,
-        filters.SearchFilter,
-        filters.OrderingFilter
-    ]
-    
+
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+
     filterset_class = UserFilter
-    
+
     search_fields = ["email", "first_name", "last_name", "phone"]
     # Allow admins to explicitly order by common user fields
     ordering_fields = ["date_joined", "last_login", "email"]
@@ -354,7 +352,6 @@ class AdminTeacherViewSet(BaseAdminViewSet):
         if self.action in ("list", "retrieve"):
             return UserProfileSerializer
         return TeacherProfileUpdateSerializer
-    
 
     def get_permissions(self):
         return [IsAdmin()]
@@ -363,18 +360,18 @@ class AdminTeacherViewSet(BaseAdminViewSet):
         response = super().update(request, *args, **kwargs)
         try:
             instance = self.get_object()
-            data = UserProfileSerializer(instance, context={'request': request}).data
+            data = UserProfileSerializer(instance, context={"request": request}).data
         except Exception:
-            data = getattr(response, 'data', {})
+            data = getattr(response, "data", {})
         return api_response(True, "Teacher updated successfully.", data)
 
     def partial_update(self, request, *args, **kwargs):
         response = super().partial_update(request, *args, **kwargs)
         try:
             instance = self.get_object()
-            data = UserProfileSerializer(instance, context={'request': request}).data
+            data = UserProfileSerializer(instance, context={"request": request}).data
         except Exception:
-            data = getattr(response, 'data', {})
+            data = getattr(response, "data", {})
         return api_response(True, "Teacher partially updated successfully.", data)
 
 
@@ -386,6 +383,7 @@ class AdminTeacherViewSet(BaseAdminViewSet):
 )
 class AdminLoginView(SecureLoginView):
     """Login view for admin users only."""
+
     serializer_class = LoginSerializer
     role_allowed = CustomUser.Role.ADMIN
 
@@ -398,6 +396,7 @@ class AdminLoginView(SecureLoginView):
 )
 class StaffLoginView(SecureLoginView):
     """Login view for staff users only."""
+
     serializer_class = LoginSerializer
     role_allowed = CustomUser.Role.STAFF
 
@@ -410,9 +409,9 @@ class StaffLoginView(SecureLoginView):
 )
 class AccountantLoginView(SecureLoginView):
     """Login view for accountant users only."""
+
     serializer_class = LoginSerializer
     role_allowed = CustomUser.Role.ACCOUNTANT
-
 
 
 @extend_schema(
@@ -465,26 +464,27 @@ class VerifyEmailView(GenericAPIView):
                     False,
                     "Your account is disabled. Please contact the admin to enable your account.",
                     {},
-                    status.HTTP_403_FORBIDDEN
+                    status.HTTP_403_FORBIDDEN,
                 )
 
             user.is_active = True
             user.save()
-            
+
             # Merge guest cart to user cart if session has items
             from api.utils.cart_utils import merge_guest_cart_to_user
+
             session_key = request.session.session_key
             merged_items = 0
             if session_key:
                 _, merged_items = merge_guest_cart_to_user(user, session_key)
-            
+
             # Generate JWT tokens for auto-login
             refresh = RefreshToken.for_user(user)
             tokens = {
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
             }
-            
+
             response_data = {
                 "email": user.email,
                 "user": {
@@ -494,19 +494,18 @@ class VerifyEmailView(GenericAPIView):
                 },
                 "tokens": tokens,
             }
-            
+
             # Add cart merge info if items were merged
             if merged_items and merged_items > 0:
                 response_data["cart_merged"] = True
                 response_data["cart_items_merged"] = merged_items
-            
+
             return api_response(
                 True,
                 "Account activated and logged in successfully.",
                 response_data,
                 status.HTTP_200_OK,
             )
-            
 
         except SignatureExpired:
             # Allow client to know they can request a resend
@@ -552,35 +551,32 @@ class ResendVerificationEmailView(GenericAPIView):
         # Prefer sending a frontend link (so users click and finish the action from the app)
         frontend_base = getattr(settings, "FRONTEND_URL", None)
         if frontend_base:
-            fb = frontend_base.rstrip('/')
+            fb = frontend_base.rstrip("/")
             # If the provided FRONTEND_VERIFY_URL already looks like a full
             # verification path (contains 'verify' or has a query), use it as
             # supplied. Otherwise treat it as a base URL and append the
             # standard '/verify-email' path.
-            if 'verify' in fb or '?' in fb or fb.endswith('/'):
+            if "verify" in fb or "?" in fb or fb.endswith("/"):
                 verification_link = f"{fb}?token={token}"
             else:
                 verification_link = f"{fb}/verify-student?token={token}"
         else:
-            verification_link = build_full_url(
-                "verify-student", query_params={"token": token}
-            )
+            verification_link = build_full_url("verify-student", query_params={"token": token})
 
         # Send email with template
         try:
             send_system_email(
                 subject="Verify your Prime Academy account",
                 template_name="emails/verify_email",
-                context={
-                    "first_name": user.first_name, 
-                    "verify_url": verification_link
-                },
+                context={"first_name": user.first_name, "verify_url": verification_link},
                 recipient_list=[user.email],
             )
         except Exception as e:
             logger.error(f"Failed to send verification email to {user.email}: {str(e)}")
             # You can choose to return error or success for security
-            return api_response(False, "Failed to send verification email. Please try again later.", {}, status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return api_response(
+                False, "Failed to send verification email. Please try again later.", {}, status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         return api_response(True, "Verification email sent.", {})
 
@@ -606,18 +602,14 @@ class PasswordResetView(APIView):
             user = CustomUser.objects.get(email=email)
         except CustomUser.DoesNotExist:
             # To avoid user enumeration, return success even if email not found
-            return api_response(
-                True, "Password reset email sent to your registered email.", {}
-            )
+            return api_response(True, "Password reset email sent to your registered email.", {})
 
         # Generate signed token
         signer = TimestampSigner()
         token = signer.sign(str(user.pk))
 
         # Build password reset URL
-        reset_url = build_full_url(
-            "password-reset-confirm", query_params={"token": token}
-        )
+        reset_url = build_full_url("password-reset-confirm", query_params={"token": token})
 
         # Send email with template
         try:
@@ -633,14 +625,9 @@ class PasswordResetView(APIView):
         except Exception as e:
             logger.error(f"Failed to send password reset email to {user.email}: {str(e)}")
             # Still return success for security (don't reveal email failure)
-            return api_response(
-                True, "Password reset email sent to your registered email.", {}
-            )
+            return api_response(True, "Password reset email sent to your registered email.", {})
 
-        return api_response(
-            True, "Password reset email sent to your registered email.", {}
-        )
-
+        return api_response(True, "Password reset email sent to your registered email.", {})
 
 
 @extend_schema(
@@ -660,7 +647,10 @@ class PasswordResetConfirmView(APIView):
         token = request.query_params.get("token")
         if not token:
             return api_response(
-                False, "This password reset link has expired or is invalid. Please request a new one.", {}, status.HTTP_400_BAD_REQUEST
+                False,
+                "This password reset link has expired or is invalid. Please request a new one.",
+                {},
+                status.HTTP_400_BAD_REQUEST,
             )
 
         # Validate token
@@ -690,19 +680,28 @@ class PasswordResetConfirmView(APIView):
         except SignatureExpired:
             logger.info("Password reset token expired for request path=%s", request.path)
             return api_response(
-                False, "This password reset link has expired or is invalid. Please request a new one.", {}, status.HTTP_400_BAD_REQUEST
+                False,
+                "This password reset link has expired or is invalid. Please request a new one.",
+                {},
+                status.HTTP_400_BAD_REQUEST,
             )
 
         except BadSignature:
             logger.info("Password reset token bad signature for request path=%s", request.path)
             return api_response(
-                False, "This password reset link has expired or is invalid. Please request a new one.", {}, status.HTTP_400_BAD_REQUEST
+                False,
+                "This password reset link has expired or is invalid. Please request a new one.",
+                {},
+                status.HTTP_400_BAD_REQUEST,
             )
 
         except Exception as e:
             logger.warning("Unexpected error while validating password reset token: %s", str(e))
             return api_response(
-                False, "This password reset link has expired or is invalid. Please request a new one.", {}, status.HTTP_400_BAD_REQUEST
+                False,
+                "This password reset link has expired or is invalid. Please request a new one.",
+                {},
+                status.HTTP_400_BAD_REQUEST,
             )
 
         # Check if password was already reset AFTER the token was generated. If
@@ -719,22 +718,41 @@ class PasswordResetConfirmView(APIView):
                     token_seconds = int(token_timestamp.timestamp())
                     # If last_password_reset is at least 2 seconds after token, treat token as stale
                     if last_reset_seconds - token_seconds >= 2:
-                        logger.info("Stale password reset token: user=%s last_password_reset=%s token_ts=%s", user.pk, user.last_password_reset, token_timestamp)
+                        logger.info(
+                            "Stale password reset token: user=%s last_password_reset=%s token_ts=%s",
+                            user.pk,
+                            user.last_password_reset,
+                            token_timestamp,
+                        )
                         return api_response(
-                            False, "This password reset link has already been used. Please request a new one.", {}, status.HTTP_400_BAD_REQUEST
+                            False,
+                            "This password reset link has already been used. Please request a new one.",
+                            {},
+                            status.HTTP_400_BAD_REQUEST,
                         )
                 except Exception:
                     # Fallback to direct comparison if timestamp extraction fails
                     if user.last_password_reset > token_timestamp:
-                        logger.info("Stale password reset token (fallback): user=%s last_password_reset=%s token_ts=%s", user.pk, user.last_password_reset, token_timestamp)
+                        logger.info(
+                            "Stale password reset token (fallback): user=%s last_password_reset=%s token_ts=%s",
+                            user.pk,
+                            user.last_password_reset,
+                            token_timestamp,
+                        )
                         return api_response(
-                            False, "This password reset link has already been used. Please request a new one.", {}, status.HTTP_400_BAD_REQUEST
+                            False,
+                            "This password reset link has already been used. Please request a new one.",
+                            {},
+                            status.HTTP_400_BAD_REQUEST,
                         )
             else:
                 # Fallback to previous behavior when we couldn't parse token timestamp
                 if user.last_password_reset > timezone.now() - timedelta(days=1):
                     return api_response(
-                        False, "This password reset link has already been used. Please request a new one.", {}, status.HTTP_400_BAD_REQUEST
+                        False,
+                        "This password reset link has already been used. Please request a new one.",
+                        {},
+                        status.HTTP_400_BAD_REQUEST,
                     )
 
         serializer = self.serializer_class(data=request.data)
@@ -766,9 +784,7 @@ class PasswordChangeView(APIView):
 
         user = request.user
         if not user.check_password(serializer.validated_data["old_password"]):
-            return api_response(
-                False, "Old password is incorrect.", {}, status.HTTP_400_BAD_REQUEST
-            )
+            return api_response(False, "Old password is incorrect.", {}, status.HTTP_400_BAD_REQUEST)
 
         user.set_password(serializer.validated_data["new_password"])
         user.last_password_reset = timezone.now()
@@ -776,11 +792,11 @@ class PasswordChangeView(APIView):
 
         # Return user role in response
         return api_response(
-            True, 
-            "Password updated successfully.", 
+            True,
+            "Password updated successfully.",
             {
                 "role": user.role,
-            }
+            },
         )
 
 
@@ -811,25 +827,24 @@ class RequestPhoneChangeView(GenericAPIView):
         return api_response(True, "Phone number updated successfully.", {"phone": user.phone})
 
 
-
-
 @extend_schema_view(
-    list=extend_schema(summary="List all skills", responses={200: SkillSerializer}, tags=['Skill']),
-    retrieve=extend_schema(summary="Retrieve a skill by slug", responses={200: SkillSerializer}, tags=['Skill']),
-    create=extend_schema(summary="Create a skill", responses={201: SkillSerializer}, tags=['Skill']),
-    update=extend_schema(summary="Update a skill", responses={200: SkillSerializer}, tags=['Skill']),
-    partial_update=extend_schema(summary="Partially update a skill", responses={200: SkillSerializer}, tags=['Skill']),
-    destroy=extend_schema(summary="Delete a skill", responses={204: None}, tags=['Skill']),
+    list=extend_schema(summary="List all skills", responses={200: SkillSerializer}, tags=["Skill"]),
+    retrieve=extend_schema(summary="Retrieve a skill by slug", responses={200: SkillSerializer}, tags=["Skill"]),
+    create=extend_schema(summary="Create a skill", responses={201: SkillSerializer}, tags=["Skill"]),
+    update=extend_schema(summary="Update a skill", responses={200: SkillSerializer}, tags=["Skill"]),
+    partial_update=extend_schema(summary="Partially update a skill", responses={200: SkillSerializer}, tags=["Skill"]),
+    destroy=extend_schema(summary="Delete a skill", responses={204: None}, tags=["Skill"]),
 )
 class SkillViewSet(BaseAdminViewSet):
     """
     CRUD for Skills.
-    
+
     Permissions:
     - List/Retrieve: All authenticated users
     - Create: All authenticated users (students can add skills)
     - Update/Delete: Staff only
     """
+
     queryset = Skill.objects.all()
     serializer_class = SkillSerializer
 
@@ -839,15 +854,15 @@ class SkillViewSet(BaseAdminViewSet):
     filterset_fields = ["is_active"]
     search_fields = ["name"]
     ordering_fields = ["name", "created_at"]
-    
+
     def get_permissions(self):
         """
         Allow all authenticated users to list, retrieve, and create skills.
         Only staff can update or delete.
         """
         from rest_framework.permissions import IsAuthenticated
-        
-        if self.action in ['list', 'retrieve', 'create']:
+
+        if self.action in ["list", "retrieve", "create"]:
             # All authenticated users can list, view, and create skills
             return [IsAuthenticated()]
 

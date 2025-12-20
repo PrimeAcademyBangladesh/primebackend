@@ -6,6 +6,7 @@ with UUID primary keys and image optimization.
 """
 
 import uuid
+
 from django.db import models
 
 from api.models.images_base_class import OptimizedImageModel
@@ -26,9 +27,7 @@ class Department(models.Model):
         unique=True,
         help_text="Department name (max 150 chars). Must be unique.",
     )
-    is_active = models.BooleanField(
-        default=True, help_text="Uncheck to hide this department from the system."
-    )
+    is_active = models.BooleanField(default=True, help_text="Uncheck to hide this department from the system.")
 
     class Meta:
         verbose_name = "Department"
@@ -95,27 +94,21 @@ class Employee(TimeStampedModel, OptimizedImageModel):
     )
     last_name = models.CharField(max_length=50, help_text="Employee last name.")
 
-    date_of_birth = models.DateField(
-        blank=True, null=True, help_text="Employee’s date of birth."
-    )
+    date_of_birth = models.DateField(blank=True, null=True, help_text="Employee’s date of birth.")
     gender = models.CharField(
         choices=CHOOSE_GENDER,
         max_length=20,
         default="male",
         help_text="Gender of the employee (Male, Female, Other).",
     )
-    nationality = models.CharField(
-        max_length=50, blank=True, null=True, help_text="Nationality of the employee."
-    )
+    nationality = models.CharField(max_length=50, blank=True, null=True, help_text="Nationality of the employee.")
     qualification = models.CharField(
         max_length=150,
         blank=True,
         null=True,
         help_text="Highest qualification of the employee.",
     )
-    experience_years = models.PositiveIntegerField(
-        blank=True, null=True, help_text="Years of previous work experience."
-    )
+    experience_years = models.PositiveIntegerField(blank=True, null=True, help_text="Years of previous work experience.")
     # -----------------------------
     # Contact Information
     # -----------------------------
@@ -125,12 +118,8 @@ class Employee(TimeStampedModel, OptimizedImageModel):
         null=True,
         help_text="Employee's work email address.",
     )
-    phone_number = models.CharField(
-        max_length=20, blank=True, null=True, help_text="Primary contact phone number."
-    )
-    address = models.TextField(
-        blank=True, null=True, help_text="Current residential address."
-    )
+    phone_number = models.CharField(max_length=20, blank=True, null=True, help_text="Primary contact phone number.")
+    address = models.TextField(blank=True, null=True, help_text="Current residential address.")
     blood_group = models.CharField(
         max_length=10,
         blank=True,
@@ -141,9 +130,7 @@ class Employee(TimeStampedModel, OptimizedImageModel):
     # -----------------------------
     # Employment Information
     # -----------------------------
-    job_title = models.CharField(
-        max_length=150, help_text="Job title or position of the employee."
-    )
+    job_title = models.CharField(max_length=150, help_text="Job title or position of the employee.")
     department = models.ForeignKey(
         Department,
         on_delete=models.CASCADE,
@@ -156,9 +143,7 @@ class Employee(TimeStampedModel, OptimizedImageModel):
         default="full-time",
         help_text="Type of employment (e.g., Full-time, Part-time, Contract, Internship).",
     )
-    joining_date = models.DateField(
-        blank=True, null=True, help_text="Date when the employee joined the company."
-    )
+    joining_date = models.DateField(blank=True, null=True, help_text="Date when the employee joined the company.")
     salary = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -240,9 +225,7 @@ class Employee(TimeStampedModel, OptimizedImageModel):
     # -----------------------------
     # System Fields
     # -----------------------------
-    is_active = models.BooleanField(
-        default=True, help_text="Uncheck to deactivate employee (resigned/terminated)."
-    )
+    is_active = models.BooleanField(default=True, help_text="Uncheck to deactivate employee (resigned/terminated).")
 
     is_enabled = models.BooleanField(
         default=True,

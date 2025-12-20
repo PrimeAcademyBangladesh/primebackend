@@ -16,12 +16,8 @@ class BlogCategoryAdmin(admin.ModelAdmin):
         return False
 
     fieldsets = (
-        ("Category Info", {
-            "fields": ("name", "slug")
-        }),
-        ("Timestamps", {
-            "fields": ("created_at", "updated_at")
-        }),
+        ("Category Info", {"fields": ("name", "slug")}),
+        ("Timestamps", {"fields": ("created_at", "updated_at")}),
     )
 
 
@@ -35,17 +31,11 @@ class BlogAdmin(BaseModelAdmin):
     readonly_fields = ("created_at", "updated_at")
 
     fieldsets = (
-        ("Basic Info", {
-            "fields": ("title", "slug", "category", "status", "excerpt")
-        }),
-        ("Display Settings", {
-            "fields": ("show_in_home_latest",),
-            "description": "Control where this blog appears on the website"
-        }),
-        ("Content", {
-            "fields": ("content", "featured_image")
-        }),
-        ("Timestamps", {
-            "fields": ("created_at", "updated_at")
-        }),
+        ("Basic Info", {"fields": ("title", "slug", "category", "status", "excerpt")}),
+        (
+            "Display Settings",
+            {"fields": ("show_in_home_latest",), "description": "Control where this blog appears on the website"},
+        ),
+        ("Content", {"fields": ("content", "featured_image")}),
+        ("Timestamps", {"fields": ("created_at", "updated_at")}),
     )

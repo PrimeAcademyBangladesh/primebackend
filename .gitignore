@@ -85,6 +85,7 @@ wheels/
 *.spec 
 data.json
 # Installer logs 
+test_checker.txt
 pip-log.txt 
 pip-delete-this-directory.txt 
 schema_temp.yml

@@ -4,8 +4,9 @@ Provides nested inlines and a singleton-like Footer admin to manage the
 public site footer content.
 """
 
-import nested_admin
 from django.contrib import admin
+
+import nested_admin
 
 from api.models.models_footer import Footer, LinkGroup, QuickLink, SocialLink
 
@@ -25,6 +26,7 @@ class QuickLinkInline(nested_admin.NestedStackedInline):
         def add_fields(form, index):
             super(form.__class__, form).add_fields(form, index)
             form.form_title = f"Footer Link {index + 1}"
+
         formset.form.add_fields = add_fields
         return formset
 
@@ -46,9 +48,10 @@ class LinkGroupInline(nested_admin.NestedStackedInline):
         def add_fields(form, index):
             super(form.__class__, form).add_fields(form, index)
             form.form_title = f"Footer Column Group {index + 1}"
+
         formset.form.add_fields = add_fields
         return formset
-    
+
     def has_add_permission(self, request, obj=None):
         """Restrict maximum of 3 Link Groups per Footer"""
         if obj and obj.pk and obj.link_groups.count() >= 3:
@@ -71,6 +74,7 @@ class SocialLinkInline(nested_admin.NestedStackedInline):
         def add_fields(form, index):
             super(form.__class__, form).add_fields(form, index)
             form.form_title = f"Social Link {index + 1}"
+
         formset.form.add_fields = add_fields
         return formset
 

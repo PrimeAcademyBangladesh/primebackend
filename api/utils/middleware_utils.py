@@ -8,6 +8,7 @@ Functions:
 
 These wrap the logic from the middleware so other parts of the app can reuse it.
 """
+
 from typing import Optional, Tuple
 
 from django.conf import settings
@@ -35,11 +36,11 @@ def get_user_status(user_id: str, ttl: Optional[int] = None) -> Tuple[bool, Opti
     This function uses the Django cache (default) to cache negative results for ttl seconds.
     """
     if ttl is None:
-        ttl = getattr(settings, 'API_MIDDLEWARE_USER_CACHE_TTL_SECONDS', 5)
+        ttl = getattr(settings, "API_MIDDLEWARE_USER_CACHE_TTL_SECONDS", 5)
 
     cache = None
     try:
-        cache = caches['default']
+        cache = caches["default"]
     except Exception:
         cache = None
 
@@ -56,7 +57,7 @@ def get_user_status(user_id: str, ttl: Optional[int] = None) -> Tuple[bool, Opti
     try:
         fresh = User.objects.get(pk=user_id)
     except User.DoesNotExist:
-        result = (False, 'not_found')
+        result = (False, "not_found")
         if cache is not None:
             try:
                 cache.set(key, result, timeout=ttl)
@@ -64,8 +65,8 @@ def get_user_status(user_id: str, ttl: Optional[int] = None) -> Tuple[bool, Opti
                 pass
         return result
 
-    if not getattr(fresh, 'is_active', True) or not getattr(fresh, 'is_enabled', True):
-        result = (False, 'disabled')
+    if not getattr(fresh, "is_active", True) or not getattr(fresh, "is_enabled", True):
+        result = (False, "disabled")
         if cache is not None:
             try:
                 cache.set(key, result, timeout=ttl)
@@ -77,15 +78,14 @@ def get_user_status(user_id: str, ttl: Optional[int] = None) -> Tuple[bool, Opti
 
 
 def decode_access_token(token_str: str) -> Optional[str]:
-    """Extract the user id from a JWT access token string. Returns None if token invalid or missing.
-    """
+    """Extract the user id from a JWT access token string. Returns None if token invalid or missing."""
     if AccessToken is None:
         return None
     try:
         at = AccessToken(token_str)
         # SIMPLE_JWT may set USER_ID_CLAIM
-        claim = settings.SIMPLE_JWT.get('USER_ID_CLAIM', 'user_id')
-        return at.get(claim) or at.get('user_id')
+        claim = settings.SIMPLE_JWT.get("USER_ID_CLAIM", "user_id")
+        return at.get(claim) or at.get("user_id")
     except Exception:
         return None
 
@@ -97,7 +97,7 @@ def check_token_user_status(token_str: str, ttl: Optional[int] = None) -> Tuple[
     """
     user_id = decode_access_token(token_str)
     if not user_id:
-        return (False, 'invalid_token')
+        return (False, "invalid_token")
     return get_user_status(user_id, ttl=ttl)
 
 
@@ -105,4 +105,4 @@ def is_user_disabled(user) -> bool:
     """Return True if user is considered disabled (inactive or admin-disabled)."""
     if user is None:
         return True
-    return not (getattr(user, 'is_active', True) and getattr(user, 'is_enabled', True))
+    return not (getattr(user, "is_active", True) and getattr(user, "is_enabled", True))

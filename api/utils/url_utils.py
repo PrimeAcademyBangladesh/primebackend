@@ -19,9 +19,7 @@ def build_full_url(path: str, query_params: dict = None) -> str:
     """
     site_base = getattr(settings, "FRONTEND_URL", "").rstrip("/")
     if not site_base:
-        raise ValueError(
-            "Cannot build full URL: FRONTEND_URL not defined in settings."
-        )
+        raise ValueError("Cannot build full URL: FRONTEND_URL not defined in settings.")
 
     url = f"{site_base}/{path.lstrip('/')}"
     if query_params:

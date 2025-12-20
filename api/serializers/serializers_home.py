@@ -1,4 +1,5 @@
 from django.conf import settings
+
 from rest_framework import serializers
 
 from api.models.models_home import Brand, HeroSection, HeroSlideText
@@ -15,6 +16,7 @@ class HeroSlideTextSerializer(serializers.ModelSerializer):
 
 class HeroSectionSerializer(serializers.ModelSerializer):
     """Serializer for HeroSection with nested slides."""
+
     slides = HeroSlideTextSerializer(many=True)
     banner_image_url = serializers.SerializerMethodField(read_only=True)
 
@@ -70,15 +72,16 @@ class HeroSectionSerializer(serializers.ModelSerializer):
                 HeroSlideText.objects.create(hero_section=instance, **slide)
         return instance
 
-    
-#===============================end hero section serializers===============================
+
+# ===============================end hero section serializers===============================
 
 
-#===============================start brand section serializers===============================
+# ===============================start brand section serializers===============================
 
 
 class BrandSerializer(serializers.ModelSerializer):
     """Serializer for Brand objects."""
+
     logo = serializers.ImageField(required=False)
     logo_url = serializers.SerializerMethodField(read_only=True)
 
@@ -98,5 +101,3 @@ class BrandSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(url)
             return url
         return None
-
-
