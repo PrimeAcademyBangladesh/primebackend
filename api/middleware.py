@@ -1,6 +1,7 @@
 # api/middleware.py
 from django.core.cache import cache
 from django.http import JsonResponse
+from django.conf import settings
 from django.utils.deprecation import MiddlewareMixin
 
 
@@ -21,6 +22,34 @@ class RejectDisabledUserMiddleware(MiddlewareMixin):
 
         # Let anonymous users pass
         if not user or not user.is_authenticated:
+            # For JWT-authenticated requests, DRF authenticates during view
+            # handling (after middleware). To block disabled/deleted accounts
+            # earlier, attempt to parse a Bearer access token from the
+            # Authorization header and validate the referenced user's state.
+            auth = request.META.get("HTTP_AUTHORIZATION", "")
+            if auth and auth.startswith("Bearer "):
+                token_str = auth.split(" ", 1)[1].strip()
+                try:
+                    from rest_framework_simplejwt.tokens import AccessToken
+
+                    at = AccessToken(token_str)
+                    user_id = at.get(getattr(settings, "SIMPLE_JWT", {}).get("USER_ID_CLAIM", "user_id")) or at.get("user_id")
+                    if user_id:
+                        # Import locally to avoid heavier imports at module level
+                        from django.contrib.auth import get_user_model
+
+                        User = get_user_model()
+                        try:
+                            fresh = User.objects.get(pk=user_id)
+                        except User.DoesNotExist:
+                            return JsonResponse({"detail": "User not found."}, status=401)
+
+                        if not fresh.is_active or not getattr(fresh, "is_enabled", True):
+                            return JsonResponse({"detail": "Your account has been disabled."}, status=403)
+                except Exception:
+                    # If token invalid/expired or simplejwt not installed, let DRF handle it
+                    return None
+
             return None
 
         cache_key = f"{self.CACHE_KEY_PREFIX}{user.pk}"

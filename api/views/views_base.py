@@ -93,7 +93,7 @@ class BaseAdminViewSet(viewsets.ModelViewSet):
 
     def is_staff_user(self, user):
         """Check if user has staff/admin role"""
-        return user.is_authenticated and user.role in ["staf", "admin", "superadmin"]
+        return user.is_authenticated and user.role in ["staff", "admin", "superadmin"]
 
     def is_staff_and_teacher_user(self, user):
         """Check if user has staff/admin/teacher role"""

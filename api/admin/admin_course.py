@@ -275,7 +275,8 @@ class CourseDetailInline(nested_admin.NestedStackedInline):
     inlines = [
         CourseContentSectionInline,  # New: Replaces CourseTabInline, CourseMediaTabInline
         WhyEnrolInline,
-        CourseModuleInline,
+        # CourseModuleInline removed from here because CourseModule has FK to Course (not CourseDetail).
+        # Modules are attached to `Course` via CourseModule.course, so include modules at Course admin level.
         KeyBenefitInline,
         SideImageSectionInline,
         SuccessStoryInline,
@@ -376,7 +377,8 @@ class CourseAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
     list_editable = ("is_active", "status", "show_in_megamenu", "show_in_home_tab")
     readonly_fields = ("id", "created_at", "updated_at", "header_image_display")
 
-    inlines = [CoursePriceInline, CourseInstructorInline, CourseDetailInline]
+    # Include CourseModuleInline at the Course level because CourseModule.course is a ForeignKey to Course.
+    inlines = [CoursePriceInline, CourseInstructorInline, CourseDetailInline, CourseModuleInline]
 
     fieldsets = (
         (

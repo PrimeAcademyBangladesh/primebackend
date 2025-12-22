@@ -114,59 +114,13 @@ class CourseFilter(django_filters.FilterSet):
 @extend_schema_view(
     list=extend_schema(
         summary="List all course categories",
-        description="""
-        Retrieve all active categories for course organization.
-
-        **Permissions:**
-        - Public users: See only active categories (`is_active=True`)
-        - Staff users: See all categories including inactive ones
-
-        **Frontend Usage:**
-        - Course category navigation/filters
-        - Homepage category sections
-        - Course listing filter dropdowns
-        - Megamenu category links
-
-        **Response includes:**
-        - `id`: Category UUID
-        - `name`: Display name
-        - `slug`: URL-friendly identifier
-        - `description`: Category description
-        - `is_active`: Visibility status
-        - `show_in_megamenu`: Whether to show in navigation
-        - `icon`: Optional icon identifier
-
-        **Example Usage:**
-        ```javascript
-        // Fetch all categories for navigation
-        const response = await fetch('/api/courses/categories/');
-        const { data } = await response.json();
-        const categories = data.results; // Array of category objects
-        ```
-        """,
+        description="Retrieve course categories.",
         responses={200: CategorySerializer},
         tags=["Course - Categories"],
     ),
     retrieve=extend_schema(
         summary="Retrieve a course category by slug",
-        description="""
-        Get detailed information about a specific category using its slug.
-
-        **Frontend Usage:**
-        - Category landing pages
-        - Display category details above filtered courses
-        - Breadcrumb navigation context
-
-        **URL Pattern:** `/api/courses/categories/{category_slug}/`
-
-        **Example:**
-        ```javascript
-        // Get web-development category details
-        const response = await fetch('/api/courses/categories/web-development/');
-        const { data } = await response.json();
-        console.log(data.name); // "Web Development"
-        ```
-        """,
+        description="Get category details by slug.",
         parameters=[
             OpenApiParameter(
                 name="slug",
@@ -261,57 +215,7 @@ class CategoryViewSet(BaseAdminViewSet):
 @extend_schema_view(
     list=extend_schema(
         summary="List courses",
-        description="""
-        Get paginated list of courses with batch information.
-
-        **Permissions:**
-        - Public: Only published & active courses
-        - Staff: All courses regardless of status
-
-        **Key Features:**
-        - Each course includes `active_batches` array with enrollment status
-        - `is_purchased` flag for authenticated users (shows if user is enrolled)
-        - Optimized with select_related/prefetch_related to avoid N+1 queries
-        - Cached for 10 minutes to improve performance
-
-        **Filtering Options:**
-        - `category`: Filter by category slug or ID
-        - `status`: Filter by status (published, draft, archived)
-        - `is_active`: Boolean filter for active courses
-        - `search`: Search in title and short_description
-        - `ordering`: Sort by title, created_at, updated_at (use `-` for descending)
-
-        **Pagination:**
-        - Default page size: 10 items
-        - Use `?page=2` for next pages
-
-        **Frontend Usage:**
-        ```javascript
-        // Get first page of courses
-        const response = await fetch('/api/courses/');
-        const { data } = await response.json();
-
-        data.results.forEach(course => {
-          console.log(course.title);
-          console.log(course.active_batches); // Array of available batches
-          console.log(course.is_purchased); // true if user enrolled
-        });
-
-        // Filter by category
-        const webCourses = await fetch('/api/courses/?category=web-development');
-
-        // Search courses
-        const searchResults = await fetch('/api/courses/?search=python');
-
-        // Sort by newest first
-        const newest = await fetch('/api/courses/?ordering=-created_at');
-        ```
-
-        **Response Structure:**
-        - Each course has `active_batches` field containing batches with `is_enrollment_open=True`
-        - Use batch information to show "Enroll Now" buttons with batch selection
-        - Check `is_purchased` to show "Continue Learning" vs "Enroll" buttons
-        """,
+                description="Paginated list of courses.",
         parameters=[
             OpenApiParameter(
                 name="category",
@@ -361,68 +265,7 @@ class CategoryViewSet(BaseAdminViewSet):
     ),
     retrieve=extend_schema(
         summary="Retrieve course by slug",
-        description="""
-        Get comprehensive course details including all batches, pricing, modules, and content.
-
-        **URL Pattern:** `/api/courses/{course_slug}/`
-
-        **Smart Caching Behavior:**
-        - **Anonymous users**: Cached response (10 min) with sample module content only
-        - **Enrolled students**: Full uncached response with complete module access
-        - **Staff/Admins**: Full uncached response with all content
-
-        **Response Includes:**
-        - Complete course information (title, description, thumbnail, etc.)
-        - `batches` array: All batches for this course with enrollment status
-        - `pricing` object: Course pricing details (regular, discount, installments)
-        - `detail` object: Extended course details with:
-          - `modules`: Course curriculum modules
-          - `content_sections`: Organized course content
-          - `why_enrol`: Enrollment reasons
-          - `benefits`: Key benefits
-          - `success_stories`: Student testimonials
-          - `instructors`: Course instructors
-        - `is_purchased`: Boolean indicating if current user is enrolled (authenticated users only)
-
-        **Batch Information:**
-        Each batch in the `batches` array includes:
-        - `batch_number`: Batch identifier
-        - `start_date`, `end_date`: Batch schedule
-        - `enrollment_start`, `enrollment_end`: Enrollment window
-        - `is_enrollment_open`: Whether enrollment is currently open
-        - `available_seats`: Remaining capacity
-        - `is_full`: Whether batch is at capacity
-
-        **Frontend Usage:**
-        ```javascript
-        // Get complete course details
-        const response = await fetch('/api/courses/django-web-development/');
-        const { data } = await response.json();
-
-        // Display available batches
-        const openBatches = data.batches.filter(b => b.is_enrollment_open);
-
-        // Show enrollment button based on status
-        if (data.is_purchased) {
-          showButton('Continue Learning');
-        } else if (openBatches.length > 0) {
-          showButton('Enroll Now');
-        } else {
-          showButton('Notify Me');
-        }
-
-        // Display pricing
-        console.log(`Price: $${data.pricing.regular_price}`);
-        if (data.pricing.discount_price) {
-          console.log(`Discount: $${data.pricing.discount_price}`);
-        }
-        ```
-
-        **Module Access:**
-        - Anonymous/Guest users: See only modules marked as `is_sample=True`
-        - Enrolled students: See all modules with full content
-        - Staff: See all modules regardless of enrollment
-        """,
+                description="Retrieve course details by slug.",
         parameters=[
             OpenApiParameter(
                 name="slug",
@@ -469,7 +312,7 @@ class CourseViewSet(BaseAdminViewSet):
     parser_classes = (MultiPartParser, FormParser, JSONParser)
     permission_classes = [IsCourseManager]
     slug_field = "slug"
-    lookup_url_kwarg = "course_slug"
+    lookup_url_kwarg = "slug"
     slug_lookup_only_actions = ["retrieve"]
 
     filter_backends = [
@@ -606,42 +449,7 @@ class CourseViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get courses by category",
-        description="""
-        Retrieve all active published courses in a specific category.
-
-        **URL Pattern:** `/api/courses/category/{category_slug}/`
-
-        **Permissions:** Public (AllowAny)
-
-        **Use Cases:**
-        - Category landing pages showing all courses in category
-        - Category-specific course browsing
-        - Filtered course listings by category
-
-        **Response:** Paginated list of courses (same as main list endpoint)
-
-        **Frontend Usage:**
-        ```javascript
-        // Get all web development courses
-        const response = await fetch('/api/courses/category/web-development/');
-        const { data } = await response.json();
-
-        data.results.forEach(course => {
-          console.log(course.title);
-          console.log(course.active_batches); // Available batches
-        });
-
-        // Pagination
-        const page2 = await fetch('/api/courses/category/web-development/?page=2');
-        ```
-
-        **Filter Behavior:**
-        - Only returns courses where:
-          - `category.slug` matches the provided slug
-          - `category.is_active = True`
-          - `course.is_active = True`
-          - `course.status = 'published'`
-        """,
+        description="List published courses in a category.",
         parameters=[
             OpenApiParameter(
                 name="category_slug",
@@ -693,51 +501,7 @@ class CourseViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get featured/latest courses",
-        description="""
-        Retrieve the latest 6 published courses for homepage/featured sections.
-
-        **URL Pattern:** `/api/courses/featured/`
-
-        **Permissions:** Public (AllowAny)
-
-        **Caching:** Response cached for 30 minutes for performance
-
-        **Use Cases:**
-        - Homepage featured course carousel
-        - "Latest Courses" section
-        - Course highlights above the fold
-
-        **Response Structure:**
-        ```json
-        {
-          "success": true,
-          "message": "Featured courses retrieved successfully",
-          "data": {
-            "results": [
-              // Array of 6 most recent published courses
-            ]
-          }
-        }
-        ```
-
-        **Frontend Usage:**
-        ```javascript
-        // Get featured courses for homepage
-        const response = await fetch('/api/courses/featured/');
-        const { data } = await response.json();
-        const featuredCourses = data.results;
-
-        // Display in carousel/grid
-        featuredCourses.forEach(course => {
-          displayCourseCard(course.title, course.thumbnail, course.slug);
-        });
-        ```
-
-        **Notes:**
-        - Always returns exactly 6 courses (or fewer if less than 6 are published)
-        - Sorted by creation date (newest first)
-        - Only includes active, published courses
-        """,
+                description="Retrieve latest featured courses.",
         responses={200: CourseListSerializer},
         tags=["Course - Main"],
     )
@@ -757,69 +521,7 @@ class CourseViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get categories with courses for home",
-        description="""
-        Return active categories each with up to 10 courses for homepage tabbed sections.
-
-        **URL Pattern:** `/api/courses/home-categories/`
-
-        **Permissions:** Public (AllowAny)
-
-        **Caching:** Response cached for 15 minutes
-
-        **Query Parameters:**
-        - `include_all=true`: Include all published courses (default: only courses with `show_in_home_tab=True`)
-
-        **Use Cases:**
-        - Homepage tabbed course sections by category
-        - Category-organized course browsing on landing page
-        - Dynamic homepage content sections
-
-        **Response Structure:**
-        ```json
-        {
-          "success": true,
-          "message": "Home categories with courses retrieved",
-          "data": [
-            {
-              "category": {
-                "id": "uuid",
-                "name": "Web Development",
-                "slug": "web-development",
-                "icon": "fa-code"
-              },
-              "courses": [
-                // Up to 10 courses in this category
-              ]
-            },
-            // ... more categories
-          ]
-        }
-        ```
-
-        **Frontend Usage:**
-        ```javascript
-        // Get categories with courses for tabbed homepage
-        const response = await fetch('/api/courses/home-categories/');
-        const { data } = await response.json();
-
-        // Render tabs for each category
-        data.forEach(section => {
-          createTab(section.category.name);
-          section.courses.forEach(course => {
-            displayCourseCard(course);
-          });
-        });
-
-        // Include all courses (not just featured)
-        const allCourses = await fetch('/api/courses/home-categories/?include_all=true');
-        ```
-
-        **Filtering Logic:**
-        - Only active categories with active, published courses
-        - Categories with no matching courses are excluded from response
-        - Courses sorted by creation date (newest first)
-        - Maximum 10 courses per category
-        """,
+                description="Return categories with up to 10 published courses for homepage.",
         parameters=[
             OpenApiParameter(
                 name="include_all",
@@ -882,73 +584,7 @@ class CourseViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get megamenu navigation (category -> course titles)",
-        description="""
-        Return categories with minimal course information for site navigation megamenu.
-
-        **URL Pattern:** `/api/courses/megamenu-nav/`
-
-        **Permissions:** Public (AllowAny)
-
-        **Caching:** Response cached for 1 hour (invalidated on Course/Category changes)
-
-        **Use Cases:**
-        - Header megamenu dropdown navigation
-        - Category-based course navigation
-        - Site-wide course directory
-
-        **Response Structure:**
-        ```json
-        {
-          "success": true,
-          "message": "Megamenu nav retrieved",
-          "data": [
-            {
-              "category": {
-                "id": "uuid",
-                "name": "Web Development",
-                "slug": "web-development"
-              },
-              "courses": [
-                {
-                  "id": "uuid",
-                  "title": "Django Web Development",
-                  "slug": "django-web-development"
-                },
-                // ... up to 10 courses
-              ]
-            },
-            // ... more categories
-          ]
-        }
-        ```
-
-        **Frontend Usage:**
-        ```javascript
-        // Build megamenu navigation
-        const response = await fetch('/api/courses/megamenu-nav/');
-        const { data } = await response.json();
-
-        // Create dropdown menu structure
-        data.forEach(section => {
-          const dropdown = createDropdown(section.category.name);
-          section.courses.forEach(course => {
-            dropdown.addLink(course.title, `/courses/${course.slug}`);
-          });
-        });
-        ```
-
-        **Filtering Logic:**
-        - Only categories with `show_in_megamenu=True`
-        - Only courses with `show_in_megamenu=True`
-        - Active and published courses only
-        - Maximum 10 courses per category
-        - Courses sorted by creation date (newest first)
-
-        **Performance:**
-        - Highly optimized with prefetch_related to avoid N+1 queries
-        - Returns minimal data (only IDs, titles, and slugs)
-        - Aggressively cached for fast navigation rendering
-        """,
+                description="Return minimal category->course list for site megamenu.",
         responses={200: OpenApiParameter},
         tags=["Course - Main"],
     )
@@ -1015,16 +651,16 @@ class CourseViewSet(BaseAdminViewSet):
         detail=False,
         methods=["get"],
         permission_classes=[permissions.AllowAny],
-        url_path="(?P<course_slug>[^/.]+)/modules",
+        url_path="(?P<slug>[^/.]+)/modules",
     )
-    def modules(self, request, course_slug=None):
+    def modules(self, request, slug=None):
         """
         Public curriculum endpoint.
         Used to render course syllabus / module list.
         """
         try:
             course = Course.objects.select_related("detail").get(
-                slug=course_slug,
+                slug=slug,
                 is_active=True,
                 status="published",
             )
@@ -1141,42 +777,10 @@ class CoursePriceViewSet(BaseAdminViewSet):
 
     @extend_schema(
         summary="Get price by course slug",
-        description="""
-        Retrieve pricing information for a specific course.
-
-        **URL Pattern:** `/api/courses/prices/course/{course_slug}/`
-
-        **Permissions:** Public (AllowAny)
-
-        **Use Cases:**
-        - Display pricing on course detail page
-        - Check installment availability
-        - Calculate discounted prices
-
-        **Frontend Usage:**
-        ```javascript
-        // Get pricing for Django course
-        const response = await fetch('/api/courses/prices/course/django-web-development/');
-        const { data } = await response.json();
-
-        console.log(`Regular: $${data.base_price}`);
-        if (data.discount_price) {
-          console.log(`Discounted: $${data.discount_price}`);
-        }
-
-        if (data.installment_available) {
-          const installmentAmount = data.discount_price || data.base_price;
-          const perMonth = installmentAmount / data.installment_count;
-          console.log(`${data.installment_count} installments of $${perMonth}`);
-        }
-        ```
-
-        **Note:** Pricing is also included in course detail endpoint (`/api/courses/{slug}/`).
-        Use this endpoint when you need only pricing without full course details.
-        """,
+                description="Retrieve course pricing by slug.",
         parameters=[
             OpenApiParameter(
-                name="course_slug",
+                name="slug",
                 type=str,
                 location=OpenApiParameter.PATH,
                 description="Course slug identifier (e.g., 'django-web-development')",
@@ -1190,12 +794,12 @@ class CoursePriceViewSet(BaseAdminViewSet):
         detail=False,
         methods=["get"],
         permission_classes=[permissions.AllowAny],
-        url_path="course/(?P<course_slug>[^/.]+)",
+        url_path="course/(?P<slug>[^/.]+)",
     )
-    def by_course(self, request, course_slug=None):
+    def by_course(self, request, slug=None):
         """Get pricing for a specific course."""
         try:
-            price = self.get_queryset().get(course__slug=course_slug, course__is_active=True, is_active=True)
+            price = self.get_queryset().get(course__slug=slug, course__is_active=True, is_active=True)
             serializer = self.get_serializer(price)
             return api_response(True, "Course price retrieved successfully", serializer.data)
         except CoursePrice.DoesNotExist:
@@ -1631,12 +1235,12 @@ class CourseContentSectionViewSet(BaseAdminViewSet):
     ordering = ["course_detail", "order"]
 
     def get_queryset(self):
-        """Override to allow filtering by Course ID/slug via 'course_id' or 'course_slug' params."""
+        """Override to allow filtering by Course ID/slug via 'course_id' or 'slug' params."""
         queryset = super().get_queryset()
 
         # Allow filtering by Course ID/slug
         course_id = self.request.query_params.get("course_id")
-        course_slug = self.request.query_params.get("course_slug")
+        course_slug = self.request.query_params.get("slug")
 
         if course_id:
             queryset = queryset.filter(course_detail__course__id=course_id)
@@ -1975,12 +1579,12 @@ class CourseModuleViewSet(BaseAdminViewSet):
                 raise Http404("No CourseModule matches the given query.")
 
     def get_queryset(self):
-        """Override to allow filtering by Course ID/slug via 'course_id' or 'course_slug' params."""
+        """Override to allow filtering by Course ID/slug via 'course_id' or 'slug' params."""
         queryset = super().get_queryset()
 
         # Allow filtering by Course ID/slug
         course_id = self.request.query_params.get("course_id")
-        course_slug = self.request.query_params.get("course_slug")
+        course_slug = self.request.query_params.get("slug")
 
         if course_id:
             queryset = queryset.filter(course__id=course_id)
@@ -2456,7 +2060,7 @@ class CourseBatchViewSet(BaseAdminViewSet):
         - Display available batches for a course
         - Show enrollment options
 
-        **URL:** `/api/courses/batches/by-course/{course_slug}/`
+        **URL:** `/api/courses/batches/by-course/{slug}/`
 
         **Example:** `/api/courses/batches/by-course/django-web-development/`
 
@@ -2469,7 +2073,7 @@ class CourseBatchViewSet(BaseAdminViewSet):
         tags=["Course - Batches"],
         parameters=[
             OpenApiParameter(
-                name="course_slug",
+                name="slug",
                 type=str,
                 location=OpenApiParameter.PATH,
                 description="Course slug (e.g., django-web-development)",
@@ -2479,16 +2083,16 @@ class CourseBatchViewSet(BaseAdminViewSet):
     @action(
         detail=False,
         methods=["get"],
-        url_path="by-course/(?P<course_slug>[^/.]+)",
+        url_path="by-course/(?P<slug>[^/.]+)",
         permission_classes=[permissions.AllowAny],
     )
-    def by_course(self, request, course_slug=None):
+    def by_course(self, request, slug=None):
         """Get all batches for a specific course by course slug.
 
         Usage: GET /api/courses/batches/by-course/django-bootcamp/
         """
         try:
-            course = Course.objects.get(slug=course_slug, is_active=True)
+            course = Course.objects.get(slug=slug, is_active=True)
         except Course.DoesNotExist:
             return api_response(
                 success=False,

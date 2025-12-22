@@ -40,7 +40,7 @@ class IsStaff(permissions.BasePermission):
         """
         Check if the user is authenticated and has a role of staff, admin or superadmin.
         """
-        return request.user.is_authenticated and request.user.role in ["staf", "admin", "superadmin"]
+        return request.user.is_authenticated and request.user.role in ["staff", "admin", "superadmin"]
 
 
 class IsAccountant(permissions.BasePermission):
@@ -119,4 +119,4 @@ class IsCourseManager(permissions.BasePermission):
         """
         Check if the user is authenticated and has a role that can manage courses.
         """
-        return request.user.is_authenticated and request.user.role in ["teacher", "staf", "admin", "superadmin"]
+        return request.user.is_authenticated and request.user.role in ["teacher", "staff", "admin", "superadmin"]

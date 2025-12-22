@@ -57,12 +57,12 @@ class CourseModuleStudyPlanView(APIView):
 
     permission_classes = [permissions.IsAuthenticated, IsStudent]
 
-    def get(self, request, course_slug, module_slug):
+    def get(self, request, slug, module_slug):
         user = request.user
 
         course = get_object_or_404(
             Course,
-            slug=course_slug,
+            slug=slug,
             is_active=True,
         )
 

@@ -145,19 +145,12 @@ class CourseModuleMinimalSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
-            "slug",
-            "order",
-            "short_description",
             "short_description_plain",
-            "is_active",
         ]
         read_only_fields = [
             "id",
-            "slug",
-            "order",
             "title",
-            "short_description",
-            "is_active",
+            "short_description_plain",
         ]
 
     short_description_plain = serializers.SerializerMethodField()
@@ -796,8 +789,6 @@ class CoursePriceSerializer(serializers.ModelSerializer):
             "installment_count",
             "installment_amount",
             "installment_preview",
-            "created_at",
-            "updated_at",
         ]
         read_only_fields = [
             "id",
@@ -807,8 +798,6 @@ class CoursePriceSerializer(serializers.ModelSerializer):
             "savings",
             "installment_amount",
             "installment_preview",
-            "created_at",
-            "updated_at",
         ]
 
     def validate(self, data):
@@ -900,16 +889,12 @@ class CourseDetailSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             "benefits",
             "side_image_sections",
             "success_stories",
-            "created_at",
-            "updated_at",
         ]
         read_only_fields = [
             "id",
             "hero_image",
             "course_title",
             "course_slug",
-            "created_at",
-            "updated_at",
         ]
 
     def get_hero_image(self, obj):

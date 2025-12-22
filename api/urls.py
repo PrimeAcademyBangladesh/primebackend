@@ -300,29 +300,107 @@ urlpatterns = router.urls + [
         CourseViewSet.as_view({"get": "list", "post": "create"}),
         name="course-list",
     ),
-    # Course Main - UUID operations (Update/Delete)
+    # Course Main - UUID admin routes (MUST come before slug routes)
+    # These handle admin updates/deletes with UUID primary keys
+    path(
+        "courses/<uuid:pk>/",
+        CourseViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="course-detail-uuid",
+    ),
+    # Course Main - Public slug-based routes (MUST come LAST)
+    # These are placed after the UUID admin route so UUIDs don't match slug converter
+    path(
+        "courses/<slug:slug>/study-plan/<slug:module_slug>/",
+        CourseModuleStudyPlanView.as_view(),
+        name="course-module-study-plan",
+    ),
+    path(
+        "courses/<slug:slug>/modules/",
+        CourseViewSet.as_view({"get": "modules"}),
+        name="course-modules-by-slug",
+    ),
+    path(
+        "courses/<slug:slug>/",
+        CourseViewSet.as_view({"get": "retrieve"}),
+        name="course-retrieve-slug",
+    ),
+    # # =============================================
+    # # COURSE SYSTEM - ALL ENDPOINTS (Priority Order)
+    # # =============================================
+    # # Course Main - Custom Actions (must come BEFORE slug-based retrieve)
+    # path(
+    #     "courses/featured/",
+    #     CourseViewSet.as_view({"get": "featured"}),
+    #     name="course-featured",
+    # ),
+    # path(
+    #     "courses/home-categories/",
+    #     CourseViewSet.as_view({"get": "home_categories"}),
+    #     name="course-home-categories",
+    # ),
+    # path(
+    #     "courses/megamenu-nav/",
+    #     CourseViewSet.as_view({"get": "megamenu_nav"}),
+    #     name="course-megamenu-nav",
+    # ),
+    # path(
+    #     "courses/category/<slug:category_slug>/",
+    #     CourseViewSet.as_view({"get": "by_category"}),
+    #     name="course-by-category",
+    # ),
+    # # Course Main - List/Create
+    # path(
+    #     "courses/",
+    #     CourseViewSet.as_view({"get": "list", "post": "create"}),
+    #     name="course-list",
+    # ),
+    # # Course Main - Public slug-based routes (moved before UUID admin route)
+    # # These are placed before the UUID admin route so anonymous GETs to
+    # # /api/courses/{slug}/ match the public retrieve view instead of the
+    # # UUID-based admin route.
+    # path(
+    #     "courses/<slug:slug>/study-plan/<slug:module_slug>/",
+    #     CourseModuleStudyPlanView.as_view(),
+    #     name="course-module-study-plan",
+    # ),
+    # path(
+    #     "courses/<slug:slug>/modules/",
+    #     CourseViewSet.as_view({"get": "modules"}),
+    #     name="course-modules-by-slug",
+    # ),
+    # path(
+    #     "courses/<slug:slug>/",
+    #     CourseViewSet.as_view({"get": "retrieve"}),
+    #     name="course-retrieve-slug",
+    # ),
+    # Original slug-based routes (commented for history)
+    # path(
+    #     "courses/<slug:slug>/study-plan/<slug:module_slug>/",
+    #     CourseModuleStudyPlanView.as_view(),
+    #     name="course-module-study-plan",
+    # ),
+    # path(
+    #     "courses/<slug:slug>/modules/",
+    #     CourseViewSet.as_view({"get": "modules"}),
+    #     name="course-modules-by-slug",
+    # ),
+    # path(
+    #     "courses/<slug:slug>/",
+    #     CourseViewSet.as_view({"get": "retrieve"}),
+    #     name="course-retrieve-slug",
+    # ),
+    # Course Main - UUID operations (Update/Delete) (kept after public routes)
     path(
         "courses/<uuid:pk>/",
         CourseViewSet.as_view({"put": "update", "patch": "partial_update", "delete": "destroy"}),
         name="course-id-admin",
-    ),
-    # 1. Most specific (nested resources)
-    path(
-        "courses/<slug:course_slug>/study-plan/<slug:module_slug>/",
-        CourseModuleStudyPlanView.as_view(),
-        name="course-module-study-plan",
-    ),
-    # 2. More specific (collection under course)
-    path(
-        "courses/<slug:course_slug>/modules/",
-        CourseViewSet.as_view({"get": "modules"}),
-        name="course-modules-by-slug",
-    ),
-    # 3. Least specific (single resource) - COMES LAST
-    path(
-        "courses/<slug:course_slug>/",
-        CourseViewSet.as_view({"get": "retrieve"}),
-        name="course-retrieve-slug",
     ),
     # =============================================
     # COURSE CART & WISHLIST

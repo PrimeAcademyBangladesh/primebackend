@@ -14,13 +14,14 @@ class EmployeeSerializer(serializers.ModelSerializer):
     # Nested read-only department details
     department = DepartmentSerializer(read_only=True)
 
-    # Write-only FK for department assignment
     department_id = serializers.PrimaryKeyRelatedField(queryset=Department.objects.all(), source="department", write_only=True)
+    employee_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Employee
         fields = [
             "id",
+            "employee_name",
             "employee_id",
             "first_name",
             "middle_name",
@@ -60,3 +61,21 @@ class EmployeeSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "first_name": {"required": False},
+            "last_name": {"required": False},
+        }
+
+    def validate(self, attrs):
+        # Support legacy `employee_name` by splitting into first and last name.
+        name = self.initial_data.get("employee_name") if hasattr(self, "initial_data") else None
+        if name and (not attrs.get("first_name") or not attrs.get("last_name")):
+            parts = name.strip().split(None, 1)
+            attrs.setdefault("first_name", parts[0] if parts else "")
+            attrs.setdefault("last_name", parts[1] if len(parts) > 1 else "")
+        return super().validate(attrs)
+
+    def create(self, validated_data):
+        # Remove write-only alias field before creating model instance
+        validated_data.pop("employee_name", None)
+        return super().create(validated_data)
