@@ -77,7 +77,7 @@ class CoursePrice(TimeStampedModel):
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Course Price"
-        verbose_name_plural = "Course Prices"
+        verbose_name_plural = "03. Course Prices"
         indexes = [
             models.Index(fields=["course", "is_active"]),
             models.Index(fields=["currency"]),
@@ -229,7 +229,7 @@ class Coupon(TimeStampedModel):
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Course Coupon"
-        verbose_name_plural = "Course Coupons"
+        verbose_name_plural = "25. Course Coupons"
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["code"]),

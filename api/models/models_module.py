@@ -78,6 +78,8 @@ class LiveClass(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "Live Class"
+        verbose_name_plural = "15. Live Classes"
         ordering = ["module", "order"]
         unique_together = ["module", "batch", "order"]
 
@@ -104,7 +106,7 @@ class LiveClassAttendance(TimeStampedModel):
 
     class Meta:
         verbose_name = "Live Class Attendance"
-        verbose_name_plural = "Live Class Attendances"
+        verbose_name_plural = "16. Live Class Attendances"
         unique_together = ["live_class", "student"]
 
     def __str__(self):
@@ -166,7 +168,7 @@ class Assignment(TimeStampedModel):
 
     class Meta:
         verbose_name = "Assignment"
-        verbose_name_plural = "Assignments"
+        verbose_name_plural = "17. Assignments"
         ordering = ["module", "order"]
         unique_together = [
             "module",
@@ -242,8 +244,11 @@ class AssignmentSubmission(TimeStampedModel):
     def __str__(self):
         return f"{self.student.get_full_name} - {self.assignment.title}"
 
-
+#===========================================
 # Quiz/Test within a module
+#===========================================
+
+
 class Quiz(TimeStampedModel):
     """Quiz or test for a course module."""
 
@@ -292,7 +297,7 @@ class Quiz(TimeStampedModel):
 
     class Meta:
         verbose_name = "Quiz"
-        verbose_name_plural = "Quizzes"
+        verbose_name_plural = "18. Course Quizzes"
         ordering = ["module", "title"]
 
     def __str__(self):
@@ -327,7 +332,7 @@ class QuizQuestion(TimeStampedModel):
 
     class Meta:
         verbose_name = "Quiz Question"
-        verbose_name_plural = "Quiz Questions"
+        verbose_name_plural = "20. Quiz Questions"
         ordering = ["quiz", "order"]
         unique_together = ["quiz", "order"]
 
@@ -347,7 +352,7 @@ class QuizQuestionOption(TimeStampedModel):
 
     class Meta:
         verbose_name = "Quiz Question Option"
-        verbose_name_plural = "Quiz Question Options"
+        verbose_name_plural = "21. Quiz Question Options"
         ordering = ["question", "order"]
 
     def __str__(self):
@@ -391,7 +396,7 @@ class QuizAttempt(TimeStampedModel):
 
     class Meta:
         verbose_name = "Quiz Attempt"
-        verbose_name_plural = "Quiz Attempts"
+        verbose_name_plural = "22. Quiz Attempts"
         ordering = ["-started_at"]
 
     def __str__(self):
@@ -422,7 +427,7 @@ class QuizAnswer(TimeStampedModel):
 
     class Meta:
         verbose_name = "Quiz Answer"
-        verbose_name_plural = "Quiz Answers"
+        verbose_name_plural = "23. Quiz Answers"
         unique_together = ["attempt", "question"]
 
     def __str__(self):
@@ -516,7 +521,7 @@ class CourseResource(TimeStampedModel):
 
     class Meta:
         verbose_name = "Course Resource"
-        verbose_name_plural = "Course Resources"
+        verbose_name_plural = "20. Course Resources"
         ordering = ["order", "-created_at"]
 
         # Prevent duplicate ordering per batch
@@ -530,7 +535,7 @@ class CourseResource(TimeStampedModel):
         ]
 
     def __str__(self):
-        return f"{self.module.title} | {self.batch.display_name} | {self.title}"
+        return f"{self.module.title} | {self.title}"
 
     # ---------- Validation ----------
     def clean(self):

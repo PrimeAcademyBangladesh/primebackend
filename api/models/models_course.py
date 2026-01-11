@@ -23,7 +23,7 @@ class Category(TimeStampedModel):
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Course Category"
-        verbose_name_plural = "Course Categories"
+        verbose_name_plural = "00. Course Categories"
         ordering = ["name"]
         indexes = [
             models.Index(fields=["name"]),
@@ -105,7 +105,7 @@ class Course(TimeStampedModel, OptimizedImageModel):
 
     class Meta(TimeStampedModel.Meta, OptimizedImageModel.Meta):
         verbose_name = "Course"
-        verbose_name_plural = "Courses"
+        verbose_name_plural = "01. Courses"
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["title"]),
@@ -133,7 +133,7 @@ class CourseDetail(TimeStampedModel):
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Course Detail"
-        verbose_name_plural = "Course Details"
+        verbose_name_plural = "04. Course Details"
 
     def __str__(self):
         return f"Details for {self.course.title}"
@@ -168,7 +168,7 @@ class CourseContentSection(models.Model):
 
     class Meta:
         verbose_name = "Course Content Section"
-        verbose_name_plural = "Course Content Sections"
+        verbose_name_plural = "05. Course Content Sections"
         ordering = ["order"]
         constraints = [
             models.UniqueConstraint(
@@ -192,7 +192,7 @@ class CourseSectionTab(models.Model):
 
     class Meta:
         verbose_name = "Course Section Tab"
-        verbose_name_plural = "Course Section Tabs"
+        verbose_name_plural = "06. Course Section Tabs"
         ordering = ["order"]
         # Remove unique_together, use constraints instead
         constraints = [models.UniqueConstraint(fields=["section", "order"], name="unique_tab_order_per_section")]
@@ -286,7 +286,7 @@ class CourseTabbedContent(TimeStampedModel, OptimizedImageModel):
 
     class Meta(TimeStampedModel.Meta, OptimizedImageModel.Meta):
         verbose_name = "Course Tabbed Content"
-        verbose_name_plural = "Course Tabbed Contents"
+        verbose_name_plural = "07. Course Tabbed Contents"
         ordering = ["tab", "order"]
         constraints = [models.UniqueConstraint(fields=["tab", "order"], name="unique_content_order_per_tab")]
 
@@ -375,14 +375,14 @@ class WhyEnrol(OptimizedImageModel):
         "icon": {
             "max_size": (200, 200),
             "min_size": (50, 50),
-            "max_bytes": 100 * 1024,  # 100KB
+            "max_bytes": 100 * 1024,
             "max_upload_mb": 2,
         }
     }
 
     class Meta(OptimizedImageModel.Meta):
         verbose_name = "Course Why Enrol Section"
-        verbose_name_plural = "Course Why Enrol Sections"
+        verbose_name_plural = "08. Course Why Enrol"
 
     def __str__(self):
         return self.title
@@ -402,7 +402,7 @@ class CourseModule(models.Model):
 
     class Meta:
         verbose_name = "Course Module/Chapter"
-        verbose_name_plural = "Course Modules/Chapters"
+        verbose_name_plural = "12. Course Modules"
         ordering = ["order"]
         constraints = [
             models.UniqueConstraint(fields=["course", "slug"], name="unique_module_slug_per_course"),
@@ -474,8 +474,8 @@ class CourseInstructor(models.Model):
 
     class Meta:
         verbose_name = "Course Instructor"
-        verbose_name_plural = "Course Instructors"
-        unique_together = ["course", "teacher"]  # Prevent duplicate assignments
+        verbose_name_plural = "13. Course Instructors"
+        unique_together = ["course", "teacher"]
         indexes = [
             models.Index(fields=["course", "is_active"]),
             models.Index(fields=["teacher", "is_active"]),
@@ -620,7 +620,7 @@ class CourseBatch(TimeStampedModel):
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Course Batch"
-        verbose_name_plural = "Course Batches"
+        verbose_name_plural = "02. Course Batches"
         ordering = ["-start_date", "batch_number"]
         unique_together = ["course", "batch_number"]
 
@@ -665,7 +665,7 @@ class CourseBatch(TimeStampedModel):
         if self.end_date and now > self.end_date:
             self.status = "completed"
         # Check if running
-        elif self.start_date and now >= self.start_date and now <= self.end_date:
+        elif self.start_date and self.start_date <= now <= self.end_date:
             self.status = "running"
         # Check if enrollment is open
         elif self.is_active and self._check_enrollment_open(now):
@@ -679,7 +679,7 @@ class CourseBatch(TimeStampedModel):
         enrollment_start = self.enrollment_start_date or self.created_at.date() if self.created_at else now
         enrollment_end = self.enrollment_end_date or self.start_date
 
-        return now >= enrollment_start and now <= enrollment_end and self.enrolled_students < self.max_students
+        return enrollment_start <= now <= enrollment_end and self.enrolled_students < self.max_students
 
     def clean(self):
         """Validate batch dates."""
@@ -766,7 +766,7 @@ class KeyBenefit(OptimizedImageModel):
 
     class Meta(OptimizedImageModel.Meta):
         verbose_name = "Course Key Benefit"
-        verbose_name_plural = "Course Key Benefits"
+        verbose_name_plural = "09. Course Key Benefits"
 
     def __str__(self):
         return self.title
@@ -797,7 +797,7 @@ class SideImageSection(OptimizedImageModel):
 
     class Meta(OptimizedImageModel.Meta):
         verbose_name = "Course Side Image Section"
-        verbose_name_plural = "Course Side Image Sections"
+        verbose_name_plural = "10. Course SideImage"
 
     def __str__(self):
         return f"Side section: {self.title}"
@@ -826,7 +826,7 @@ class SuccessStory(OptimizedImageModel):
 
     class Meta(OptimizedImageModel.Meta):
         verbose_name = "Course Success Story"
-        verbose_name_plural = "Course Success Stories"
+        verbose_name_plural = "11. Course Success Stories"
 
     def __str__(self):
         return self.name
