@@ -1,7 +1,38 @@
-from drf_spectacular.utils import extend_schema, extend_schema_view
+# ============================================================
+# api/utils/api_response.py
+# ============================================================
+from rest_framework.response import Response
+from rest_framework import status
+
+
+def api_success(*, data=None, message="Success", status_code=status.HTTP_200_OK):
+    return Response(
+        {
+            "success": True,
+            "message": message,
+            "data": data or {},
+        },
+        status=status_code,
+    )
+
+
+def api_error(*, message="Error", errors=None, status_code=status.HTTP_400_BAD_REQUEST):
+    return Response(
+        {
+            "success": False,
+            "message": message,
+            "errors": errors or {},
+        },
+        status=status_code,
+    )
+
+
+# ============================================================
+# api/views/views_accounting.py
+# ============================================================
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
@@ -18,18 +49,20 @@ from api.serializers.serializers_accounting import (
     IncomeApprovalActionSerializer,
 )
 from api.utils.pagination import StandardResultsSetPagination
+from api.utils.api_response import api_success, api_error
 
 
 # ============================================================
 # Income ViewSet
 # ============================================================
-@extend_schema(tags=['ACCOUNTING'])
+@extend_schema(tags=["ACCOUNTING"])
 class IncomeViewSet(ModelViewSet):
     """
     Income management with approval workflow.
     - Accountants: create + request updates
     - Admins: full control
     """
+
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
 
@@ -53,6 +86,9 @@ class IncomeViewSet(ModelViewSet):
     ordering_fields = ["date", "amount", "created_at", "transaction_id"]
     ordering = ["-date", "-created_at"]
 
+    # --------------------------------------------------------
+    # Queryset
+    # --------------------------------------------------------
     def get_queryset(self):
         queryset = Income.objects.select_related(
             "income_type",
@@ -83,11 +119,17 @@ class IncomeViewSet(ModelViewSet):
 
         return queryset
 
+    # --------------------------------------------------------
+    # Permissions
+    # --------------------------------------------------------
     def get_permissions(self):
         if self.action == "destroy":
             return [IsAdmin()]
         return [IsAdminOrAccountant()]
 
+    # --------------------------------------------------------
+    # Serializers
+    # --------------------------------------------------------
     def get_serializer_class(self):
         if self.action == "list":
             return IncomeListSerializer
@@ -95,56 +137,65 @@ class IncomeViewSet(ModelViewSet):
             return IncomeReadSerializer
         return IncomeCreateSerializer
 
-    def perform_create(self, serializer):
-        serializer.save(recorded_by=self.request.user)
+    # --------------------------------------------------------
+    # CREATE
+    # --------------------------------------------------------
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        income = serializer.save(recorded_by=request.user)
 
+        return api_success(
+            data=IncomeReadSerializer(income).data,
+            message="Income created successfully",
+            status_code=status.HTTP_201_CREATED,
+        )
+
+    # --------------------------------------------------------
+    # UPDATE (Approval Workflow)
+    # --------------------------------------------------------
     def update(self, request, *args, **kwargs):
         income = self.get_object()
         partial = kwargs.pop("partial", False)
 
-        serializer = self.get_serializer(
-            income, data=request.data, partial=partial
-        )
+        serializer = self.get_serializer(income, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
 
         if getattr(income, "has_pending_request", False):
-            return Response(
-                {
-                    "detail": "An update request is already pending approval.",
-                    "code": "pending_request_exists",
-                },
-                status=status.HTTP_409_CONFLICT,
+            return api_error(
+                message="An update request is already pending approval.",
+                status_code=status.HTTP_409_CONFLICT,
             )
 
-        if request.user.is_accountant and not (
-            request.user.is_admin or request.user.is_superuser
-        ):
+        # Accountant → create update request
+        if request.user.is_accountant and not request.user.is_admin:
             update_request = IncomeUpdateRequest.objects.create(
                 income=income,
                 requested_by=request.user,
                 requested_data=serializer.validated_data,
             )
 
-            return Response(
-                {
-                    "detail": "Update request submitted for admin approval.",
-                    "request_id": update_request.id,
-                    "code": "request_submitted",
-                },
-                status=status.HTTP_202_ACCEPTED,
+            return api_success(
+                data={"request_id": update_request.id},
+                message="Update request submitted for admin approval",
+                status_code=status.HTTP_202_ACCEPTED,
             )
 
+        # Admin → direct update
         self.perform_update(serializer)
 
-        if getattr(income, "_prefetched_objects_cache", None):
-            income._prefetched_objects_cache = {}
-
-        return Response(serializer.data)
+        return api_success(
+            data=serializer.data,
+            message="Income updated successfully",
+        )
 
     def partial_update(self, request, *args, **kwargs):
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
 
+    # --------------------------------------------------------
+    # Pending Approvals (Admin)
+    # --------------------------------------------------------
     @extend_schema(summary="Get pending approvals")
     @action(detail=False, methods=["get"], url_path="pending-approval")
     def pending_approval(self, request):
@@ -158,16 +209,22 @@ class IncomeViewSet(ModelViewSet):
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            return api_success(
+                data=self.get_paginated_response(serializer.data).data,
+                message="Pending approvals fetched successfully",
+            )
 
         serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        return api_success(
+            data=serializer.data,
+            message="Pending approvals fetched successfully",
+        )
 
 
 # ============================================================
 # Income Update Request ViewSet (Admin Only)
 # ============================================================
-@extend_schema(tags=['ACCOUNTING'])
+@extend_schema(tags=["ACCOUNTING"])
 class IncomeUpdateRequestViewSet(ModelViewSet):
     """
     Admin-only approval of income update requests.
@@ -195,33 +252,33 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
             return IncomeUpdateRequestReadSerializer
         return IncomeUpdateRequestSerializer
 
-    @extend_schema(
-        summary="Approve update request",
-        request=None,
-    )
+    # --------------------------------------------------------
+    # APPROVE
+    # --------------------------------------------------------
+    @extend_schema(summary="Approve update request")
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         update_request = self.get_object()
 
         if update_request.status != "pending":
-            return Response(
-                {
-                    "detail": f"This request has already been {update_request.status}.",
-                    "code": "already_processed",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                message=f"This request has already been {update_request.status}.",
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         update_request.approve(request.user)
 
-        return Response(
-            {
-                "detail": "Update request approved successfully.",
+        return api_success(
+            data={
                 "income_id": str(update_request.income.id),
                 "transaction_id": update_request.income.transaction_id,
-            }
+            },
+            message="Update request approved successfully",
         )
 
+    # --------------------------------------------------------
+    # REJECT
+    # --------------------------------------------------------
     @extend_schema(
         summary="Reject update request",
         request=IncomeApprovalActionSerializer,
@@ -231,12 +288,9 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
         update_request = self.get_object()
 
         if update_request.status != "pending":
-            return Response(
-                {
-                    "detail": f"This request has already been {update_request.status}.",
-                    "code": "already_processed",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+            return api_error(
+                message=f"This request has already been {update_request.status}.",
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         serializer = IncomeApprovalActionSerializer(data=request.data)
@@ -247,14 +301,15 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
             serializer.validated_data.get("reason", ""),
         )
 
-        return Response(
-            {
-                "detail": "Update request rejected successfully.",
-                "rejection_reason": serializer.validated_data.get("reason", ""),
-            }
+        return api_success(
+            data={"rejection_reason": serializer.validated_data.get("reason")},
+            message="Update request rejected successfully",
         )
 
-    @extend_schema(summary="Get pending requests")
+    # --------------------------------------------------------
+    # Pending Requests
+    # --------------------------------------------------------
+    @extend_schema(summary="Get pending update requests")
     @action(detail=False, methods=["get"], url_path="pending")
     def pending_requests(self, request):
         queryset = self.filter_queryset(
@@ -264,7 +319,13 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            return api_success(
+                data=self.get_paginated_response(serializer.data).data,
+                message="Pending update requests fetched successfully",
+            )
 
         serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        return api_success(
+            data=serializer.data,
+            message="Pending update requests fetched successfully",
+        )
