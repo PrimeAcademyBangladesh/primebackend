@@ -31,7 +31,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from api.models.models_auth import CustomUser, Profile, Skill
-from api.permissions import IsAdmin, IsStaff, IsStudent, IsTeacher
+from api.permissions import IsAdmin, IsStaff
 from api.serializers.serializers_auth import (
     ChangePasswordSerializer,
     LoginSerializer,

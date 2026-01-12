@@ -1,33 +1,4 @@
 # ============================================================
-# api/utils/api_response.py
-# ============================================================
-from rest_framework.response import Response
-from rest_framework import status
-
-
-def api_success(*, data=None, message="Success", status_code=status.HTTP_200_OK):
-    return Response(
-        {
-            "success": True,
-            "message": message,
-            "data": data or {},
-        },
-        status=status_code,
-    )
-
-
-def api_error(*, message="Error", errors=None, status_code=status.HTTP_400_BAD_REQUEST):
-    return Response(
-        {
-            "success": False,
-            "message": message,
-            "errors": errors or {},
-        },
-        status=status_code,
-    )
-
-
-# ============================================================
 # api/views/views_accounting.py
 # ============================================================
 from drf_spectacular.utils import extend_schema
@@ -49,8 +20,8 @@ from api.serializers.serializers_accounting import (
     IncomeApprovalActionSerializer,
 )
 from api.utils.pagination import StandardResultsSetPagination
-from api.utils.api_response import api_success, api_error
 
+from api.utils.response_utils import api_response
 
 # ============================================================
 # Income ViewSet
@@ -145,7 +116,7 @@ class IncomeViewSet(ModelViewSet):
         serializer.is_valid(raise_exception=True)
         income = serializer.save(recorded_by=request.user)
 
-        return api_success(
+        return api_response(
             data=IncomeReadSerializer(income).data,
             message="Income created successfully",
             status_code=status.HTTP_201_CREATED,
@@ -162,7 +133,7 @@ class IncomeViewSet(ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         if getattr(income, "has_pending_request", False):
-            return api_error(
+            return api_response(
                 message="An update request is already pending approval.",
                 status_code=status.HTTP_409_CONFLICT,
             )
@@ -175,7 +146,7 @@ class IncomeViewSet(ModelViewSet):
                 requested_data=serializer.validated_data,
             )
 
-            return api_success(
+            return api_response(
                 data={"request_id": update_request.id},
                 message="Update request submitted for admin approval",
                 status_code=status.HTTP_202_ACCEPTED,
@@ -184,7 +155,7 @@ class IncomeViewSet(ModelViewSet):
         # Admin → direct update
         self.perform_update(serializer)
 
-        return api_success(
+        return api_response(
             data=serializer.data,
             message="Income updated successfully",
         )
@@ -209,13 +180,13 @@ class IncomeViewSet(ModelViewSet):
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return api_success(
+            return api_response(
                 data=self.get_paginated_response(serializer.data).data,
                 message="Pending approvals fetched successfully",
             )
 
         serializer = self.get_serializer(queryset, many=True)
-        return api_success(
+        return api_response(
             data=serializer.data,
             message="Pending approvals fetched successfully",
         )
@@ -261,14 +232,14 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
         update_request = self.get_object()
 
         if update_request.status != "pending":
-            return api_error(
+            return api_response(
                 message=f"This request has already been {update_request.status}.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         update_request.approve(request.user)
 
-        return api_success(
+        return api_response(
             data={
                 "income_id": str(update_request.income.id),
                 "transaction_id": update_request.income.transaction_id,
@@ -288,7 +259,7 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
         update_request = self.get_object()
 
         if update_request.status != "pending":
-            return api_error(
+            return api_response(
                 message=f"This request has already been {update_request.status}.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
@@ -301,7 +272,7 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
             serializer.validated_data.get("reason", ""),
         )
 
-        return api_success(
+        return api_response(
             data={"rejection_reason": serializer.validated_data.get("reason")},
             message="Update request rejected successfully",
         )
@@ -319,13 +290,13 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return api_success(
+            return api_response(
                 data=self.get_paginated_response(serializer.data).data,
                 message="Pending update requests fetched successfully",
             )
 
         serializer = self.get_serializer(queryset, many=True)
-        return api_success(
+        return api_response(
             data=serializer.data,
             message="Pending update requests fetched successfully",
         )
