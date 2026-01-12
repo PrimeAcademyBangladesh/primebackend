@@ -189,6 +189,14 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     def get_full_name(self):
         return f"{self.first_name} {self.last_name}"
 
+    @property
+    def is_admin(self):
+        return self.role in ["admin", "superadmin"]
+
+    @property
+    def is_accountant(self):
+        return self.role == "accountant"
+
 
 # -----------------------------------------------------------
 # Profile & Skill Models
