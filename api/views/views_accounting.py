@@ -114,6 +114,7 @@ class IncomeViewSet(ModelViewSet):
         income = serializer.save(recorded_by=request.user)
 
         return api_response(
+            True,
             message="Income created successfully",
             data=IncomeReadSerializer(income).data,
             status_code=status.HTTP_201_CREATED,
@@ -145,6 +146,7 @@ class IncomeViewSet(ModelViewSet):
             )
 
             return api_response(
+                True,
                 message="Update request submitted for admin approval",
                 data={"request_id": update_request.id},
                 status_code=status.HTTP_202_ACCEPTED,
@@ -154,6 +156,7 @@ class IncomeViewSet(ModelViewSet):
         self.perform_update(serializer)
 
         return api_response(
+            True,
             message="Income updated successfully",
             data=serializer.data,
         )
@@ -179,12 +182,14 @@ class IncomeViewSet(ModelViewSet):
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return api_response(
+                True,
                 message="Pending approvals fetched successfully",
                 data=self.get_paginated_response(serializer.data).data,
             )
 
         serializer = self.get_serializer(queryset, many=True)
         return api_response(
+            True,
             message="Pending approvals fetched successfully",
             data=serializer.data,
         )
@@ -239,6 +244,7 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
         update_request.approve(request.user)
 
         return api_response(
+            True,
             message="Update request approved successfully",
             data={
                 "income_id": str(update_request.income.id),
@@ -273,6 +279,7 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
         )
 
         return api_response(
+            True,
             message="Update request rejected successfully",
             data={"rejection_reason": serializer.validated_data.get("reason")},
         )
@@ -291,12 +298,13 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return api_response(
-                message="Pending update requests fetched successfully",
+                True, message="Pending update requests fetched successfully",
                 data=self.get_paginated_response(serializer.data).data,
             )
 
         serializer = self.get_serializer(queryset, many=True)
         return api_response(
+            True,
             message="Pending update requests fetched successfully",
-            data=serializer.data,
+            data=serializer.data
         )
