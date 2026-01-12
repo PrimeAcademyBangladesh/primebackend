@@ -10,6 +10,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from api.views.views_academy_overview import AcademyOverviewViewSet
+from api.views.views_accounting import IncomeViewSet, IncomeUpdateRequestViewSet
 from api.views.views_auth import (
     AdminLoginView,
     AdminStudentViewSet,
@@ -26,7 +27,7 @@ from api.views.views_auth import (
     StudentLoginView,
     StudentRegisterView,
     TeacherLoginView,
-    VerifyEmailView,
+    VerifyEmailView, AccountantLoginView,
 )
 from api.views.views_blog import BlogCategoryViewSet, BlogViewSet
 from api.views.views_cart import (
@@ -177,11 +178,16 @@ router.register(r"quiz-attempts", QuizAttemptViewSet, basename="quiz-attempt")
 # Backwards-compatible alias for frontend: `/api/resources/` -> CourseResourceViewSet
 router.register(r"resources", CourseResourceViewSet, basename="resources")
 
+router.register(r'incomes', IncomeViewSet, basename='income')
+router.register(r'income-update-requests', IncomeUpdateRequestViewSet, basename='income-update-request')
+
 
 urlpatterns = router.urls + [
     # =============================================
     # AUTHENTICATION & PROFILE ENDPOINTS
     # =============================================
+
+
     # Universal logout
     path("logout/", LogoutView.as_view(), name="logout"),
     # Student specific endpoints
@@ -218,6 +224,7 @@ urlpatterns = router.urls + [
     # Admin specific login
     path("admin/login/", AdminLoginView.as_view(), name="admin-login"),
     path("staff/login/", StaffLoginView.as_view(), name="staff-login"),
+    path("accountant/login/", AccountantLoginView.as_view(), name="accountant-login"),
     path(
         "admin/change-password/",
         PasswordChangeView.as_view(),

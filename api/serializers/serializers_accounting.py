@@ -1,0 +1,177 @@
+from rest_framework import serializers
+from django.utils import timezone
+
+from api.models.models_accounting import (
+    IncomeType,
+    PaymentMethod,
+    Income,
+    IncomeUpdateRequest
+)
+
+
+class IncomeTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = IncomeType
+        fields = "__all__"
+
+
+class PaymentMethodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentMethod
+        fields = "__all__"
+
+
+class IncomeCreateSerializer(serializers.ModelSerializer):
+    transaction_id = serializers.ReadOnlyField()
+
+    class Meta:
+        model = Income
+        exclude = ["approved_by", "approved_at", "approval_status"]
+
+    def validate_amount(self, value):
+        """Ensure amount is positive"""
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        return value
+
+    def validate_date(self, value):
+        """Ensure date is not in the future"""
+        if value > timezone.now().date():
+            raise serializers.ValidationError("Income date cannot be in the future.")
+        return value
+
+    def validate(self, attrs):
+        """
+        Cross-field validation
+        """
+        # Ensure income_type and payment_method are active
+        income_type = attrs.get('income_type')
+        payment_method = attrs.get('payment_method')
+
+        if income_type and not income_type.is_active:
+            raise serializers.ValidationError({
+                "income_type": "Selected income type is not active."
+            })
+
+        if payment_method and not payment_method.is_active:
+            raise serializers.ValidationError({
+                "payment_method": "Selected payment method is not active."
+            })
+
+        return attrs
+
+
+class IncomeReadSerializer(serializers.ModelSerializer):
+    """
+    Serializer for reading Income records with nested relationships.
+    Optimized to work with select_related() queryset.
+    """
+    # Nested relationship fields
+    income_type_name = serializers.CharField(source="income_type.name", read_only=True)
+    income_type_code = serializers.CharField(source="income_type.code", read_only=True)
+
+    payment_method_name = serializers.CharField(source="payment_method.name", read_only=True)
+    payment_method_code = serializers.CharField(source="payment_method.code", read_only=True)
+
+    recorded_by_name = serializers.CharField(source="recorded_by.get_full_name", read_only=True, default=None)
+    recorded_by_email = serializers.EmailField(source="recorded_by.email", read_only=True, default=None)
+
+    approved_by_name = serializers.CharField(source="approved_by.get_full_name", read_only=True, default=None)
+    approved_by_email = serializers.EmailField(source="approved_by.email", read_only=True, default=None)
+
+    # Computed fields
+    has_pending_updates = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Income
+        fields = "__all__"
+
+    def get_has_pending_updates(self, obj):
+        """Check if there are pending update requests"""
+        # This will use prefetch_related if available, otherwise single query
+        return obj.update_requests.filter(status="pending").exists()
+
+
+class IncomeListSerializer(serializers.ModelSerializer):
+    """
+    Lightweight serializer for listing incomes.
+    Only includes essential fields for performance.
+    """
+    income_type_name = serializers.CharField(source="income_type.name", read_only=True)
+    payment_method_name = serializers.CharField(source="payment_method.name", read_only=True)
+    recorded_by_name = serializers.CharField(source="recorded_by.get_full_name", read_only=True, default=None)
+
+    class Meta:
+        model = Income
+        fields = [
+            'id', 'transaction_id', 'income_type_name', 'payment_method_name',
+            'amount', 'date', 'payer_name', 'status', 'approval_status',
+            'recorded_by_name', 'created_at'
+        ]
+
+
+class IncomeUpdateRequestSerializer(serializers.ModelSerializer):
+    """
+    Serializer for income update requests.
+    Includes validation to ensure only allowed fields are in requested_data.
+    """
+    income_transaction_id = serializers.CharField(source="income.transaction_id", read_only=True)
+    requested_by_name = serializers.CharField(source="requested_by.get_full_name", read_only=True)
+    reviewed_by_name = serializers.CharField(source="reviewed_by.get_full_name", read_only=True, default=None)
+
+    class Meta:
+        model = IncomeUpdateRequest
+        fields = "__all__"
+        read_only_fields = [
+            "status", "reviewed_by", "reviewed_at", "rejection_reason"
+        ]
+
+    def validate_requested_data(self, value):
+        """
+        Ensure requested_data only contains allowed fields and validate the data.
+        """
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("requested_data must be a dictionary.")
+
+        # Check that only allowed fields are present
+        invalid_fields = set(value.keys()) - IncomeUpdateRequest.ALLOWED_UPDATE_FIELDS
+        if invalid_fields:
+            raise serializers.ValidationError(
+                f"The following fields cannot be updated: {', '.join(invalid_fields)}"
+            )
+
+        # Validate the data using IncomeCreateSerializer
+        income = self.context.get('income')
+        if income:
+            serializer = IncomeCreateSerializer(
+                income,
+                data=value,
+                partial=True,
+                context={'is_update_request': True}
+            )
+            if not serializer.is_valid():
+                raise serializers.ValidationError({
+                    "requested_data": serializer.errors
+                })
+
+        return value
+
+
+class IncomeUpdateRequestReadSerializer(serializers.ModelSerializer):
+    """
+    Detailed read serializer for update requests with full context.
+    """
+    income = IncomeReadSerializer(read_only=True)
+    requested_by_name = serializers.CharField(source="requested_by.get_full_name", read_only=True)
+    requested_by_email = serializers.EmailField(source="requested_by.email", read_only=True)
+    reviewed_by_name = serializers.CharField(source="reviewed_by.get_full_name", read_only=True, default=None)
+    reviewed_by_email = serializers.EmailField(source="reviewed_by.email", read_only=True, default=None)
+
+    class Meta:
+        model = IncomeUpdateRequest
+        fields = "__all__"
+
+
+class IncomeApprovalActionSerializer(serializers.Serializer):
+    """Serializer for approval/rejection actions"""
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500)

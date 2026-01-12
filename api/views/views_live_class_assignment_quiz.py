@@ -948,9 +948,8 @@ class CourseResourceViewSet(BaseAdminViewSet):
         return queryset
 
     # ---------------- ACTIONS ----------------
-
-    @action(detail=True, methods=["get"])
     @extend_schema(summary="Download resource and return URL", tags=["Course - Resources"])
+    @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
         """
         Download resource and increment download count

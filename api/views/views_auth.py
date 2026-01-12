@@ -168,6 +168,8 @@ class TeacherLoginView(SecureLoginView):
     role_allowed = CustomUser.Role.TEACHER
 
 
+
+
 @extend_schema(
     tags=["Shared Authentication"],
     summary="Logout a user",

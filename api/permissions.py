@@ -4,10 +4,10 @@ Defines simple permission classes like IsAdmin, IsTeacher, and IsStudent
 used throughout API view authorization.
 """
 
-from rest_framework import permissions
+from rest_framework.permissions import BasePermission
 
 
-class IsSuperAdmin(permissions.BasePermission):
+class IsSuperAdmin(BasePermission):
     """
     Only superadmin can access.
     """
@@ -19,7 +19,7 @@ class IsSuperAdmin(permissions.BasePermission):
         return request.user.is_authenticated and request.user.role == "superadmin"
 
 
-class IsAdmin(permissions.BasePermission):
+class IsAdmin(BasePermission):
     """
     Only admin users can access.
     """
@@ -31,7 +31,7 @@ class IsAdmin(permissions.BasePermission):
         return request.user.is_authenticated and request.user.role in ["admin", "superadmin"]
 
 
-class IsStaff(permissions.BasePermission):
+class IsStaff(BasePermission):
     """
     Only staff users can access.
     """
@@ -43,19 +43,58 @@ class IsStaff(permissions.BasePermission):
         return request.user.is_authenticated and request.user.role in ["staff", "admin", "superadmin"]
 
 
-class IsAccountant(permissions.BasePermission):
+# class IsAccountant(permissions.BasePermission):
+#     """
+#     Only accountant users can access.
+#     """
+#
+#     def has_permission(self, request, view):
+#         """
+#         Check if the user is authenticated and has a role of accountant, admin or superadmin.
+#         """
+#         return request.user.is_authenticated and request.user.role in ["accountant", "superadmin"]
+
+class IsAccountant(BasePermission):
     """
-    Only accountant users can access.
+    Accountant access:
+    - Read
+    - Create
+    - Update (pending approval)
+    - No delete
     """
 
     def has_permission(self, request, view):
-        """
-        Check if the user is authenticated and has a role of accountant, admin or superadmin.
-        """
-        return request.user.is_authenticated and request.user.role in ["accountant", "superadmin"]
+        if not request.user.is_authenticated:
+            return False
+
+        if request.user.role == "accountant":
+            if request.method == "DELETE":
+                return False
+            return True
+
+        return False
 
 
-class IsTeacher(permissions.BasePermission):
+
+class IsAdminOrAccountant(BasePermission):
+    """
+    Allows access to Admin OR Accountant
+    """
+
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and (
+                request.user.is_admin
+                or request.user.is_accountant
+                or request.user.is_superuser
+            )
+        )
+
+
+
+class IsTeacher(BasePermission):
     """
     Only teachers can access.
     """
@@ -67,7 +106,7 @@ class IsTeacher(permissions.BasePermission):
         return request.user.is_authenticated and request.user.role in ["teacher", "admin", "superadmin"]
 
 
-class IsStudent(permissions.BasePermission):
+class IsStudent(BasePermission):
     """
     Only students can access.
     """
@@ -79,7 +118,7 @@ class IsStudent(permissions.BasePermission):
         return request.user.is_authenticated and request.user.role == "student"
 
 
-class IsTeacherOrAdmin(permissions.BasePermission):
+class IsTeacherOrAdmin(BasePermission):
     """
     Teachers and admins can access.
     """
@@ -91,7 +130,7 @@ class IsTeacherOrAdmin(permissions.BasePermission):
         return request.user.is_authenticated and request.user.role in ["teacher", "admin", "superadmin"]
 
 
-class IsStudentOwner(permissions.BasePermission):
+class IsStudentOwner(BasePermission):
     """
     Students can only access their own resources.
     """
@@ -109,7 +148,7 @@ class IsStudentOwner(permissions.BasePermission):
         return obj.student == request.user
 
 
-class IsCourseManager(permissions.BasePermission):
+class IsCourseManager(BasePermission):
     """
     Teachers, staff, and admins can manage courses.
     Used specifically for course CRUD operations.

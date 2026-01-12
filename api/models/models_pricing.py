@@ -85,39 +85,32 @@ class CoursePrice(TimeStampedModel):
         ]
 
     def get_discounted_price(self):
-        """Calculate price after applying time-based discounts."""
+        """Calculate price after applying time-based discounts.
+
+        Percentage discount applied first, then fixed amount (capped to not go below zero).
+        """
         from django.utils import timezone
+        from decimal import Decimal
 
-        if self.is_free:
+        if self.is_free or not self.base_price:
             return Decimal("0.00")
 
-        # Return base_price if not yet saved or base_price is None
-        if not self.base_price:
-            return Decimal("0.00")
-
-        # Check if discount is currently valid
         now = timezone.now()
-        discount_valid = True
-
         if self.discount_start_date and now < self.discount_start_date:
-            discount_valid = False
+            return Decimal(self.base_price)
         if self.discount_end_date and now > self.discount_end_date:
-            discount_valid = False
+            return Decimal(self.base_price)
 
-        if not discount_valid:
-            return self.base_price
+        price = Decimal(str(self.base_price))
 
-        # Apply percentage discount first
-        price = self.base_price
-        if self.discount_percentage and self.discount_percentage > 0:
-            price = price - (price * (self.discount_percentage / 100))
+        if self.discount_percentage is not None and self.discount_percentage > 0:
+            percentage = Decimal(str(self.discount_percentage)) / Decimal("100")
+            price -= price * percentage
 
-        # Then apply fixed amount discount
-        if self.discount_amount and self.discount_amount > 0:
-            price = price - self.discount_amount
+        if self.discount_amount is not None and self.discount_amount > 0:
+            price -= min(Decimal(str(self.discount_amount)), price)
 
-        # Ensure price doesn't go below 0
-        return max(price, Decimal("0.00"))
+        return price.quantize(Decimal("0.01"))
 
     def get_savings(self):
         """Calculate total savings from discounts."""
