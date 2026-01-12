@@ -19,3 +19,4 @@ from .admin_our_values import *  # noqa: F403
 from .admin_policy import *  # noqa: F403
 from .admin_seo import *  # noqa: F403
 from .admin_service import *  # noqa: F403
+from .admin_accounting import *  # noqa: F403

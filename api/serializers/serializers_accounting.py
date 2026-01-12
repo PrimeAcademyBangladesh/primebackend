@@ -60,6 +60,16 @@ class IncomeCreateSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def validate_income_type(self, value):
+        if not value:
+            raise serializers.ValidationError("Income type is required.")
+        return value
+
+    def validate_payment_method(self, value):
+        if not value:
+            raise serializers.ValidationError("Payment method is required.")
+        return value
+
 
 class IncomeReadSerializer(serializers.ModelSerializer):
     """
