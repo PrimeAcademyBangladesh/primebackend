@@ -38,13 +38,13 @@ class QuizQuestionOptionInline(nested_admin.NestedTabularInline):
     """Inline for quiz question options (for MCQ questions)."""
 
     model = QuizQuestionOption
-    extra = 4  # Default 4 options for new questions
-    max_num = 10  # Maximum 10 options per question
+    extra = 4
+    max_num = 10
     fields = ["order", "option_text", "is_correct"]
     ordering = ["order"]
     verbose_name = "Answer Option"
     verbose_name_plural = "Answer Options (Check one or more as correct)"
-
+# ToDo here
     class Media:
         css = {"all": ("admin/css/quiz_options.css",)}
 

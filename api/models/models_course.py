@@ -60,6 +60,12 @@ class Course(TimeStampedModel, OptimizedImageModel):
         db_index=True,
         help_text="Auto-generated URL-friendly version of the title",
     )
+    course_prefix = models.CharField(
+        max_length=8,
+        unique=True,
+        db_index=True,
+        help_text="Course prefix. Max Length 8 Characters (UNIQUE, cannot be changed after creation)",
+    )
     short_description = models.TextField(help_text="Brief description of the course")
     full_description = CKEditor5Field(
         blank=True,
@@ -101,6 +107,25 @@ class Course(TimeStampedModel, OptimizedImageModel):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.title)
+
+        # If this is an update (object already exists in DB)
+        if self.pk:
+            # Get the original object from the database
+            try:
+                original = Course.objects.get(pk=self.pk)
+                # If course_prefix is being changed, raise an error
+                if original.course_prefix and self.course_prefix != original.course_prefix:
+                    raise ValueError(
+                        f"Cannot change course_prefix from '{original.course_prefix}' to '{self.course_prefix}'. "
+                        "Course prefix is immutable after creation."
+                    )
+            except Course.DoesNotExist:
+                pass  # Object doesn't exist yet, allow creation
+
+        # Auto-generate slug if not provided
+        if not self.slug:
+            self.slug = slugify(self.title)
+
         super().save(*args, **kwargs)
 
     class Meta(TimeStampedModel.Meta, OptimizedImageModel.Meta):
@@ -139,7 +164,7 @@ class CourseDetail(TimeStampedModel):
         return f"Details for {self.course.title}"
 
 
-# Section 2: Course Content Sections (Replaces CourseTab and CourseMediaTab)
+# Section 2: Course Content Sections
 class CourseContentSection(models.Model):
     """Main section container for course detail page."""
 

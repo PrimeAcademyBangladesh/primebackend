@@ -18,6 +18,8 @@ from api.models.models_course import (
 )
 from api.models.models_pricing import Coupon, CoursePrice
 from api.serializers.serializers_helpers import CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin
+from api.serializers.mixins import CoursePurchaseCheckMixin
+
 
 # ========== Category Serializers ==========
 
@@ -270,7 +272,8 @@ class CourseModuleCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSeria
                 query = query.exclude(pk=self.instance.pk)
 
             if query.exists():
-                raise serializers.ValidationError({"order": f"A module with order {order} already exists for this course."})
+                raise serializers.ValidationError(
+                    {"order": f"A module with order {order} already exists for this course."})
 
         return data
 
@@ -520,9 +523,9 @@ class CourseBatchSerializer(serializers.ModelSerializer):
         # Course default
         if hasattr(obj.course, "pricing") and obj.course.pricing:
             return (
-                obj.course.pricing.installment_available
-                and obj.course.pricing.installment_count is not None
-                and obj.course.pricing.installment_count > 0
+                    obj.course.pricing.installment_available
+                    and obj.course.pricing.installment_count is not None
+                    and obj.course.pricing.installment_count > 0
             )
 
         return False
@@ -624,9 +627,9 @@ class CourseBatchMinimalSerializer(serializers.ModelSerializer):
         # Course default
         if hasattr(obj.course, "pricing") and obj.course.pricing:
             return (
-                obj.course.pricing.installment_available
-                and obj.course.pricing.installment_count is not None
-                and obj.course.pricing.installment_count > 0
+                    obj.course.pricing.installment_available
+                    and obj.course.pricing.installment_count is not None
+                    and obj.course.pricing.installment_count > 0
             )
 
         return False
@@ -742,7 +745,8 @@ class CourseBatchCreateUpdateSerializer(serializers.ModelSerializer):
 class CoursePriceSerializer(serializers.ModelSerializer):
     """Serializer for course pricing with computed fields."""
 
-    effective_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, source="get_discounted_price")
+    effective_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True,
+                                               source="get_discounted_price")
     savings = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, source="get_savings")
     installment_amount = serializers.DecimalField(
         max_digits=10, decimal_places=2, read_only=True, source="get_installment_amount"
@@ -852,20 +856,23 @@ class CoursePriceCreateUpdateSerializer(serializers.ModelSerializer):
 
 # ========== Course Detail Serializers ==========
 
-
 class CourseDetailSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
-    """Serializer for course details with all nested components (READ-ONLY for nested data)."""
+    """
+    Serializer for course details with all nested components (READ-ONLY).
+    """
 
     html_fields = ["hero_description"]
+
     hero_image = serializers.SerializerMethodField()
 
     # Nested read-only fields
     content_sections = CourseContentSectionSerializer(many=True, read_only=True)
     why_enrol = WhyEnrolSerializer(many=True, read_only=True)
-    modules = CourseModuleSerializer(many=True, read_only=True)
     benefits = KeyBenefitSerializer(many=True, read_only=True)
     side_image_sections = SideImageSectionSerializer(many=True, read_only=True)
     success_stories = SuccessStorySerializer(many=True, read_only=True)
+
+    modules = serializers.SerializerMethodField()
 
     # Course info
     course_title = serializers.CharField(source="course.title", read_only=True)
@@ -883,9 +890,9 @@ class CourseDetailSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             "hero_description",
             "hero_button",
             "is_active",
+            "modules",
             "content_sections",
             "why_enrol",
-            "modules",
             "benefits",
             "side_image_sections",
             "success_stories",
@@ -897,25 +904,35 @@ class CourseDetailSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             "course_slug",
         ]
 
+    def get_modules(self, obj):
+        """
+        Return active modules for this course using minimal serializer.
+        """
+        from api.models.models_course import CourseModule
+        from api.serializers.serializers_course import CourseModuleMinimalSerializer
+
+        modules = (
+            CourseModule.objects
+            .filter(course=obj.course, is_active=True)
+            .order_by("order")
+        )
+        return CourseModuleMinimalSerializer(modules, many=True).data
+
     def get_hero_image(self, obj):
         """Return absolute URL for course hero/header image with fallback."""
         request = self.context.get("request")
 
-        header_image_url = None
         try:
-            if hasattr(obj, "course") and obj.course.header_image:
-                header_image_url = obj.course.header_image.url
+            if obj.course and obj.course.header_image:
+                url = obj.course.header_image.url
+            else:
+                from django.templatetags.static import static
+                url = static("default_images/default_course.webp")
         except Exception:
-            header_image_url = None
-
-        if not header_image_url:
             from django.templatetags.static import static
+            url = static("default_images/default_course.webp")
 
-            header_image_url = static("default_images/default_course.webp")
-
-        if request:
-            return request.build_absolute_uri(header_image_url)
-        return header_image_url
+        return request.build_absolute_uri(url) if request else url
 
 
 class CourseDetailCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
@@ -992,7 +1009,8 @@ class CourseContentSectionCreateUpdateSerializer(CourseDetailRequiredOnCreateMix
                 query = query.exclude(pk=self.instance.pk)
 
             if query.exists():
-                raise serializers.ValidationError({"order": f"A section with order {order} already exists for this course."})
+                raise serializers.ValidationError(
+                    {"order": f"A section with order {order} already exists for this course."})
 
         return data
 
@@ -1032,7 +1050,8 @@ class CourseSectionTabCreateUpdateSerializer(serializers.ModelSerializer):
                 qs = qs.exclude(pk=self.instance.pk)
 
             if qs.exists():
-                raise serializers.ValidationError({"order": f"A tab with order {order} already exists in this section."})
+                raise serializers.ValidationError(
+                    {"order": f"A tab with order {order} already exists in this section."})
 
         return data
 
@@ -1097,9 +1116,11 @@ class CourseTabbedContentCreateUpdateSerializer(HTMLFieldsMixin, serializers.Mod
             if not video_url:
                 raise serializers.ValidationError({"video_url": "Video URL is required for video media type."})
             if not video_provider:
-                raise serializers.ValidationError({"video_provider": "Video provider is required for video media type."})
+                raise serializers.ValidationError(
+                    {"video_provider": "Video provider is required for video media type."})
             if not video_thumbnail and not self.instance:
-                raise serializers.ValidationError({"video_thumbnail": "Video thumbnail is required for video media type."})
+                raise serializers.ValidationError(
+                    {"video_thumbnail": "Video thumbnail is required for video media type."})
 
         # ======================
         # Order uniqueness
@@ -1154,7 +1175,8 @@ class KeyBenefitCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, HTMLFi
         read_only_fields = ["id"]
 
 
-class SideImageSectionCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer):
+class SideImageSectionCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin,
+                                             serializers.ModelSerializer):
     """
     Serializer for creating/updating side image sections.
     """
@@ -1181,7 +1203,8 @@ class SideImageSectionCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, 
         read_only_fields = ["id"]
 
 
-class SuccessStoryCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin, serializers.ModelSerializer):
+class SuccessStoryCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, HTMLFieldsMixin,
+                                         serializers.ModelSerializer):
     """
     Serializer for creating/updating success stories.
 
@@ -1215,7 +1238,7 @@ class SuccessStoryCreateUpdateSerializer(CourseDetailRequiredOnCreateMixin, HTML
 # ========== Course Serializers ==========
 
 
-class CourseListSerializer(serializers.ModelSerializer):
+class CourseListSerializer(CoursePurchaseCheckMixin, serializers.ModelSerializer):
     """Lightweight serializer for course listings."""
 
     category = CategorySerializer(read_only=True)
@@ -1230,6 +1253,7 @@ class CourseListSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "slug",
+            "course_prefix",
             "short_description",
             "header_image",
             "show_in_megamenu",
@@ -1246,22 +1270,6 @@ class CourseListSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "slug", "created_at", "updated_at"]
 
-    def get_is_purchased(self, obj):
-        """Return True if current request user is already enrolled in ANY batch of this course."""
-        request = self.context.get("request")
-        # If view annotated the queryset, prefer the annotated boolean
-        if hasattr(obj, "is_purchased"):
-            return bool(getattr(obj, "is_purchased"))
-
-        if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
-            return False
-        try:
-            from api.models.models_order import Enrollment
-
-            return Enrollment.objects.filter(user=request.user, course=obj, is_active=True).exists()
-        except Exception:
-            return False
-
     def get_active_batches(self, obj):
         """Return active batches for this course with enrollment status."""
         request = self.context.get("request")
@@ -1269,7 +1277,7 @@ class CourseListSerializer(serializers.ModelSerializer):
         return CourseBatchMinimalSerializer(batches, many=True, context={"request": request}).data
 
 
-class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
+class CourseDetailedSerializer(CoursePurchaseCheckMixin, HTMLFieldsMixin, serializers.ModelSerializer):
     """Complete serializer for course with all details."""
 
     html_fields = ["full_description"]
@@ -1289,6 +1297,7 @@ class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
             "id",
             "title",
             "slug",
+            "course_prefix",
             "short_description",
             "full_description",
             "header_image",
@@ -1311,7 +1320,6 @@ class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
 
     def get_modules(self, obj):
         """Return minimal module information ordered by module number."""
-        # Modules are now directly on the Course object
         if not hasattr(obj, "modules"):
             return []
         modules_qs = obj.modules.filter(is_active=True).order_by("order")
@@ -1319,22 +1327,6 @@ class CourseDetailedSerializer(HTMLFieldsMixin, serializers.ModelSerializer):
         sample_limit = 5
         sample_modules = modules_qs[:sample_limit]
         return CourseModuleMinimalSerializer(sample_modules, many=True).data
-
-    def get_is_purchased(self, obj):
-        """Return True if current request user is already enrolled in this course."""
-        request = self.context.get("request")
-        # Prefer annotated value when available (avoids per-object queries)
-        if hasattr(obj, "is_purchased"):
-            return bool(getattr(obj, "is_purchased"))
-
-        if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
-            return False
-        try:
-            from api.models.models_order import Enrollment
-
-            return Enrollment.objects.filter(user=request.user, course=obj, is_active=True).exists()
-        except Exception:
-            return False
 
     def get_batches(self, obj):
         """Return all batches for this course."""
@@ -1352,6 +1344,7 @@ class CourseCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer)
         fields = [
             "id",
             "slug",
+            "course_prefix",
             "category",
             "show_in_megamenu",
             "show_in_home_tab",
@@ -1363,12 +1356,44 @@ class CourseCreateUpdateSerializer(HTMLFieldsMixin, serializers.ModelSerializer)
             "is_active",
         ]
         read_only_fields = ["id", "slug"]
+        extra_kwargs = {
+            "course_prefix": {"write_only": True}
+        }
 
     def validate_category(self, value):
         """Ensure category is active."""
         if not value.is_active:
             raise serializers.ValidationError("Cannot assign course to an inactive category.")
         return value
+
+    def validate_course_prefix(self, value):
+        """Ensure course prefix is uppercase and alphanumeric."""
+        if not value:
+            raise serializers.ValidationError("Course prefix is required.")
+
+        value = value.upper().strip()
+
+        if not value.isalnum():
+            raise serializers.ValidationError("Course prefix must contain only letters and numbers.")
+
+        if len(value) > 8:
+            raise serializers.ValidationError("Course prefix cannot exceed 8 characters.")
+
+        return value
+
+    # Prevent Update Once Created======
+    def update(self, instance, validated_data):
+        """
+        Update course, but prevent changing course_prefix after creation.
+        """
+        if 'course_prefix' in validated_data:
+            if instance.course_prefix and instance.course_prefix != validated_data['course_prefix']:
+                raise serializers.ValidationError({
+                    'course_prefix': 'Course prefix cannot be changed after creation.'
+                })
+            validated_data.pop('course_prefix')
+
+        return super().update(instance, validated_data)
 
 
 # ========== Coupon Serializers ==========

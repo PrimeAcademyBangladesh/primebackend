@@ -15,8 +15,6 @@ Admin Order:
 
 """
 
-
-
 from django.contrib import admin
 from django.db.models import Count
 
@@ -30,10 +28,15 @@ from api.models.models_course import (
     CourseTabbedContent,
     CourseModule,
     CourseInstructor,
-    CourseBatch, SuccessStory,
+    CourseBatch,
+    SuccessStory,
+    WhyEnrol,
+    KeyBenefit,
+    SideImageSection
 )
 from api.models.models_pricing import CoursePrice, Coupon
 from api.models.models_module import CourseResource, CourseResourceFile
+import nested_admin
 
 # ============================================================
 # CORE COURSE STRUCTURE
@@ -65,32 +68,122 @@ class CourseAdmin(BaseModelAdmin):
     modules_count.admin_order_field = "modules_count"
 
 
+# ==============================================================================
+# COURSE DETAIL ADMIN - NESTED STRUCTURE
+# ==============================================================================
+# This creates a 3-level nested admin interface:
+# Course Detail → Content Sections → Section Tabs → Tabbed Content
+# ==============================================================================
+
+
+# LEVEL 3: Individual content items (deepest level)
+# Each tab can have multiple content items (images, videos, etc.)
+class CourseTabbedContentInline(nested_admin.NestedStackedInline):
+    """
+    Individual content items within a tab.
+    Examples: an image with description, a video with button, etc.
+    """
+    model = CourseTabbedContent
+    extra = 0  # Don't show empty forms by default
+    min_num = 0  # Allow zero content items
+    ordering = ("order",)
+    classes = ("collapse",)  # Collapsed by default to reduce clutter
+
+    fieldsets = (
+        (
+            "📝 Basic Content",
+            {
+                "fields": (
+                    "media_type",  # Choose: image, video, etc.
+                    "title",
+                    "description",
+                )
+            },
+        ),
+        (
+            "🖼️ Image Settings",
+            {
+                "fields": ("image",),
+                "classes": ("collapse",),  # Hidden unless opened
+            },
+        ),
+        (
+            "🎥 Video Settings",
+            {
+                "fields": (
+                    "video_provider",  # YouTube, Vimeo, etc.
+                    "video_url",
+                    "video_thumbnail",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
+        (
+            "🔘 Actions & Order",
+            {
+                "fields": (
+                    "button_text",
+                    "button_link",
+                    "order",  # Display order
+                    "is_active",  # Show/hide this content
+                )
+            },
+        ),
+    )
+
+
+# LEVEL 2: Tabs within each section
+# Each section can have multiple tabs (like browser tabs)
+class CourseSectionTabInline(nested_admin.NestedStackedInline):
+    """
+    Tabs within a content section.
+    Example: "Overview" tab, "Curriculum" tab, "Instructor" tab
+    """
+    model = CourseSectionTab
+    extra = 0
+    min_num = 0
+    ordering = ("order",)
+    classes = ("collapse",)
+
+    # Each tab contains multiple content items
+    inlines = [CourseTabbedContentInline]
+
+
+# LEVEL 1: Main content sections
+# The top-level container for organizing course content
+class CourseContentSectionInline(nested_admin.NestedStackedInline):
+    """
+    Main content sections of the course detail page.
+    Example: "What You'll Learn", "Course Features", "Requirements"
+    """
+    model = CourseContentSection
+    extra = 0
+    min_num = 0
+    ordering = ("order",)
+    classes = ("collapse",)
+
+    # Each section contains multiple tabs
+    inlines = [CourseSectionTabInline]
+
+
+# MAIN ADMIN: Course Detail page configuration
 @admin.register(CourseDetail)
-class CourseDetailAdmin(BaseModelAdmin):
-    search_fields = ("course__title",)
-    autocomplete_fields = ("course",)
+class CourseDetailAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
+    """
+    Admin interface for managing detailed course information.
+
+    Structure:
+    CourseDetail
+      └── Content Section (e.g., "What You'll Learn")
+            └── Section Tab (e.g., "Overview")
+                  └── Tabbed Content (e.g., Video, Image, Text)
+    """
+    search_fields = ("course__title",)  # Search by course name
+    autocomplete_fields = ("course",)  # Dropdown with search
     list_display = ("course", "hero_button", "is_active")
 
-
-@admin.register(CourseContentSection)
-class CourseContentSectionAdmin(BaseModelAdmin):
-    search_fields = ("section_name", "course_detail__course__title")
-    autocomplete_fields = ("course_detail",)
-    list_display = ("section_name", "course_detail", "order", "is_active")
-
-
-@admin.register(CourseSectionTab)
-class CourseSectionTabAdmin(BaseModelAdmin):
-    search_fields = ("tab_name", "section__section_name")
-    autocomplete_fields = ("section",)
-    list_display = ("tab_name", "section", "order", "is_active")
-
-
-@admin.register(CourseTabbedContent)
-class CourseTabbedContentAdmin(BaseModelAdmin):
-    search_fields = ("title", "tab__tab_name")
-    autocomplete_fields = ("tab",)
-    list_display = ("title", "tab", "media_type", "order", "is_active")
+    # Start with content sections
+    inlines = [CourseContentSectionInline]
 
 
 @admin.register(CourseModule)
@@ -123,6 +216,26 @@ class SuccessStoryAdmin(BaseModelAdmin):
     list_display = ("name", "course_detail", "is_active")
 
 
+@admin.register(WhyEnrol)
+class WhyEnrolAdmin(BaseModelAdmin):
+    search_fields = ('title', 'text')
+    list_display = ('title', 'icon', 'text', 'is_active')
+    autocomplete_fields = ("course_detail",)
+
+
+@admin.register(KeyBenefit)
+class KeyBenefitAdmin(BaseModelAdmin):
+    search_fields = ('title', 'text')
+    list_display = ('title', 'icon', 'text', 'is_active')
+    autocomplete_fields = ("course_detail",)
+
+
+@admin.register(SideImageSection)
+class SideImageAdmin(admin.ModelAdmin):
+    search_fields = ('title', 'text')
+    list_display = ('title', 'text', 'image', 'button_text', 'button_url', 'is_active')
+    autocomplete_fields = ("course_detail",)
+
 # ============================================================
 # PRICING & PROMOTIONS
 # ============================================================
@@ -139,6 +252,7 @@ class CouponAdmin(BaseModelAdmin):
     search_fields = ("code",)
     filter_horizontal = ("courses",)
     list_display = ("code", "discount_type", "discount_value", "is_active")
+
 
 # ============================================================
 # CourseResourceFile

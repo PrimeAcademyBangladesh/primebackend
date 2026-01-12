@@ -2175,3 +2175,9 @@ class CourseBatchViewSet(BaseAdminViewSet):
             data=serializer.data,
             status_code=status.HTTP_200_OK,
         )
+
+
+# ToDo List
+# update Enrolment serializers for new course wise student id
+# Update ViewSet if necessary
+# Create a test Course on live
