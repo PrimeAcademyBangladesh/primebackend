@@ -24,7 +24,6 @@ class OrderSecurityTestCase(TestCase):
     """Test security features for Order and Enrollment models."""
 
     def setUp(self):
-        """Create test data."""
         # Users
         self.student = User.objects.create_user(
             email="student_security@example.com",
@@ -62,7 +61,7 @@ class OrderSecurityTestCase(TestCase):
             phone="01700000004",
         )
 
-        # Course
+        # Course (course_prefix <= 8 chars)
         category = Category.objects.create(
             name="Security Test Category",
             slug="security-test-category",
@@ -71,7 +70,7 @@ class OrderSecurityTestCase(TestCase):
         self.course = Course.objects.create(
             title="Security Test Course",
             slug="security-test-course",
-            course_prefix="SEC0001",  # ✅ max_length <= 8
+            course_prefix="SEC0001",
             category=category,
             short_description="Test course for security",
             status="published",
@@ -178,9 +177,9 @@ class OrderSecurityTestCase(TestCase):
         viewset.request = request
         viewset.action = "list"
 
-        queryset = viewset.get_queryset()
-        self.assertEqual(queryset.count(), 1)
-        self.assertEqual(queryset.first(), self.student_order)
+        qs = viewset.get_queryset()
+        self.assertEqual(qs.count(), 1)
+        self.assertEqual(qs.first(), self.student_order)
 
     def test_staff_sees_all_orders(self):
         request = self.factory.get("/api/orders/")
@@ -202,6 +201,7 @@ class OrderSecurityTestCase(TestCase):
 
         viewset = OrderViewSet()
         viewset.request = request
+        viewset.action = "retrieve"
 
         with self.assertRaises(PermissionDenied):
             viewset.check_object_permissions(request, self.student_order)
@@ -212,6 +212,7 @@ class OrderSecurityTestCase(TestCase):
 
         viewset = OrderViewSet()
         viewset.request = request
+        viewset.action = "retrieve"
 
         viewset.check_object_permissions(request, self.student_order)
 
@@ -221,6 +222,7 @@ class OrderSecurityTestCase(TestCase):
 
         viewset = OrderViewSet()
         viewset.request = request
+        viewset.action = "retrieve"
 
         viewset.check_object_permissions(request, self.student_order)
 
