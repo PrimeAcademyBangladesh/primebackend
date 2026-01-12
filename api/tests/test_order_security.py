@@ -71,7 +71,7 @@ class OrderSecurityTestCase(TestCase):
         self.course = Course.objects.create(
             title="Security Test Course",
             slug="security-test-course",
-            course_prefix="SEC-COURSE-001",  # ✅ REQUIRED
+            course_prefix="SEC0001",  # ✅ max_length <= 8
             category=category,
             short_description="Test course for security",
             status="published",
