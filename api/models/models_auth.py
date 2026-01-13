@@ -198,6 +198,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         return self.role == "accountant"
 
 
+
 # -----------------------------------------------------------
 # Profile & Skill Models
 # -----------------------------------------------------------

@@ -10,7 +10,8 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from api.views.views_academy_overview import AcademyOverviewViewSet
-from api.views.views_accounting import IncomeViewSet, IncomeUpdateRequestViewSet
+from api.views.views_accounting import IncomeViewSet, IncomeUpdateRequestViewSet, ExpenseViewSet, \
+    ExpenseUpdateRequestViewSet
 from api.views.views_auth import (
     AdminLoginView,
     AdminStudentViewSet,
@@ -180,6 +181,10 @@ router.register(r"resources", CourseResourceViewSet, basename="resources")
 
 router.register(r'incomes', IncomeViewSet, basename='income')
 router.register(r'income-update-requests', IncomeUpdateRequestViewSet, basename='income-update-request')
+
+router.register(r"expenses",ExpenseViewSet, basename="expense")
+router.register(r"expense-update-requests",ExpenseUpdateRequestViewSet, basename="expense-update-request")
+
 
 
 urlpatterns = router.urls + [

@@ -138,6 +138,8 @@ class Income(TimeStampedModel):
 # -------------------------------
 # Income Update Request (Approval System)
 # -------------------------------
+
+
 class IncomeUpdateRequest(TimeStampedModel):
     STATUS_CHOICES = [
         ("pending", "Pending"),
@@ -228,3 +230,192 @@ class IncomeUpdateRequest(TimeStampedModel):
 
     def __str__(self):
         return f"Update Request for {self.income.transaction_id} by {self.requested_by}"
+
+
+
+
+
+
+import uuid
+from decimal import Decimal
+from django.db import models, transaction
+from django.utils import timezone
+
+from api.utils.helper_models import TimeStampedModel
+
+
+# ============================================================
+# Expense Type (MASTER DATA)
+# ============================================================
+class ExpenseType(TimeStampedModel):
+    code = models.SlugField(max_length=50, unique=True)
+    name = models.CharField(max_length=100, unique=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.name
+
+
+# ============================================================
+# Expense Payment Method (MASTER DATA)
+# ============================================================
+class ExpensePaymentMethod(TimeStampedModel):
+    code = models.SlugField(max_length=50, unique=True)
+    name = models.CharField(max_length=100, unique=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.name
+
+
+# ============================================================
+# Expense (TRANSACTION)
+# ============================================================
+class Expense(TimeStampedModel):
+    STATUS_CHOICES = [
+        ("paid", "Paid"),
+        ("pending", "Pending"),
+        ("cancelled", "Cancelled"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    reference_id = models.CharField(max_length=50, unique=True, editable=False)
+
+    expense_type = models.ForeignKey(ExpenseType, on_delete=models.PROTECT)
+    payment_method = models.ForeignKey(ExpensePaymentMethod, on_delete=models.PROTECT)
+
+    description = models.TextField()
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    date = models.DateField()
+
+    vendor_name = models.CharField(max_length=200)
+    vendor_email = models.EmailField(blank=True, null=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="paid")
+
+    recorded_by = models.ForeignKey(
+        "CustomUser",
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="recorded_expenses",
+    )
+
+    class Meta:
+        ordering = ["-date", "-created_at"]
+        indexes = [
+            models.Index(fields=["-date"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["expense_type"]),
+            models.Index(fields=["payment_method"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.reference_id:
+            self.reference_id = self.generate_reference_id()
+        super().save(*args, **kwargs)
+
+    def generate_reference_id(self):
+        """
+        EXP-{YEAR}-{RANDOM}
+        Example: EXP-2026-A3F91C
+        """
+        return f"EXP-{timezone.now().year}-{uuid.uuid4().hex[:6].upper()}"
+
+    def __str__(self):
+        return self.reference_id
+
+
+# ============================================================
+# Expense Update Request (APPROVAL WORKFLOW)
+# ============================================================
+class ExpenseUpdateRequest(TimeStampedModel):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    ]
+
+    ALLOWED_UPDATE_FIELDS = {
+        "expense_type",
+        "payment_method",
+        "description",
+        "amount",
+        "date",
+        "vendor_name",
+        "vendor_email",
+        "status",
+    }
+
+    expense = models.ForeignKey(
+        Expense, on_delete=models.CASCADE, related_name="update_requests"
+    )
+
+    requested_by = models.ForeignKey(
+        "CustomUser",
+        on_delete=models.CASCADE,
+        related_name="expense_update_requests",
+    )
+
+    requested_data = models.JSONField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+
+    reviewed_by = models.ForeignKey(
+        "CustomUser",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reviewed_expense_requests",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    rejection_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["expense", "status"]),
+        ]
+
+    # --------------------------------------------------------
+    # APPROVE
+    # --------------------------------------------------------
+    def approve(self, admin_user):
+        from api.serializers.serializers_expense import ExpenseCreateSerializer
+
+        with transaction.atomic():
+            expense = Expense.objects.select_for_update().get(pk=self.expense.pk)
+            req = ExpenseUpdateRequest.objects.select_for_update().get(pk=self.pk)
+
+            serializer = ExpenseCreateSerializer(
+                expense,
+                data=self.requested_data,
+                partial=True,
+                context={"is_approval": True},
+            )
+            serializer.is_valid(raise_exception=True)
+
+            for field, value in serializer.validated_data.items():
+                if field in self.ALLOWED_UPDATE_FIELDS:
+                    setattr(expense, field, value)
+
+            expense.save()
+
+            req.status = "approved"
+            req.reviewed_by = admin_user
+            req.reviewed_at = timezone.now()
+            req.save()
+
+    # --------------------------------------------------------
+    # REJECT
+    # --------------------------------------------------------
+    def reject(self, admin_user, reason=""):
+        with transaction.atomic():
+            req = ExpenseUpdateRequest.objects.select_for_update().get(pk=self.pk)
+            req.status = "rejected"
+            req.reviewed_by = admin_user
+            req.reviewed_at = timezone.now()
+            req.rejection_reason = reason
+            req.save()
+
+    def __str__(self):
+        return f"Update Request for {self.expense.reference_id}"

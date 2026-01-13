@@ -5,19 +5,40 @@ from rest_framework.viewsets import ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db.models import Prefetch, Exists, OuterRef
+from decimal import Decimal
 
-from api.models.models_accounting import Income, IncomeUpdateRequest
-from api.permissions import IsAdmin, IsAdminOrAccountant
+from api.models.models_accounting import Income, IncomeUpdateRequest, Expense, ExpenseUpdateRequest
+from api.permissions import IsAdmin, IsAdminOrAccountant, IsAccountant
 from api.serializers.serializers_accounting import (
     IncomeReadSerializer,
     IncomeListSerializer,
     IncomeCreateSerializer,
     IncomeUpdateRequestSerializer,
     IncomeUpdateRequestReadSerializer,
-    IncomeApprovalActionSerializer,
+    IncomeApprovalActionSerializer, ExpenseListSerializer, ExpenseReadSerializer, ExpenseCreateSerializer,
+    ExpenseUpdateRequestReadSerializer, ExpenseUpdateRequestSerializer, ExpenseApprovalActionSerializer,
 )
 from api.utils.pagination import StandardResultsSetPagination
 from api.utils.response_utils import api_response
+
+
+# ============================================================
+# Helper: serialize validated data for JSONField
+# ============================================================
+def serialize_validated_data(validated_data):
+    serialized = {}
+    for key, value in validated_data.items():
+        if value is None:
+            serialized[key] = None
+        elif isinstance(value, Decimal):
+            serialized[key] = str(value)
+        elif hasattr(value, "isoformat"):
+            serialized[key] = value.isoformat()
+        elif hasattr(value, "pk"):
+            serialized[key] = value.pk
+        else:
+            serialized[key] = value
+    return serialized
 
 
 # ============================================================
@@ -27,19 +48,23 @@ from api.utils.response_utils import api_response
 class IncomeViewSet(ModelViewSet):
     """
     Income management with approval workflow.
-    - Accountants: create + request updates
-    - Admins: full control
+
+    - Accountant:
+        • Create income
+        • Request updates (approval required)
+    - Admin / SuperAdmin:
+        • Full control
     """
 
+    permission_classes = [IsAdminOrAccountant]
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
 
     filterset_fields = {
         "status": ["exact"],
-        "approval_status": ["exact"],
         "income_type": ["exact"],
         "payment_method": ["exact"],
-        "date": ["gte", "lte", "exact"],
+        "date": ["gte", "lte"],
         "amount": ["gte", "lte"],
     }
 
@@ -48,10 +73,9 @@ class IncomeViewSet(ModelViewSet):
         "payer_name",
         "payer_email",
         "description",
-        "payment_reference",
     ]
 
-    ordering_fields = ["date", "amount", "created_at", "transaction_id"]
+    ordering_fields = ["date", "amount", "created_at"]
     ordering = ["-date", "-created_at"]
 
     # --------------------------------------------------------
@@ -69,9 +93,7 @@ class IncomeViewSet(ModelViewSet):
             queryset = queryset.prefetch_related(
                 Prefetch(
                     "update_requests",
-                    queryset=IncomeUpdateRequest.objects.select_related(
-                        "requested_by", "reviewed_by"
-                    ).filter(status="pending"),
+                    queryset=IncomeUpdateRequest.objects.filter(status="pending"),
                 )
             )
 
@@ -86,14 +108,6 @@ class IncomeViewSet(ModelViewSet):
             )
 
         return queryset
-
-    # --------------------------------------------------------
-    # Permissions
-    # --------------------------------------------------------
-    def get_permissions(self):
-        if self.action == "destroy":
-            return [IsAdmin()]
-        return [IsAdminOrAccountant()]
 
     # --------------------------------------------------------
     # Serializers
@@ -114,7 +128,7 @@ class IncomeViewSet(ModelViewSet):
         income = serializer.save(recorded_by=request.user)
 
         return api_response(
-            True,
+            success=True,
             message="Income created successfully",
             data=IncomeReadSerializer(income).data,
             status_code=status.HTTP_201_CREATED,
@@ -133,22 +147,22 @@ class IncomeViewSet(ModelViewSet):
         if getattr(income, "has_pending_request", False):
             return api_response(
                 success=False,
-                message="An update request is already pending approval.",
+                message="An update request is already pending approval",
                 status_code=status.HTTP_409_CONFLICT,
             )
 
         # Accountant → create update request
-        if request.user.is_accountant and not request.user.is_admin:
+        if request.user.role == "accountant":
             update_request = IncomeUpdateRequest.objects.create(
                 income=income,
                 requested_by=request.user,
-                requested_data=serializer.validated_data,
+                requested_data=serialize_validated_data(serializer.validated_data),
             )
 
             return api_response(
-                True,
+                success=True,
                 message="Update request submitted for admin approval",
-                data={"request_id": update_request.id},
+                data={"request_id": str(update_request.id)},
                 status_code=status.HTTP_202_ACCEPTED,
             )
 
@@ -156,9 +170,9 @@ class IncomeViewSet(ModelViewSet):
         self.perform_update(serializer)
 
         return api_response(
-            True,
+            success=True,
             message="Income updated successfully",
-            data=serializer.data,
+            data=IncomeReadSerializer(income).data,
         )
 
     def partial_update(self, request, *args, **kwargs):
@@ -166,48 +180,65 @@ class IncomeViewSet(ModelViewSet):
         return self.update(request, *args, **kwargs)
 
     # --------------------------------------------------------
-    # Pending Approvals (Admin)
+    # DELETE (Admin Only)
     # --------------------------------------------------------
-    @extend_schema(summary="Get pending approvals")
+    def destroy(self, request, *args, **kwargs):
+        self.permission_classes = [IsAdmin]
+        self.check_permissions(request)
+
+        income = self.get_object()
+        transaction_id = income.transaction_id
+        income.delete()
+
+        return api_response(
+            success=True,
+            message="Income deleted successfully",
+            data={"transaction_id": transaction_id},
+        )
+
+    # --------------------------------------------------------
+    # ADMIN: Incomes with pending update requests
+    # --------------------------------------------------------
+    @extend_schema(summary="Admin: incomes with pending update requests")
     @action(detail=False, methods=["get"], url_path="pending-approval")
     def pending_approval(self, request):
         self.permission_classes = [IsAdmin]
         self.check_permissions(request)
 
         queryset = self.filter_queryset(
-            self.get_queryset().filter(approval_status="pending")
+            self.get_queryset()
+            .filter(update_requests__status="pending")
+            .distinct()
         )
 
         page = self.paginate_queryset(queryset)
         if page is not None:
-            serializer = self.get_serializer(page, many=True)
+            serializer = IncomeListSerializer(page, many=True)
             return api_response(
-                True,
+                success=True,
                 message="Pending approvals fetched successfully",
                 data=self.get_paginated_response(serializer.data).data,
             )
 
-        serializer = self.get_serializer(queryset, many=True)
+        serializer = IncomeListSerializer(queryset, many=True)
         return api_response(
-            True,
+            success=True,
             message="Pending approvals fetched successfully",
             data=serializer.data,
         )
 
 
 # ============================================================
-# Income Update Request ViewSet (Admin Only)
+# Income Update Request ViewSet
 # ============================================================
 @extend_schema(tags=["ACCOUNTING"])
 class IncomeUpdateRequestViewSet(ModelViewSet):
     """
-    Admin-only approval of income update requests.
+    Approval workflow for income updates.
     """
 
-    permission_classes = [IsAdmin]
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, OrderingFilter]
-
     filterset_fields = ["status", "income"]
     ordering_fields = ["created_at", "reviewed_at"]
     ordering = ["-created_at"]
@@ -215,8 +246,6 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
     def get_queryset(self):
         return IncomeUpdateRequest.objects.select_related(
             "income",
-            "income__income_type",
-            "income__payment_method",
             "requested_by",
             "reviewed_by",
         )
@@ -227,24 +256,85 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
         return IncomeUpdateRequestSerializer
 
     # --------------------------------------------------------
+    # ADMIN: List pending requests
+    # --------------------------------------------------------
+    @extend_schema(summary="Admin: pending update requests")
+    @action(detail=False, methods=["get"], url_path="pending")
+    def pending_requests(self, request):
+        self.permission_classes = [IsAdmin]
+        self.check_permissions(request)
+
+        queryset = self.filter_queryset(
+            self.get_queryset().filter(status="pending")
+        )
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return api_response(
+                success=True,
+                message="Pending update requests fetched successfully",
+                data=self.get_paginated_response(serializer.data).data,
+            )
+
+        serializer = self.get_serializer(queryset, many=True)
+        return api_response(
+            success=True,
+            message="Pending update requests fetched successfully",
+            data=serializer.data,
+        )
+
+    # --------------------------------------------------------
+    # ACCOUNTANT: My update requests
+    # --------------------------------------------------------
+    @extend_schema(summary="Accountant: my update requests")
+    @action(detail=False, methods=["get"], url_path="my-requests")
+    def my_requests(self, request):
+        self.permission_classes = [IsAccountant]
+        self.check_permissions(request)
+
+        queryset = self.filter_queryset(
+            self.get_queryset().filter(requested_by=request.user)
+        )
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return api_response(
+                success=True,
+                message="Your update requests fetched successfully",
+                data=self.get_paginated_response(serializer.data).data,
+            )
+
+        serializer = self.get_serializer(queryset, many=True)
+        return api_response(
+            success=True,
+            message="Your update requests fetched successfully",
+            data=serializer.data,
+        )
+
+    # --------------------------------------------------------
     # APPROVE
     # --------------------------------------------------------
     @extend_schema(summary="Approve update request")
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
+        self.permission_classes = [IsAdmin]
+        self.check_permissions(request)
+
         update_request = self.get_object()
 
         if update_request.status != "pending":
             return api_response(
                 success=False,
-                message=f"This request has already been {update_request.status}.",
+                message=f"Request already {update_request.status}",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
         update_request.approve(request.user)
 
         return api_response(
-            True,
+            success=True,
             message="Update request approved successfully",
             data={
                 "income_id": str(update_request.income.id),
@@ -261,12 +351,15 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
     )
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
+        self.permission_classes = [IsAdmin]
+        self.check_permissions(request)
+
         update_request = self.get_object()
 
         if update_request.status != "pending":
             return api_response(
                 success=False,
-                message=f"This request has already been {update_request.status}.",
+                message=f"Request already {update_request.status}",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -279,32 +372,326 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
         )
 
         return api_response(
-            True,
+            success=True,
             message="Update request rejected successfully",
-            data={"rejection_reason": serializer.validated_data.get("reason")},
+            data={"reason": serializer.validated_data.get("reason")},
+        )
+
+
+
+# ============================================================
+# Expense ViewSet
+# ============================================================
+@extend_schema(tags=["ACCOUNTING"])
+class ExpenseViewSet(ModelViewSet):
+    """
+    Expense management with approval workflow.
+    - Accountant: create + request updates
+    - Admin: full control
+    """
+
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+
+    filterset_fields = {
+        "status": ["exact"],
+        "expense_type": ["exact"],
+        "payment_method": ["exact"],
+        "date": ["gte", "lte", "exact"],
+        "amount": ["gte", "lte"],
+    }
+
+    search_fields = [
+        "reference_id",
+        "vendor_name",
+        "vendor_email",
+        "description",
+    ]
+
+    ordering_fields = ["date", "amount", "created_at", "reference_id"]
+    ordering = ["-date", "-created_at"]
+
+    # --------------------------------------------------------
+    # Queryset
+    # --------------------------------------------------------
+    def get_queryset(self):
+        queryset = Expense.objects.select_related(
+            "expense_type",
+            "payment_method",
+            "recorded_by",
+        )
+
+        if self.action in ["retrieve", "update", "partial_update"]:
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    "update_requests",
+                    queryset=ExpenseUpdateRequest.objects.select_related(
+                        "requested_by", "reviewed_by"
+                    ).filter(status="pending"),
+                )
+            )
+
+        if self.action in ["update", "partial_update"]:
+            queryset = queryset.annotate(
+                has_pending_request=Exists(
+                    ExpenseUpdateRequest.objects.filter(
+                        expense=OuterRef("pk"),
+                        status="pending",
+                    )
+                )
+            )
+
+        return queryset
+
+    # --------------------------------------------------------
+    # Permissions
+    # --------------------------------------------------------
+    def get_permissions(self):
+        if self.action == "destroy":
+            return [IsAdmin()]
+        return [IsAdminOrAccountant()]
+
+    # --------------------------------------------------------
+    # Serializers
+    # --------------------------------------------------------
+    def get_serializer_class(self):
+        if self.action == "list":
+            return ExpenseListSerializer
+        if self.action == "retrieve":
+            return ExpenseReadSerializer
+        return ExpenseCreateSerializer
+
+    # --------------------------------------------------------
+    # LIST
+    # --------------------------------------------------------
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return api_response(
+                success=True,
+                message="Expenses fetched successfully",
+                data=self.get_paginated_response(serializer.data).data,
+            )
+
+        serializer = self.get_serializer(queryset, many=True)
+        return api_response(
+            success=True,
+            message="Expenses fetched successfully",
+            data=serializer.data,
         )
 
     # --------------------------------------------------------
-    # Pending Requests
+    # RETRIEVE
     # --------------------------------------------------------
-    @extend_schema(summary="Get pending update requests")
-    @action(detail=False, methods=["get"], url_path="pending")
-    def pending_requests(self, request):
+    def retrieve(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_object())
+        return api_response(
+            success=True,
+            message="Expense fetched successfully",
+            data=serializer.data,
+        )
+
+    # --------------------------------------------------------
+    # CREATE
+    # --------------------------------------------------------
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        expense = serializer.save(recorded_by=request.user)
+
+        return api_response(
+            success=True,
+            message="Expense created successfully",
+            data=ExpenseReadSerializer(expense).data,
+            status_code=status.HTTP_201_CREATED,
+        )
+
+    # --------------------------------------------------------
+    # UPDATE (Approval Workflow)
+    # --------------------------------------------------------
+    def update(self, request, *args, **kwargs):
+        expense = self.get_object()
+        partial = kwargs.pop("partial", False)
+
+        serializer = self.get_serializer(expense, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+
+        if getattr(expense, "has_pending_request", False):
+            return api_response(
+                success=False,
+                message="An update request is already pending approval",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        # Accountant → create update request
+        if request.user.is_accountant and not request.user.is_admin:
+            serialized_data = serialize_validated_data(serializer.validated_data)
+
+            req = ExpenseUpdateRequest.objects.create(
+                expense=expense,
+                requested_by=request.user,
+                requested_data=serialized_data,
+            )
+
+            return api_response(
+                success=True,
+                message="Update request submitted for admin approval",
+                data={"request_id": str(req.id)},
+                status_code=status.HTTP_202_ACCEPTED,
+            )
+
+        # Admin → direct update
+        self.perform_update(serializer)
+
+        return api_response(
+            success=True,
+            message="Expense updated successfully",
+            data=ExpenseReadSerializer(expense).data,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    # --------------------------------------------------------
+    # DELETE
+    # --------------------------------------------------------
+    def destroy(self, request, *args, **kwargs):
+        expense = self.get_object()
+        ref = expense.reference_id
+        self.perform_destroy(expense)
+
+        return api_response(
+            success=True,
+            message="Expense deleted successfully",
+            data={"reference_id": ref},
+        )
+
+
+# ============================================================
+# Expense Update Request ViewSet (Admin Only)
+# ============================================================
+@extend_schema(tags=["ACCOUNTING"])
+class ExpenseUpdateRequestViewSet(ModelViewSet):
+    """
+    Admin-only approval of expense update requests.
+    """
+
+    permission_classes = [IsAdmin]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+
+    filterset_fields = ["status", "expense"]
+    ordering_fields = ["created_at", "reviewed_at"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        return ExpenseUpdateRequest.objects.select_related(
+            "expense",
+            "expense__expense_type",
+            "expense__payment_method",
+            "requested_by",
+            "reviewed_by",
+        )
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return ExpenseUpdateRequestReadSerializer
+        return ExpenseUpdateRequestSerializer
+
+    # --------------------------------------------------------
+    # LIST
+    # --------------------------------------------------------
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return api_response(
+                success=True,
+                message="Expense update requests fetched successfully",
+                data=self.get_paginated_response(serializer.data).data,
+            )
+
+        serializer = self.get_serializer(queryset, many=True)
+        return api_response(
+            success=True,
+            message="Expense update requests fetched successfully",
+            data=serializer.data,
+        )
+
+    # --------------------------------------------------------
+    # APPROVE
+    # --------------------------------------------------------
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        req = self.get_object()
+
+        if req.status != "pending":
+            return api_response(
+                success=False,
+                message=f"This request has already been {req.status}",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        req.approve(request.user)
+
+        return api_response(
+            success=True,
+            message="Expense update approved successfully",
+            data={"reference_id": req.expense.reference_id},
+        )
+
+    # --------------------------------------------------------
+    # REJECT
+    # --------------------------------------------------------
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        req = self.get_object()
+        serializer = ExpenseApprovalActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        if req.status != "pending":
+            return api_response(
+                success=False,
+                message=f"This request has already been {req.status}",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        reason = serializer.validated_data.get("reason", "")
+        req.reject(request.user, reason)
+
+        return api_response(
+            success=True,
+            message="Expense update rejected successfully",
+            data={"rejection_reason": reason},
+        )
+
+    # --------------------------------------------------------
+    # Accountant → View Own Requests
+    # --------------------------------------------------------
+    @action(detail=False, methods=["get"], url_path="my-requests")
+    def my_requests(self, request):
         queryset = self.filter_queryset(
-            self.get_queryset().filter(status="pending")
+            self.get_queryset().filter(requested_by=request.user)
         )
 
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return api_response(
-                True, message="Pending update requests fetched successfully",
+                success=True,
+                message="Your expense update requests fetched successfully",
                 data=self.get_paginated_response(serializer.data).data,
             )
 
         serializer = self.get_serializer(queryset, many=True)
         return api_response(
-            True,
-            message="Pending update requests fetched successfully",
-            data=serializer.data
+            success=True,
+            message="Your expense update requests fetched successfully",
+            data=serializer.data,
         )

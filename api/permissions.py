@@ -55,42 +55,25 @@ class IsStaff(BasePermission):
 #         return request.user.is_authenticated and request.user.role in ["accountant", "superadmin"]
 
 class IsAccountant(BasePermission):
-    """
-    Accountant access:
-    - Read
-    - Create
-    - Update (pending approval)
-    - No delete
-    """
-
     def has_permission(self, request, view):
         if not request.user.is_authenticated:
             return False
 
         if request.user.role == "accountant":
-            if request.method == "DELETE":
-                return False
-            return True
+            return request.method != "DELETE"
 
         return False
 
 
 
-class IsAdminOrAccountant(BasePermission):
-    """
-    Allows access to Admin OR Accountant
-    """
 
+class IsAdminOrAccountant(BasePermission):
     def has_permission(self, request, view):
         return (
-            request.user
-            and request.user.is_authenticated
-            and (
-                request.user.is_admin
-                or request.user.is_accountant
-                or request.user.is_superuser
-            )
+            request.user.is_authenticated
+            and request.user.role in ["admin", "superadmin", "accountant"]
         )
+
 
 
 
