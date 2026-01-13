@@ -20,6 +20,7 @@ from api.models.models_module import (
     QuizQuestion,
     QuizQuestionOption,
 )
+from api.models.models_order import Enrollment
 from api.serializers.serializers_helpers import HTMLFieldsMixin
 
 # ========== Live Class Serializers ==========
@@ -873,25 +874,22 @@ class CourseModuleStudentStudyPlanSerializer(HTMLFieldsMixin, serializers.ModelS
     Used ONLY for:
     GET /api/courses/{course_slug}/study-plan/{module_slug}/
 
-    Provides everything needed to render:
-    - Module accordion
-    - Assignments
-    - Quizzes
-    - Live classes
-    - Resources
+    Correctly filters:
+    - Assignments by enrollment batch
+    - Live classes by enrollment batch
+    - Quizzes by enrollment batch
+    - Resources by enrollment batch
     """
 
     html_fields = ["short_description"]
 
-    # ---- Content blocks ----
-    live_classes = LiveClassSerializer(many=True, read_only=True)
-    assignments = AssignmentStudentSerializer(many=True, read_only=True, source="module_assignments")
-    quizzes = QuizSerializer(many=True, read_only=True, source="module_quizzes")
-    resources = CourseResourceSerializer(
-        many=True,
-        read_only=True,
-    )
+    # ---------- Dynamic content blocks ----------
+    live_classes = serializers.SerializerMethodField()
+    assignments = serializers.SerializerMethodField()
+    quizzes = serializers.SerializerMethodField()
+    resources = serializers.SerializerMethodField()
 
+    # ---------- Counts ----------
     live_class_count = serializers.SerializerMethodField()
     assignment_count = serializers.SerializerMethodField()
     quiz_count = serializers.SerializerMethodField()
@@ -919,21 +917,126 @@ class CourseModuleStudentStudyPlanSerializer(HTMLFieldsMixin, serializers.ModelS
         ]
         read_only_fields = ["id", "slug"]
 
+    # =====================================================
+    # 🔒 Enrollment helpers
+    # =====================================================
+
+    def _enrolled_batch_ids(self):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if not user or not user.is_authenticated or user.role != "student":
+            return None
+
+        return Enrollment.objects.filter(
+            user=user,
+            is_active=True,
+        ).values_list("batch_id", flat=True)
+
+    # =====================================================
+    # 📘 ASSIGNMENTS (CRITICAL FIX)
+    # =====================================================
+
+    def get_assignments(self, obj):
+        qs = obj.module_assignments.filter(is_active=True)
+
+        batch_ids = self._enrolled_batch_ids()
+        if batch_ids is not None:
+            qs = qs.filter(batch_id__in=batch_ids)
+
+        return AssignmentStudentSerializer(
+            qs.order_by("order"),
+            many=True,
+            context=self.context,
+        ).data
+
+    # =====================================================
+    # 🎥 LIVE CLASSES
+    # =====================================================
+
+    def get_live_classes(self, obj):
+        qs = obj.live_classes.filter(is_active=True)
+
+        batch_ids = self._enrolled_batch_ids()
+        if batch_ids is not None:
+            qs = qs.filter(batch_id__in=batch_ids)
+
+        return LiveClassSerializer(
+            qs.order_by("scheduled_date"),
+            many=True,
+            context=self.context,
+        ).data
+
+    # =====================================================
+    # 📝 QUIZZES
+    # =====================================================
+
+    def get_quizzes(self, obj):
+        qs = obj.module_quizzes.filter(is_active=True)
+
+        batch_ids = self._enrolled_batch_ids()
+        if batch_ids is not None:
+            qs = qs.filter(batch_id__in=batch_ids)
+
+        # Only quizzes with active questions
+        qs = qs.filter(questions__is_active=True).distinct()
+
+        return QuizSerializer(
+            qs,
+            many=True,
+            context=self.context,
+        ).data
+
+    # =====================================================
+    # 📂 RESOURCES
+    # =====================================================
+
+    def get_resources(self, obj):
+        qs = obj.resources.filter(is_active=True)
+
+        batch_ids = self._enrolled_batch_ids()
+        if batch_ids is not None:
+            qs = qs.filter(batch_id__in=batch_ids)
+
+        return CourseResourceSerializer(
+            qs.order_by("order"),
+            many=True,
+            context=self.context,
+        ).data
+
+    # =====================================================
+    # 🔢 COUNTS (must match filtered data)
+    # =====================================================
+
     def get_live_class_count(self, obj):
-        return obj.live_classes.filter(is_active=True).count()
+        qs = obj.live_classes.filter(is_active=True)
+        batch_ids = self._enrolled_batch_ids()
+        if batch_ids is not None:
+            qs = qs.filter(batch_id__in=batch_ids)
+        return qs.count()
 
     def get_assignment_count(self, obj):
-        return obj.module_assignments.filter(is_active=True).count()
+        qs = obj.module_assignments.filter(is_active=True)
+        batch_ids = self._enrolled_batch_ids()
+        if batch_ids is not None:
+            qs = qs.filter(batch_id__in=batch_ids)
+        return qs.count()
 
     def get_quiz_count(self, obj):
-        from django.db.models import Count, Q
+        qs = obj.module_quizzes.filter(is_active=True)
+        batch_ids = self._enrolled_batch_ids()
+        if batch_ids is not None:
+            qs = qs.filter(batch_id__in=batch_ids)
 
         return (
-            obj.module_quizzes.filter(is_active=True)
-            .annotate(active_question_count=Count("questions", filter=Q(questions__is_active=True)))
-            .filter(active_question_count__gt=0)
+            qs.filter(questions__is_active=True)
+            .distinct()
             .count()
         )
 
     def get_resource_count(self, obj):
-        return obj.resources.filter(is_active=True).count()
+        qs = obj.resources.filter(is_active=True)
+        batch_ids = self._enrolled_batch_ids()
+        if batch_ids is not None:
+            qs = qs.filter(batch_id__in=batch_ids)
+        return qs.count()

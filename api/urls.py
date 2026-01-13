@@ -89,7 +89,8 @@ from api.views.views_live_class_assignment_quiz import (
     LiveClassViewSet,
     QuizAttemptViewSet,
     QuizQuestionViewSet,
-    QuizViewSet,
+    QuizViewSet, StudentAssignmentViewSet, StudentQuizViewSet, StudentLiveClassViewSet, StudentResourceViewSet,
+    StudentAttendanceViewSet,
 )
 from api.views.views_module import CourseModuleStudyPlanView
 from api.views.views_order import EnrollmentViewSet, OrderItemViewSet, OrderViewSet
@@ -167,6 +168,7 @@ router.register(
 )
 
 
+
 # Quizzes (student + teacher)
 router.register(r"quizzes", QuizViewSet, basename="quiz")
 
@@ -185,6 +187,11 @@ router.register(r'income-update-requests', IncomeUpdateRequestViewSet, basename=
 router.register(r"expenses",ExpenseViewSet, basename="expense")
 router.register(r"expense-update-requests",ExpenseUpdateRequestViewSet, basename="expense-update-request")
 
+router.register("student/assignments", StudentAssignmentViewSet, basename="student-assignments")
+router.register("student/quizzes", StudentQuizViewSet, basename="student-quizzes")
+router.register("student/live-classes", StudentLiveClassViewSet, basename="student-live-classes")
+router.register("student/resources", StudentResourceViewSet, basename="student-resources")
+router.register("student/attendance", StudentAttendanceViewSet, basename="student-attendance")
 
 
 urlpatterns = router.urls + [

@@ -471,6 +471,7 @@ class EnrollmentAdmin(BaseModelAdmin):
     ]
 
     readonly_fields = [
+        "course",
         "created_at",
         "updated_at",
         "progress_badge",
@@ -483,6 +484,7 @@ class EnrollmentAdmin(BaseModelAdmin):
             {
                 "fields": (
                     "user",
+                    "batch",
                     "course",
                     "order",
                     "is_active",
@@ -669,6 +671,14 @@ class EnrollmentAdmin(BaseModelAdmin):
         self.message_user(request, f"{count} enrollment(s) deactivated.")
 
     deactivate_enrollment.short_description = "Deactivate enrollments"
+
+    def save_model(self, request, obj, form, change):
+        if not obj.batch:
+            raise ValueError("Enrollment must have a batch.")
+        super().save_model(request, obj, form, change)
+
+
+
 
 
 # ========== OrderInstallment Admin ==========

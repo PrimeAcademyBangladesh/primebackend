@@ -3,15 +3,14 @@
 This module handles order management, course enrollments, and student progress.
 """
 
-import uuid
-from decimal import Decimal
-
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models import F
-from django.utils import timezone
 
 from api.utils.helper_models import TimeStampedModel
+from django.utils import timezone
+from decimal import Decimal
+import uuid
 
 
 class Order(TimeStampedModel):
@@ -110,9 +109,11 @@ class Order(TimeStampedModel):
         null=True, blank=True, help_text="Total number of installments for this order"
     )
     installments_paid = models.PositiveIntegerField(default=0, help_text="Number of installments already paid")
-    next_installment_date = models.DateTimeField(null=True, blank=True, help_text="Due date for next installment payment")
+    next_installment_date = models.DateTimeField(null=True, blank=True,
+                                                 help_text="Due date for next installment payment")
 
-    is_custom_payment = models.BooleanField(default=False, help_text="Whether this is a custom payment (not course-based)")
+    is_custom_payment = models.BooleanField(default=False,
+                                            help_text="Whether this is a custom payment (not course-based)")
     custom_payment_description = models.TextField(
         blank=True, help_text="Description of custom payment (e.g., 'Workshop fee', 'Consultation')"
     )
@@ -182,7 +183,8 @@ class Order(TimeStampedModel):
 
         # Create enrollments for all courses in this order.
         for item in self.items.all():
-            Enrollment.objects.get_or_create(user=self.user, course=item.course, batch=item.batch, defaults={"order": self})
+            Enrollment.objects.get_or_create(user=self.user, course=item.course, batch=item.batch,
+                                             defaults={"order": self})
 
     def get_installment_amount(self):
         """Calculate amount per installment."""
@@ -277,7 +279,8 @@ class OrderInstallment(TimeStampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     order = models.ForeignKey(
-        Order, on_delete=models.CASCADE, related_name="installment_payments", help_text="Order this installment belongs to"
+        Order, on_delete=models.CASCADE, related_name="installment_payments",
+        help_text="Order this installment belongs to"
     )
     installment_number = models.PositiveIntegerField(help_text="Installment sequence number (1, 2, 3...)")
     amount = models.DecimalField(
@@ -288,10 +291,12 @@ class OrderInstallment(TimeStampedModel):
     )
     due_date = models.DateTimeField(help_text="When this installment is due")
     status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True, help_text="Payment status of this installment"
+        max_length=20, choices=STATUS_CHOICES, default="pending", db_index=True,
+        help_text="Payment status of this installment"
     )
     paid_at = models.DateTimeField(null=True, blank=True, help_text="When this installment was paid")
-    payment_id = models.CharField(max_length=255, blank=True, help_text="External payment transaction ID for this installment")
+    payment_id = models.CharField(max_length=255, blank=True,
+                                  help_text="External payment transaction ID for this installment")
     payment_method = models.CharField(max_length=50, blank=True, help_text="Payment method used for this installment")
     notes = models.TextField(blank=True, help_text="Additional notes about this installment")
 
@@ -465,7 +470,7 @@ class OrderInstallment(TimeStampedModel):
     @classmethod
     @transaction.atomic
     def create_payment_transaction(
-        cls, installment, gateway_transaction_id, payment_method, amount, gateway_response=None, request_id=None
+            cls, installment, gateway_transaction_id, payment_method, amount, gateway_response=None, request_id=None
     ):
         """Create or get payment transaction (idempotent)."""
 
@@ -502,15 +507,16 @@ class OrderItem(TimeStampedModel):
     """Individual courses in an order."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE, help_text="Order this item belongs to")
+    order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE,
+                              help_text="Order this item belongs to")
     course = models.ForeignKey(
         "api.Course", on_delete=models.CASCADE, help_text="Course being purchased"  # Use string reference
     )
     batch = models.ForeignKey(
         "api.CourseBatch",
         on_delete=models.CASCADE,
-        null=True,
-        blank=True,
+        null=False,
+        blank=False,
         help_text="Specific batch for enrollment (optional)",
     )
     course_title = models.CharField(max_length=255, help_text="Snapshot of course title at time of purchase")
@@ -557,12 +563,6 @@ class OrderItem(TimeStampedModel):
         return f"{self.course_title or self.course.title} - Order {self.order.order_number}"
 
 
-from django.db import models, transaction
-from django.utils import timezone
-from decimal import Decimal
-import uuid
-
-
 class Enrollment(TimeStampedModel):
     """Track user's purchased courses and progress.
 
@@ -584,8 +584,8 @@ class Enrollment(TimeStampedModel):
         "api.CourseBatch",
         on_delete=models.CASCADE,
         related_name="enrollments",
-        null=True,
-        blank=True,
+        null=False,
+        blank=False,
         help_text="Course batch the student is enrolled in (primary reference)",
     )
 
@@ -749,10 +749,6 @@ class Enrollment(TimeStampedModel):
         if self.batch:
             return f"{self.user.get_full_name or self.user.email} enrolled in {self.batch.get_display_name()}"
         return f"{self.user.get_full_name or self.user.email} enrolled in {self.course.title}"
-
-
-
-
 
 # class Enrollment(TimeStampedModel):
 #     """Track user's purchased courses and progress.

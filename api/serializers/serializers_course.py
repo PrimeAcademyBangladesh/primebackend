@@ -148,6 +148,7 @@ class CourseModuleMinimalSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "short_description_plain",
+            "short_description_html",
         ]
         read_only_fields = [
             "id",
@@ -166,6 +167,9 @@ class CourseModuleMinimalSerializer(serializers.ModelSerializer):
             return text.strip()
         except Exception:
             return ""
+
+    def get_short_description_html(self, obj):
+        return obj.short_description or ""
 
 
 class CourseModuleSerializer(HTMLFieldsMixin, serializers.ModelSerializer):

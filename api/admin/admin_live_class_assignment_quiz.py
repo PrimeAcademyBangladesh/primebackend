@@ -9,14 +9,13 @@ This module provides comprehensive admin interfaces for managing:
 Uses nested_admin for complex hierarchical structures.
 """
 
+import nested_admin
 from django import forms
 from django.contrib import admin
-from django.db.models import Avg, Count, Q
+from django.db.models import Avg
 from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
-
-import nested_admin
 
 from api.admin.base_admin import BaseModelAdmin
 from api.models.models_course import Course, CourseModule
@@ -24,12 +23,10 @@ from api.models.models_module import (
     Assignment,
     AssignmentSubmission,
     LiveClass,
-    Quiz,
-    QuizAnswer,
-    QuizAttempt,
     QuizQuestion,
-    QuizQuestionOption,
+    QuizQuestionOption, QuizAttempt, QuizAnswer, Quiz,
 )
+
 
 # ========== Quiz Nested Inlines ==========
 
@@ -134,14 +131,21 @@ class LiveClassAdmin(BaseModelAdmin):
             # Limit module queryset to active modules; modules will be loaded via AJAX when course selected
             self.fields["module"].queryset = CourseModule.objects.filter(is_active=True).select_related("course")
 
+
         def clean(self):
             cleaned = super().clean()
             course = cleaned.get("course")
             module = cleaned.get("module")
+            batch = cleaned.get("batch")
+
             if course and module:
-                # Module.course is Course; compare module.course.slug to selected course.slug
-                if not (module.course and module.course.slug == course.slug):
+                if module.course.slug != course.slug:
                     raise forms.ValidationError("Selected module does not belong to the chosen course.")
+
+            if module and batch:
+                if batch.course_id != module.course_id:
+                    raise forms.ValidationError("Selected batch does not belong to the chosen module's course.")
+
             return cleaned
 
     form = LiveClassAdminForm
@@ -182,10 +186,10 @@ class LiveClassAdmin(BaseModelAdmin):
 
     fieldsets = (
         (
-            "📚 Course & Module",
+            "📚 Course, Module & Batch",
             {
-                "fields": ("course", "module"),
-                "description": "Select the course first, then the module for this live class",
+                "fields": ("course", "module", "batch"),
+                "description": "Select course → module → batch",
             },
         ),
         (
@@ -447,10 +451,10 @@ class AssignmentAdmin(BaseModelAdmin):
 
     fieldsets = (
         (
-            "📚 Course & Module",
+            "📚 Module & Batch",
             {
-                "fields": ("module",),
-                "description": "Select the module for this assignment",
+                "fields": ("module", "batch"),
+                "description": "Assignment is batch-specific",
             },
         ),
         (
@@ -784,22 +788,6 @@ class AssignmentSubmissionAdmin(BaseModelAdmin):
 # QUIZ ADMIN – FIXED & PRODUCTION SAFE
 # ============================================================
 
-import nested_admin
-from django.contrib import admin
-
-from api.admin.base_admin import BaseModelAdmin
-from api.models.models_module import (
-    Quiz,
-    QuizQuestion,
-    QuizQuestionOption,
-    QuizAttempt,
-    QuizAnswer,
-)
-
-# ------------------------------------------------------------
-# INLINE: Question Options
-# ------------------------------------------------------------
-
 class QuizQuestionOptionInline(nested_admin.NestedTabularInline):
     model = QuizQuestionOption
     extra = 2
@@ -847,28 +835,62 @@ class QuizAttemptInline(nested_admin.NestedTabularInline):
 
 @admin.register(Quiz)
 class QuizAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
-    """
-    ✔ Quiz is the ONLY entry point
-    ✔ Questions editable
-    ✔ Attempts visible (read-only)
-    ✔ Answers hidden from sidebar
-    """
 
     inlines = [
         QuizQuestionInline,
         QuizAttemptInline,
     ]
 
+    fieldsets = (
+        (
+            "📚 Module & Batch",
+            {
+                "fields": ("module", "batch"),
+                "description": "Quiz is batch-specific",
+            },
+        ),
+        (
+            "Quiz Information",
+            {
+                "fields": (
+                    "title",
+                    "description",
+                    "difficulty",
+                    "total_marks",
+                    "passing_marks",
+                    "duration_minutes",
+                    "max_attempts",
+                    "is_active",
+                )
+            },
+        ),
+        (
+            "Availability",
+            {
+                "fields": ("available_from", "available_until"),
+                "classes": ("collapse",),
+            },
+        ),
+        (
+            "Metadata",
+            {
+                "fields": ("created_at", "updated_at"),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
     list_display = (
         "title",
         "module",
+        "batch",
         "difficulty",
         "total_marks",
         "max_attempts",
         "is_active",
     )
 
-    list_filter = ("difficulty", "is_active", "module__course")
+    list_filter = ("difficulty", "is_active", "module__course", "batch")
     search_fields = ("title", "module__title", "module__course__title")
 
     readonly_fields = ("created_at", "updated_at")
@@ -890,518 +912,3 @@ class QuizAnswerAdmin(BaseModelAdmin):
         return False
 
 
-
-
-
-
-
-
-# # ========== Quiz Admin ==========
-# @admin.register(Quiz)
-# class QuizAdmin(nested_admin.NestedModelAdmin, BaseModelAdmin):
-#     """Admin for managing quizzes with nested questions."""
-#
-#     inlines = [QuizQuestionInline]
-#
-#     def get_queryset(self, request):
-#         qs = super().get_queryset(request)
-#         return qs.select_related(
-#             "module",
-#             "created_by",
-#         ).prefetch_related(
-#             "questions",
-#             "questions__options",
-#             "attempts",
-#         )
-#
-#     list_display = [
-#         "title",
-#         "course_name",
-#         "module",
-#         "difficulty_display",
-#         "question_count",
-#         "marks_display",
-#         "duration_minutes",
-#         "max_attempts",
-#         "attempt_stats",
-#         "is_active",
-#     ]
-#     list_filter = [
-#         "difficulty",
-#         "is_active",
-#         "show_correct_answers",
-#         "randomize_questions",
-#         "module__course",
-#     ]
-#     search_fields = [
-#         "title",
-#         "description",
-#         "module__title",
-#         "module__course__title",
-#     ]
-#     readonly_fields = [
-#         "id",
-#         "course_display",
-#         "created_at",
-#         "updated_at",
-#         "get_statistics",
-#     ]
-#     date_hierarchy = "available_from"
-#
-#     fieldsets = (
-#         (
-#             "📚 Course & Module",
-#             {"fields": ("module",), "description": "Select the module for this quiz"},
-#         ),
-#         ("Quiz Information", {"fields": ("title", "description", "is_active")}),
-#         ("Scoring", {"fields": ("total_marks", "passing_marks", "difficulty")}),
-#         (
-#             "Settings",
-#             {
-#                 "fields": (
-#                     "duration_minutes",
-#                     "max_attempts",
-#                     "show_correct_answers",
-#                     "randomize_questions",
-#                 )
-#             },
-#         ),
-#         (
-#             "Availability",
-#             {"fields": ("available_from", "available_until"), "classes": ("collapse",)},
-#         ),
-#         ("Statistics", {"fields": ("get_statistics",), "classes": ("collapse",)}),
-#         (
-#             "Metadata",
-#             {
-#                 "fields": ("id", "created_by", "created_at", "updated_at"),
-#                 "classes": ("collapse",),
-#             },
-#         ),
-#     )
-#
-#     inlines = [QuizQuestionInline]
-#
-#     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-#         """Show only active modules in dropdown."""
-#         if db_field.name == "module":
-#             kwargs["queryset"] = db_field.related_model.objects.filter(is_active=True).select_related("course")
-#
-#         return super().formfield_for_foreignkey(db_field, request, **kwargs)
-#
-#     def course_name(self, obj):
-#         """Display course name."""
-#         return obj.module.course.title if obj.module and obj.module.course else "-"
-#
-#     course_name.short_description = "Course"
-#     course_name.admin_order_field = "module__course__title"
-#
-#     def course_display(self, obj):
-#         """Display course name in form (read-only)."""
-#         if obj.module and obj.module.course:
-#             course = obj.module.course
-#             return format_html(
-#                 '<div style="padding: 10px; background: #e3f2fd; border-left: 4px solid #1976d2; font-size: 14px;">'
-#                 '<strong style="color: #1976d2;">📚 {}</strong><br>'
-#                 '<small style="color: #666;">Category: {} | Status: {}</small>'
-#                 "</div>",
-#                 course.title,
-#                 course.category.name if course.category else "No category",
-#                 course.get_status_display(),
-#             )
-#         return format_html('<em style="color: #999;">No course selected yet</em>')
-#
-#     course_display.short_description = "Course (Read-only)"
-#
-#     def difficulty_display(self, obj):
-#         """Display difficulty with color."""
-#         colors = {
-#             "easy": "#2e7d32",
-#             "medium": "#ff9800",
-#             "hard": "#d32f2f",
-#         }
-#         icons = {
-#             "easy": "⭐",
-#             "medium": "⭐⭐",
-#             "hard": "⭐⭐⭐",
-#         }
-#         color = colors.get(obj.difficulty, "#666")
-#         icon = icons.get(obj.difficulty, "")
-#         difficulty_text = obj.get_difficulty_display()
-#
-#         return format_html('<span style="color: {};">{} {}</span>', color, icon, difficulty_text)
-#
-#     difficulty_display.short_description = "Difficulty"
-#     difficulty_display.admin_order_field = "difficulty"
-#
-#     def question_count(self, obj):
-#         """Display question count."""
-#         if obj.pk:
-#             count = obj.questions.filter(is_active=True).count()
-#             return format_html("<strong>{}</strong> questions", count)
-#         return "0"
-#
-#     question_count.short_description = "Questions"
-#
-#     def marks_display(self, obj):
-#         """Display marks with passing score."""
-#         if obj.total_marks > 0:
-#             passing_percentage = obj.passing_marks / obj.total_marks * 100
-#             percentage_fmt = f"{passing_percentage:.0f}%"
-#         else:
-#             percentage_fmt = "0%"
-#
-#         return format_html(
-#             "<strong>{}</strong> total<br><small>{} to pass ({})</small>",
-#             obj.total_marks,
-#             obj.passing_marks,
-#             percentage_fmt,
-#         )
-#
-#     marks_display.short_description = "Marks"
-#
-#     def attempt_stats(self, obj):
-#         """Display attempt statistics."""
-#         if obj.pk:
-#             total = obj.attempts.count()
-#             passed = obj.attempts.filter(passed=True).count()
-#
-#             return format_html(
-#                 '<div style="line-height: 1.4;">'
-#                 '<span style="color: #2e7d32;">✓ {}</span> passed<br>'
-#                 "<strong>{}</strong> total attempts"
-#                 "</div>",
-#                 passed,
-#                 total,
-#             )
-#         return "-"
-#
-#     attempt_stats.short_description = "Attempts"
-#
-#     def get_statistics(self, obj):
-#         """Display quiz statistics."""
-#         if obj.pk:
-#             total_attempts = obj.attempts.count()
-#             passed = obj.attempts.filter(passed=True).count()
-#             pass_rate = (passed / total_attempts * 100) if total_attempts > 0 else 0
-#
-#             avg_score = obj.attempts.aggregate(avg=Avg("marks_obtained"))["avg"] or 0
-#             avg_percentage = obj.attempts.aggregate(avg=Avg("percentage"))["avg"] or 0
-#
-#             question_count = obj.questions.filter(is_active=True).count()
-#
-#             # ---- PRE-FORMAT VALUES (Very Important) ----
-#             pass_rate_fmt = f"{pass_rate:.1f}%"
-#             avg_score_fmt = f"{avg_score:.1f}"
-#             avg_percentage_fmt = f"{avg_percentage:.1f}%"
-#
-#             return format_html(
-#                 '<div style="background: #f8f9fa; padding: 15px; border-radius: 5px;">'
-#                 "<h3>Quiz Statistics</h3>"
-#                 "<p><strong>Total Questions:</strong> {}</p>"
-#                 "<p><strong>Total Attempts:</strong> {}</p>"
-#                 "<p><strong>Passed:</strong> {} ({})</p>"
-#                 "<p><strong>Average Score:</strong> {} / {} ({})</p>"
-#                 "<p><strong>Difficulty:</strong> {}</p>"
-#                 "<p><strong>Max Attempts Allowed:</strong> {}</p>"
-#                 "</div>",
-#                 question_count,
-#                 total_attempts,
-#                 passed,
-#                 pass_rate_fmt,
-#                 avg_score_fmt,
-#                 obj.total_marks,
-#                 avg_percentage_fmt,
-#                 obj.get_difficulty_display(),
-#                 obj.max_attempts,
-#             )
-#         return "Save to see statistics"
-#
-#     get_statistics.short_description = "Statistics"
-#
-#     def save_model(self, request, obj, form, change):
-#         """Set created_by on first save."""
-#         if not change:
-#             obj.created_by = request.user
-#         super().save_model(request, obj, form, change)
-#
-#
-# @admin.register(QuizQuestion)
-# class QuizQuestionAdmin(BaseModelAdmin):
-#     """Standalone admin for quiz questions (usually managed via nested admin)."""
-#
-#     list_display = [
-#         "question_preview",
-#         "quiz",
-#         "question_type_display",
-#         "marks",
-#         "order",
-#         "option_count",
-#         "is_active",
-#     ]
-#     list_filter = [
-#         "question_type",
-#         "is_active",
-#         "quiz__module__course",
-#     ]
-#     search_fields = [
-#         "question_text",
-#         "quiz__title",
-#     ]
-#     readonly_fields = ["id", "created_at", "updated_at"]
-#
-#     fieldsets = (
-#         (
-#             "Question Details",
-#             {"fields": ("quiz", "order", "question_type", "is_active")},
-#         ),
-#         ("Content", {"fields": ("question_text", "marks")}),
-#         (
-#             "Answer",
-#             {
-#                 "fields": ("correct_answer_text", "explanation"),
-#                 "description": "For short answer/essay. MCQ answers are managed via options.",
-#             },
-#         ),
-#         (
-#             "Metadata",
-#             {"fields": ("id", "created_at", "updated_at"), "classes": ("collapse",)},
-#         ),
-#     )
-#
-#     def question_preview(self, obj):
-#         """Display question preview."""
-#         text = obj.question_text[:50]
-#         return format_html('<span title="{}">{}</span>', obj.question_text, text)
-#
-#     question_preview.short_description = "Question"
-#
-#     def question_type_display(self, obj):
-#         """Display question type with icon."""
-#         icons = {
-#             "mcq": "◉",
-#             "multiple": "☑",
-#             "true_false": "✓✗",
-#             "short_answer": "✍",
-#             "essay": "📝",
-#         }
-#         return format_html(
-#             "<span>{} {}</span>",
-#             icons.get(obj.question_type, "?"),
-#             obj.get_question_type_display(),
-#         )
-#
-#     question_type_display.short_description = "Type"
-#
-#     def option_count(self, obj):
-#         """Display option count."""
-#         if obj.question_type in ["mcq", "multiple", "true_false"]:
-#             count = obj.options.count()
-#             correct = obj.options.filter(is_correct=True).count()
-#             return format_html("{} options ({} correct)", count, correct)
-#         return "-"
-#
-#     option_count.short_description = "Options"
-#
-#     def has_module_permission(self, request):
-#         # Hidden - use nested admin in Quiz
-#         return False
-#
-#
-# @admin.register(QuizQuestionOption)
-# class QuizQuestionOptionAdmin(BaseModelAdmin):
-#     """Standalone admin for quiz options (usually managed via nested admin)."""
-#
-#     list_display = [
-#         "option_preview",
-#         "question",
-#         "order",
-#         "is_correct_display",
-#     ]
-#     list_filter = [
-#         "is_correct",
-#         "question__quiz__module__course",
-#     ]
-#     search_fields = [
-#         "option_text",
-#         "question__question_text",
-#     ]
-#     readonly_fields = ["id", "created_at"]
-#
-#     def option_preview(self, obj):
-#         """Display option preview."""
-#         text = obj.option_text[:50]
-#         return format_html('<span title="{}">{}</span>', obj.option_text, text)
-#
-#     option_preview.short_description = "Option"
-#
-#     def is_correct_display(self, obj):
-#         """Display if option is correct."""
-#         if obj.is_correct:
-#             return format_html('<span style="color: #2e7d32; font-weight: bold;">✓ Correct</span>')
-#         return format_html('<span style="color: #999;">Incorrect</span>')
-#
-#     is_correct_display.short_description = "Correct Answer?"
-#
-#     def has_module_permission(self, request):
-#         # Hidden - use nested admin in Quiz
-#         return False
-#
-#
-# @admin.register(QuizAttempt)
-# class QuizAttemptAdmin(BaseModelAdmin):
-#     """Admin for quiz attempts."""
-#
-#     list_display = [
-#         "student_name",
-#         "quiz",
-#         "attempt_number",
-#         "marks_display",
-#         "percentage_display",
-#         "passed_display",
-#         "status_display",
-#         "started_at",
-#     ]
-#     list_filter = [
-#         "status",
-#         "passed",
-#         "started_at",
-#         "quiz__module__course",
-#     ]
-#     search_fields = [
-#         "student__email",
-#         "student__first_name",
-#         "student__last_name",
-#         "quiz__title",
-#     ]
-#     readonly_fields = ["id", "started_at", "submitted_at", "updated_at"]
-#     date_hierarchy = "started_at"
-#
-#     fieldsets = (
-#         (
-#             "Attempt Information",
-#             {"fields": ("quiz", "student", "attempt_number", "status")},
-#         ),
-#         ("Score", {"fields": ("marks_obtained", "percentage", "passed")}),
-#         ("Timing", {"fields": ("started_at", "submitted_at")}),
-#         ("Metadata", {"fields": ("id", "updated_at"), "classes": ("collapse",)}),
-#     )
-#
-#     def student_name(self, obj):
-#         """Display student name."""
-#         return obj.student.get_full_name
-#
-#     student_name.short_description = "Student"
-#     student_name.admin_order_field = "student__first_name"
-#
-#     def marks_display(self, obj):
-#         """Display marks obtained."""
-#         if obj.marks_obtained is None:
-#             return format_html('<span style="color:#999;">Not graded</span>')
-#
-#         passed = obj.passed
-#         color = "#2e7d32" if passed else "#d32f2f"
-#
-#         return format_html(
-#             '<span style="color:{}; font-weight:bold;">{} / {}</span>',
-#             color,
-#             obj.marks_obtained,
-#             obj.quiz.total_marks,
-#         )
-#
-#     marks_display.short_description = "Marks"
-#
-#     def percentage_display(self, obj):
-#         """Display percentage with color."""
-#         percentage = float(obj.percentage)
-#         percentage_fmt = f"{percentage:.1f}"  # No % sign here
-#         passing_percentage = (obj.quiz.passing_marks / obj.quiz.total_marks) * 100 if obj.quiz.total_marks > 0 else 0
-#
-#         color = "#2e7d32" if percentage >= passing_percentage else "#d32f2f"
-#
-#         return format_html(
-#             '<span style="color: {}; font-weight: bold;">{}%</span>',
-#             color,
-#             percentage_fmt,  # % sign is in the HTML template
-#         )
-#
-#     percentage_display.short_description = "Score"
-#     percentage_display.admin_order_field = "percentage"
-#
-#     def passed_display(self, obj):
-#         """Display pass/fail status."""
-#         if obj.passed:
-#             return format_html('<span style="color: #2e7d32; font-weight: bold;">✓ PASSED</span>')
-#         return format_html('<span style="color: #d32f2f;">✗ Failed</span>')
-#
-#     passed_display.short_description = "Result"
-#     passed_display.admin_order_field = "passed"
-#
-#     def status_display(self, obj):
-#         """Display status with color."""
-#         colors = {
-#             "in_progress": "#ff9800",
-#             "submitted": "#1976d2",
-#             "graded": "#2e7d32",
-#         }
-#         return format_html(
-#             '<span style="color: {};">{}</span>',
-#             colors.get(obj.status, "#666"),
-#             obj.get_status_display(),
-#         )
-#
-#     status_display.short_description = "Status"
-#     status_display.admin_order_field = "status"
-#
-#
-# @admin.register(QuizAnswer)
-# class QuizAnswerAdmin(BaseModelAdmin):
-#     """Admin for quiz answers."""
-#
-#     list_display = [
-#         "attempt",
-#         "question_preview",
-#         "is_correct_display",
-#         "marks_awarded",
-#         "answered_at",
-#     ]
-#     list_filter = [
-#         "is_correct",
-#         "answered_at",
-#         "attempt__quiz__module__course",
-#     ]
-#     search_fields = [
-#         "attempt__student__email",
-#         "question__question_text",
-#         "answer_text",
-#     ]
-#     readonly_fields = ["id", "answered_at", "updated_at"]
-#
-#     fieldsets = (
-#         ("Answer Information", {"fields": ("attempt", "question")}),
-#         ("Student Answer", {"fields": ("answer_text",)}),
-#         ("Grading", {"fields": ("is_correct", "marks_awarded")}),
-#         (
-#             "Metadata",
-#             {"fields": ("id", "answered_at", "updated_at"), "classes": ("collapse",)},
-#         ),
-#     )
-#
-#     def question_preview(self, obj):
-#         """Display question preview."""
-#         text = obj.question.question_text[:40]
-#         return format_html('<span title="{}">{}</span>', obj.question.question_text, text)
-#
-#     question_preview.short_description = "Question"
-#
-#     def is_correct_display(self, obj):
-#         """Display if answer is correct."""
-#         if obj.is_correct:
-#             return format_html('<span style="color: #2e7d32; font-weight: bold;">✓ Correct</span>')
-#         return format_html('<span style="color: #d32f2f;">✗ Incorrect</span>')
-#
-#     is_correct_display.short_description = "Correct?"
-#     is_correct_display.admin_order_field = "is_correct"
-#
-#     def has_module_permission(self, request):
-#         return request.user.is_superuser

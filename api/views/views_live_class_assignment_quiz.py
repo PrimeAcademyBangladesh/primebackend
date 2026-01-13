@@ -1,55 +1,51 @@
 """
-Views for Live Classes, Assignments, and Quizzes
+Views for Assignments and Assignment Submissions
+
+Implements secure, maintainable assignment management with proper
+enrollment filtering, late submission handling, and grading logic.
 """
 
 import uuid
+from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-
-from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.response import Response
-from rest_framework.views import APIView
 
+# Local app imports
 from api.models.models_module import (
     Assignment,
     AssignmentSubmission,
     CourseResource,
     LiveClass,
-    LiveClassAttendance,
     Quiz,
     QuizAnswer,
     QuizAttempt,
     QuizQuestion,
     QuizQuestionOption,
 )
-from api.models.models_order import Enrollment
 from api.permissions import IsTeacherOrAdmin
 from api.serializers.serializers_module import (
     AssignmentCreateUpdateSerializer,
     AssignmentGradeSerializer,
     AssignmentListSerializer,
-    AssignmentStudentSerializer,
     AssignmentSubmissionCreateSerializer,
     AssignmentSubmissionSerializer,
     CourseResourceCreateUpdateSerializer,
-    CourseResourceSerializer,
     LiveClassAttendanceSerializer,
     LiveClassCreateUpdateSerializer,
-    LiveClassSerializer,
     QuizAnswerSerializer,
     QuizAttemptSerializer,
     QuizCreateUpdateSerializer,
     QuizQuestionCreateUpdateSerializer,
-    QuizQuestionSerializer,
-    QuizSerializer,
 )
-from api.utils.pagination import StandardResultsSetPagination
+from api.utils.enrollment_filters import filter_queryset_for_student
+from api.utils.grading_utils import apply_late_penalty
 from api.utils.response_utils import api_response
 from api.views.views_base import BaseAdminViewSet
 
@@ -130,7 +126,7 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         summary="Join live class",
         tags=["Live Classes"],
     )
-    # Join class and AUto mark attendace
+    # Join class and AUto mark attendance
     @action(detail=True, methods=["post"])
     def join(self, request, pk=None):
         live_class = self.get_object()
@@ -155,7 +151,7 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         )
 
     @extend_schema(
-        summary="Attendacne live class",
+        summary="Attendance live class",
         tags=["Live Classes"],  # Same tag as ViewSet
     )
     @action(detail=True, methods=["get"], url_path="my-attendance")
@@ -215,292 +211,793 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         return api_response(True, "Attendance marked", serializer.data)
 
 
+
+# ============================================================================
+# ASSIGNMENT VIEW SET
+# ============================================================================
+
 @extend_schema_view(
-    list=extend_schema(summary="List assignments", tags=["Course - Assignments"]),
-    retrieve=extend_schema(summary="Get assignment details", tags=["Course - Assignments"]),
-    create=extend_schema(summary="Create assignment (Admin)", tags=["Course - Assignments"]),
-    update=extend_schema(summary="Update assignment (Admin)", tags=["Course - Assignments"]),
-    partial_update=extend_schema(summary="Partial update assignment (Admin)", tags=["Course - Assignments"]),
-    destroy=extend_schema(summary="Delete assignment (Admin)", tags=["Course - Assignments"]),
-    submit=extend_schema(summary="Submit assignment (Student)", tags=["Course - Assignments"]),
-    my_submission=extend_schema(summary="Get my submission (Student)", tags=["Course - Assignments"]),
+    list=extend_schema(
+        summary="List assignments",
+        tags=["Course - Assignments"],
+        description="List all assignments accessible to the user based on enrollment."
+    ),
+    retrieve=extend_schema(
+        summary="Get assignment details",
+        tags=["Course - Assignments"],
+        description="Retrieve detailed information about a specific assignment."
+    ),
+    create=extend_schema(
+        summary="Create assignment (Teacher/Admin)",
+        tags=["Course - Assignments"],
+        description="Create a new assignment for a course module and batch."
+    ),
+    update=extend_schema(
+        summary="Update assignment (Teacher/Admin)",
+        tags=["Course - Assignments"],
+        description="Update all fields of an existing assignment."
+    ),
+    partial_update=extend_schema(
+        summary="Partial update assignment (Teacher/Admin)",
+        tags=["Course - Assignments"],
+        description="Update specific fields of an existing assignment."
+    ),
+    destroy=extend_schema(
+        summary="Delete assignment (Teacher/Admin)",
+        tags=["Course - Assignments"],
+        description="Delete an assignment and all its submissions."
+    ),
 )
 class AssignmentViewSet(BaseAdminViewSet):
-    permission_classes = [permissions.IsAuthenticated]
-    queryset = Assignment.objects.select_related(
-        "module",
-        "module__course",
-        "batch",
-    ).order_by("due_date")
-    serializer_class = AssignmentListSerializer
+    """
+    Assignment Management API
 
-    # ---------------- SERIALIZER SWITCH ----------------
+    Access Control:
+    ---------------
+    Students:
+        - View assignments only for enrolled courses and batches
+        - Submit assignments
+        - View their own submissions
+        - Cannot see inactive assignments
+
+    Teachers/Admin:
+        - Full CRUD access to all assignments
+        - Can grade submissions
+        - View all submissions for their assignments
+
+    Features:
+    ---------
+    - Enrollment-based access control
+    - Late submission tracking and penalties
+    - Deadline validation
+    - Submission status management
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    queryset = Assignment.objects.select_related(
+        'module',
+        'module__course',
+        'batch',
+        'created_by'
+    ).prefetch_related(
+        'submissions'
+    ).order_by('-created_at')
+
+    # ========================================================================
+    # SERIALIZER CONFIGURATION
+    # ========================================================================
 
     def get_serializer_class(self):
-        if self.action in ["create", "update", "partial_update"]:
+        """
+        Return appropriate serializer based on action and user role.
+
+        Returns:
+            - AssignmentCreateUpdateSerializer: For create/update actions
+            - AssignmentStudentSerializer: For students (limited fields)
+            - AssignmentListSerializer: For teachers/admin (full details)
+        """
+        if self.action in ['create', 'update', 'partial_update']:
             return AssignmentCreateUpdateSerializer
 
-        # For student-facing endpoints, ensure list and retrieve use the
-        # student serializer so the response fields stay consistent.
-        if self.request.user.is_authenticated and getattr(self.request.user, "role", None) == "student":
-            if self.action in ["list", "retrieve"]:
-                return AssignmentStudentSerializer
-
-        if self.action == "retrieve":
+        if self.request.user.role == 'student':
             return AssignmentStudentSerializer
 
         return AssignmentListSerializer
 
-    # ---------------- PERMISSIONS ----------------
+    # ========================================================================
+    # PERMISSION CONFIGURATION
+    # ========================================================================
 
     def get_permissions(self):
-        """Override to handle assignment-specific permissions"""
+        """
+        Set permissions based on action.
 
-        if not self.request.user.is_authenticated:
-            return [permissions.IsAuthenticated()]
-
-        if self.action in ["list", "retrieve"]:
-            return [permissions.IsAuthenticated()]
-
-        if self.action in ["create", "update", "partial_update", "destroy"]:
+        - Create/Update/Delete: Teacher or Admin only
+        - View/Submit: Any authenticated user (with enrollment filtering)
+        """
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsTeacherOrAdmin()]
+        return [permissions.IsAuthenticated()]
 
-        if self.action in ["submit", "my_submission"]:
-            return [permissions.IsAuthenticated()]
-
-        return super().get_permissions()
-
-    # ---------------- QUERYSET ----------------
+    # ========================================================================
+    # QUERYSET FILTERING
+    # ========================================================================
 
     def get_queryset(self):
+        """
+        Filter queryset based on user role and enrollment.
+
+        Logic:
+        ------
+        1. Admin/Superadmin/Teacher: Access to all assignments
+        2. Student: Only assignments for:
+           - Batches they are enrolled in
+           - Courses they are enrolled in
+           - Active assignments only
+
+        Returns:
+            QuerySet: Filtered assignment queryset
+        """
         user = self.request.user
-        base_queryset = self.queryset
+        queryset = super().get_queryset()
 
-        if user.role in ["admin", "superadmin", "teacher"]:
-            return base_queryset
+        # Admin/Teacher: Full access
+        if user.role in ['admin', 'superadmin', 'teacher']:
+            return self._apply_optional_filters(queryset)
 
-        enrollment = Enrollment.objects.filter(user=user, is_active=True).select_related("batch", "course")
+        # Student: Enrollment-scoped and active only
+        queryset = filter_queryset_for_student(
+            queryset,
+            user,
+            batch_field='batch_id',
+            course_field='module__course_id'
+        ).filter(is_active=True)
 
-        if not enrollment.exists():
-            return base_queryset.none()
+        return self._apply_optional_filters(queryset)
 
-        batch_ids = enrollment.values_list("batch_id", flat=True)
-        course_ids = enrollment.values_list("course_id", flat=True)
+    def _apply_optional_filters(self, queryset):
+        """
+        Apply optional query parameter filters.
 
-        return base_queryset.filter(
-            batch__id__in=batch_ids,
-            module__course__id__in=course_ids,
-        )
+        Supported Filters:
+        - module_id: Filter by course module
+        - batch_id: Filter by batch
+        - status: Filter by assignment status
+        """
+        # Module filter
+        module_id = self.request.query_params.get('module_id')
+        if module_id:
+            try:
+                uuid.UUID(module_id)
+                queryset = queryset.filter(module_id=module_id)
+            except (ValueError, AttributeError):
+                return queryset.none()
+
+        # Batch filter
+        batch_id = self.request.query_params.get('batch_id')
+        if batch_id:
+            try:
+                uuid.UUID(batch_id)
+                queryset = queryset.filter(batch_id=batch_id)
+            except (ValueError, AttributeError):
+                return queryset.none()
+
+        return queryset
+
+    # ========================================================================
+    # LIST OVERRIDE
+    # ========================================================================
 
     def list(self, request, *args, **kwargs):
-        """Custom list to handle student enrollment case"""
+        """
+        Override list to provide friendly message for students with no assignments.
+        """
         queryset = self.filter_queryset(self.get_queryset())
 
-        if (
-            request.user.role == "student"
-            and not queryset.exists()
-            and not Enrollment.objects.filter(user=request.user, is_active=True).exists()
-        ):
-
+        if request.user.role == 'student' and not queryset.exists():
             return api_response(
-                False,
-                "No active enrollment found. Please enroll in a course first.",
-                None,
-                status.HTTP_404_NOT_FOUND,
+                success=True,
+                message='No assignments found for your enrolled courses.',
+                data=[],
             )
 
         return super().list(request, *args, **kwargs)
 
-    @action(detail=True, methods=["post"])
+    # ========================================================================
+    # CUSTOM ACTIONS
+    # ========================================================================
+
+    @extend_schema(
+        summary="Submit assignment (Student)",
+        tags=["Course - Assignments"],
+        description="""
+        Submit an assignment or update existing submission.
+
+        Business Rules:
+        - Students can only submit assignments for enrolled courses
+        - Validates deadline and late submission policy
+        - Marks submission as late if past due date
+        - Cannot update graded submissions
+        - Applies late penalty percentage upon grading
+
+        Request Body:
+        - submission_text: Text content of submission
+        - file: File upload (optional)
+        - attachments: Multiple file uploads (optional)
+        """
+    )
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
     def submit(self, request, pk=None):
-        """Student submits assignment"""
+        """
+        Submit assignment with comprehensive validation.
+
+        Workflow:
+        1. Verify student has access to assignment
+        2. Check assignment is active
+        3. Calculate if submission is late
+        4. Validate late submission policy
+        5. Create or update submission
+        6. Prevent updates to graded submissions
+
+        Args:
+            request: HTTP request with submission data
+            pk: Assignment ID
+
+        Returns:
+            Response with submission details and late penalty info
+        """
         assignment = self.get_object()
         student = request.user
+        now = timezone.now()
 
+        # ====================================================================
+        # STEP 1: Verify Access
+        # ====================================================================
         if not self.get_queryset().filter(id=assignment.id).exists():
             return api_response(
-                False,
-                "You don't have permission to submit to this assignment",
-                None,
-                status.HTTP_403_FORBIDDEN,
+                success=False,
+                message="You don't have permission to submit this assignment.",
+                data=None,
             )
 
-        if assignment.due_date and timezone.now() > assignment.due_date:
-            if not assignment.late_submission_allowed:
-                return api_response(
-                    False,
-                    "Submission deadline has passed",
-                    None,
-                    status.HTTP_400_BAD_REQUEST,
-                )
+        # ====================================================================
+        # STEP 2: Check Assignment Status
+        # ====================================================================
+        if not assignment.is_active:
+            return api_response(
+                success=False,
+                message="This assignment is no longer accepting submissions.",
+                data=None,
+            )
 
+        # ====================================================================
+        # STEP 3: Calculate Late Status
+        # ====================================================================
+        is_late = bool(assignment.due_date and now > assignment.due_date)
+
+        # ====================================================================
+        # STEP 4: Validate Late Submission Policy
+        # ====================================================================
+        if is_late and not assignment.late_submission_allowed:
+            time_diff = now - assignment.due_date
+            hours_late = int(time_diff.total_seconds() / 3600)
+
+            return api_response(
+                success=False,
+                message=(
+                    f"Submission deadline passed {hours_late} hours ago. "
+                    "Late submissions are not allowed for this assignment."
+                ),
+                data={
+                    'due_date': assignment.due_date,
+                    'current_time': now,
+                    'hours_late': hours_late
+                },
+            )
+
+        # ====================================================================
+        # STEP 5: Get or Create Submission
+        # ====================================================================
         submission, created = AssignmentSubmission.objects.get_or_create(
             assignment=assignment,
             student=student,
-            defaults={"status": "pending"},
+            defaults={
+                'status': 'submitted',
+                'is_late': is_late,
+                'submitted_at': now
+            }
         )
 
+        # ====================================================================
+        # STEP 6: Prevent Updates to Graded Submissions
+        # ====================================================================
+        if not created and submission.status == 'graded':
+            return api_response(
+                success=False,
+                message=(
+                    "Cannot update a graded submission. "
+                    "Please contact your instructor if you need to make changes."
+                ),
+                data={
+                    'submission_id': str(submission.id),
+                    'graded_at': submission.graded_at,
+                    'graded_by': submission.graded_by.get_full_name() if submission.graded_by else None,
+                    'marks_obtained': float(submission.marks_obtained) if submission.marks_obtained else None
+                },
+            )
+
+        # ====================================================================
+        # STEP 7: Validate and Save Submission
+        # ====================================================================
         serializer = AssignmentSubmissionCreateSerializer(
             submission,
             data=request.data,
-            context={"request": request},
             partial=not created,
+            context={'request': request}
         )
 
         serializer.is_valid(raise_exception=True)
-        serializer.save()
 
-        message = "Assignment submitted successfully" if created else "Submission updated"
-        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-
-        return api_response(
-            True,
-            message,
-            {
-                "submission_id": str(submission.id),
-                "assignment_id": str(assignment.id),
-                "created": created,
-            },
-            status_code,
+        serializer.save(
+            is_late=is_late,
+            status='submitted'
         )
 
-    @action(detail=True, methods=["get"], url_path="my-submission")
+        # ====================================================================
+        # STEP 8: Prepare Response Message
+        # ====================================================================
+        message = (
+            "Assignment submitted successfully."
+            if created
+            else "Submission updated successfully."
+        )
+
+        if is_late and assignment.late_submission_penalty > 0:
+            message += (
+                f" Note: A {assignment.late_submission_penalty}% late penalty "
+                "will be applied upon grading."
+            )
+
+        # ====================================================================
+        # STEP 9: Return Success Response
+        # ====================================================================
+        return api_response(
+            success=True,
+            message=message,
+            data={
+                'submission_id': str(submission.id),
+                'assignment_id': str(assignment.id),
+                'assignment_title': assignment.title,
+                'is_late': is_late,
+                'late_penalty_percentage': assignment.late_submission_penalty if is_late else 0,
+                'submitted_at': submission.submitted_at,
+                'status': submission.status,
+                'can_resubmit': submission.status != 'graded'
+            },
+        )
+
+    @extend_schema(
+        summary="Get my submission (Student)",
+        tags=["Course - Assignments"],
+        description="Retrieve the authenticated student's submission for this assignment."
+    )
+    @action(detail=True, methods=['get'], url_path='my-submission')
     def my_submission(self, request, pk=None):
-        """Get student's submission for this assignment"""
+        """
+        Get authenticated user's submission for this assignment.
+
+        Args:
+            request: HTTP request
+            pk: Assignment ID
+
+        Returns:
+            Response with submission details including grades and feedback
+        """
         assignment = self.get_object()
 
+        # Verify student has access
         if not self.get_queryset().filter(id=assignment.id).exists():
             return api_response(
-                False,
-                "You don't have permission to view this assignment",
-                None,
-                status.HTTP_403_FORBIDDEN,
+                success=False,
+                message="You don't have permission to view this assignment.",
+                data=None,
             )
 
         submission = assignment.submissions.filter(student=request.user).first()
 
         if not submission:
             return api_response(
-                False,
-                "No submission found",
-                None,
-                status.HTTP_404_NOT_FOUND,
+                success=False,
+                message="No submission found for this assignment.",
+                data={
+                    'assignment_id': str(assignment.id),
+                    'assignment_title': assignment.title,
+                    'due_date': assignment.due_date,
+                    'can_submit': assignment.is_active
+                },
             )
 
-        return api_response(
-            True,
-            "Submission retrieved successfully",
-            AssignmentSubmissionSerializer(submission, context={"request": request}).data,
+        serializer = AssignmentSubmissionSerializer(
+            submission,
+            context={'request': request}
         )
 
+        return api_response(
+            success=True,
+            message='Submission retrieved successfully.',
+            data=serializer.data,
+            status_code=status.HTTP_200_OK
+        )
+
+    @extend_schema(
+        summary="Get all submissions for assignment (Teacher/Admin)",
+        tags=["Course - Assignments"],
+        description="Retrieve all student submissions for this assignment."
+    )
+    @action(
+        detail=True,
+        methods=['get'],
+        permission_classes=[IsTeacherOrAdmin],
+        url_path='submissions'
+    )
+    def submissions(self, request, pk=None):
+        """
+        Get all submissions for this assignment (Teacher/Admin only).
+
+        Includes:
+        - Student information
+        - Submission status
+        - Grading information
+        - Late submission status
+
+        Args:
+            request: HTTP request
+            pk: Assignment ID
+
+        Returns:
+            Response with list of all submissions
+        """
+        assignment = self.get_object()
+
+        submissions = assignment.submissions.select_related(
+            'student',
+            'graded_by'
+        ).order_by('-submitted_at')
+
+        # Optional filters
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            submissions = submissions.filter(status=status_filter)
+
+        late_filter = request.query_params.get('is_late')
+        if late_filter is not None:
+            is_late_bool = late_filter.lower() == 'true'
+            submissions = submissions.filter(is_late=is_late_bool)
+
+        serializer = AssignmentSubmissionSerializer(
+            submissions,
+            many=True,
+            context={'request': request}
+        )
+
+        # Calculate statistics
+        total_submissions = submissions.count()
+        graded_count = submissions.filter(status='graded').count()
+        late_count = submissions.filter(is_late=True).count()
+
+        return api_response(
+            success=True,
+            message='Submissions retrieved successfully.',
+            data={
+                'submissions': serializer.data,
+                'statistics': {
+                    'total_submissions': total_submissions,
+                    'graded': graded_count,
+                    'pending': total_submissions - graded_count,
+                    'late_submissions': late_count
+                }
+            },
+            status_code=status.HTTP_200_OK
+        )
+
+
+# ============================================================================
+# ASSIGNMENT SUBMISSION VIEW SET
+# ============================================================================
 
 @extend_schema_view(
     list=extend_schema(
         summary="List assignment submissions",
         tags=["Course - Assignments"],
+        description="List all submissions (filtered by role)."
     ),
     retrieve=extend_schema(
         summary="Get submission details",
         tags=["Course - Assignments"],
-    ),
-    create=extend_schema(
-        summary="Create assignment submission",
-        tags=["Course - Assignments"],
+        description="Retrieve detailed information about a specific submission."
     ),
     update=extend_schema(
-        summary="Update assignment submission",
+        summary="Update submission (Teacher/Admin)",
         tags=["Course - Assignments"],
+        description="Update submission details (teachers can update feedback/marks)."
     ),
     partial_update=extend_schema(
-        summary="Partially update assignment submission",
+        summary="Partially update submission (Teacher/Admin)",
         tags=["Course - Assignments"],
+        description="Update specific fields of a submission."
     ),
     destroy=extend_schema(
-        summary="Delete assignment submission",
+        summary="Delete submission (Admin)",
         tags=["Course - Assignments"],
-    ),
-    grade=extend_schema(
-        summary="Grade assignment submission (Teacher/Admin)",
-        tags=["Course - Assignments"],
+        description="Delete a submission (admin only)."
     ),
 )
 class AssignmentSubmissionViewSet(BaseAdminViewSet):
     """
-    Assignment Submissions (Read-only for students)
+    Assignment Submission Management API
 
+    Access Control:
+    ---------------
     Students:
-    - View only their submissions
+        - View only their own submissions
+        - Cannot directly create/update via this endpoint (use Assignment.submit)
 
-    Teachers/Admin:
-    - View all submissions
-    - Grade submissions
+    Teachers:
+        - View submissions for their courses
+        - Grade submissions
+        - Provide feedback
+
+    Admin:
+        - Full access to all submissions
+        - Can delete submissions
+
+    Features:
+    ---------
+    - Automated late penalty calculation
+    - Grade validation
+    - Feedback management
+    - Submission status tracking
     """
 
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = AssignmentSubmissionSerializer
 
     queryset = AssignmentSubmission.objects.select_related(
-        "assignment",
-        "assignment__module",
-        "assignment__module__course",
-        "student",
-        "graded_by",
-    ).order_by("-submitted_at")
+        'assignment',
+        'assignment__module',
+        'assignment__module__course',
+        'assignment__batch',
+        'student',
+        'graded_by'
+    ).order_by('-submitted_at')
 
-    # ---------------- PERMISSIONS ----------------
-
-    def get_permissions(self):
-        if self.action == "grade":
-            return [IsTeacherOrAdmin()]
-        return [permissions.IsAuthenticated()]
-
-    # ---------------- QUERYSET ----------------
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action."""
+        if self.action == 'grade':
+            return AssignmentGradeSerializer
+        return AssignmentSubmissionSerializer
 
     def get_queryset(self):
-        # Use base queryset to avoid public filtering in BaseAdminViewSet
-        queryset = self.get_base_queryset()
+        """
+        Filter submissions based on user role.
+
+        Logic:
+        - Students: Only their own submissions
+        - Teachers: Submissions for their courses
+        - Admin: All submissions
+        """
+        queryset = super().get_queryset()
         user = self.request.user
 
-        # 🔒 Student → only their submissions
-        role = getattr(user, "role", None)
-        if role == "student":
-            queryset = queryset.filter(student=user)
+        # Student: Only own submissions
+        if user.role == 'student':
+            return queryset.filter(student=user)
 
+        # Teacher: Submissions for their assigned courses
+        if user.role == 'teacher':
+            return queryset.filter(
+                assignment__batch__in=Enrollment.objects.filter(
+                    user=user,
+                    is_active=True
+                ).values_list('batch_id', flat=True)
+            )
+
+        # Admin: All submissions
         return queryset
 
-    # ---------------- ACTIONS ----------------
+    # ========================================================================
+    # GRADING ACTION
+    # ========================================================================
 
-    @action(detail=True, methods=["post"])
+    @extend_schema(
+        summary="Grade assignment submission (Teacher/Admin)",
+        tags=["Course - Assignments"],
+        description="""
+        Grade a student's assignment submission.
+
+        Business Rules:
+        - Automatically calculates and applies late submission penalty
+        - Validates marks don't exceed assignment total
+        - Ensures marks never go below zero
+        - Records grader and timestamp
+        - Cannot grade pending (unsubmitted) submissions
+
+        Request Body:
+        - marks_obtained: Raw marks before penalty (required)
+        - feedback: Grading feedback (optional)
+        - status: Submission status, defaults to 'graded'
+
+        Response includes:
+        - Original marks (before penalty)
+        - Final marks (after penalty)
+        - Late penalty percentage applied
+        - Grader information
+        """
+    )
+    @action(detail=True, methods=['post'], permission_classes=[IsTeacherOrAdmin])
+    @transaction.atomic
     def grade(self, request, pk=None):
-        """
-        Grade assignment submission (Teacher/Admin only)
-
-        Body:
-        {
-            "marks_obtained": 85,
-            "feedback": "<p>Good work!</p>",
-            "status": "graded"
-        }
-        """
         submission = self.get_object()
+        assignment = submission.assignment
+
+        if submission.status == 'pending' or not submission.submitted_at:
+            return api_response(
+                success=False,
+                message="Cannot grade a submission that hasn't been submitted yet.",
+                data=None,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         serializer = AssignmentGradeSerializer(
             submission,
             data=request.data,
             partial=True,
-            context={"request": request},
+            context={'request': request}
         )
         serializer.is_valid(raise_exception=True)
 
-        serializer.save(
-            graded_by=request.user,
-            graded_at=timezone.now(),
-        )
+        marks_obtained = serializer.validated_data.get('marks_obtained')
+        status_value = serializer.validated_data.get('status', 'graded')
+        feedback = serializer.validated_data.get('feedback', submission.feedback or '')
+
+        if marks_obtained is not None:
+            if marks_obtained < 0 or marks_obtained > assignment.total_marks:
+                return api_response(
+                    success=False,
+                    message=f"Marks must be between 0 and {assignment.total_marks}.",
+                    data=None,
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+
+        original_marks = marks_obtained
+        final_marks = marks_obtained
+        penalty_applied = False
+        penalty_percentage = Decimal('0')
+        penalty_amount = Decimal('0')
+
+        if (
+                marks_obtained is not None
+                and submission.is_late
+                and assignment.late_submission_allowed
+                and assignment.late_submission_penalty > 0
+        ):
+            penalty_percentage = Decimal(str(assignment.late_submission_penalty))
+            final_marks = apply_late_penalty(marks_obtained, penalty_percentage)
+            penalty_amount = (marks_obtained - final_marks).quantize(Decimal('0.01'))
+            penalty_applied = True
+
+        submission.marks_obtained = final_marks
+        submission.status = status_value
+        submission.feedback = feedback
+        submission.graded_by = request.user
+        submission.graded_at = timezone.now()
+        submission.save(update_fields=[
+            'marks_obtained',
+            'status',
+            'feedback',
+            'graded_by',
+            'graded_at'
+        ])
+
+        message = "Assignment graded successfully"
+        if penalty_applied:
+            message += f" (late penalty of {penalty_percentage}% applied)"
 
         return api_response(
-            True,
-            "Assignment graded successfully",
-            AssignmentSubmissionSerializer(submission, context={"request": request}).data,
+            success=True,
+            message=message,
+            data={
+                'submission_id': str(submission.id),
+                'assignment_id': str(assignment.id),
+                'student_id': str(submission.student.id),
+                'grading': {
+                    'original_marks': float(original_marks) if original_marks is not None else None,
+                    'final_marks': float(final_marks) if final_marks is not None else None,
+                    'penalty_amount': float(penalty_amount),
+                    'penalty_percentage': float(penalty_percentage),
+                },
+                'status': submission.status,
+                'graded_at': submission.graded_at,
+            },
+            status_code=status.HTTP_200_OK
+        )
+
+    @extend_schema(
+        summary="Bulk grade submissions (Teacher/Admin)",
+        tags=["Course - Assignments"],
+        description="Grade multiple submissions at once."
+    )
+    @action(detail=False, methods=['post'], permission_classes=[IsTeacherOrAdmin])
+    @transaction.atomic
+    def bulk_grade(self, request):
+        submissions_data = request.data.get('submissions', [])
+
+        if not submissions_data:
+            return api_response(
+                success=False,
+                message="No submissions provided for grading.",
+                data=None,
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        results = []
+
+        for item in submissions_data:
+            try:
+                submission = self.get_queryset().get(id=item['submission_id'])
+                assignment = submission.assignment
+
+                if submission.status == 'pending' or not submission.submitted_at:
+                    raise ValueError("Submission has not been submitted yet.")
+
+                marks = Decimal(str(item.get('marks_obtained')))
+                if marks < 0 or marks > assignment.total_marks:
+                    raise ValueError(f"Marks must be between 0 and {assignment.total_marks}.")
+
+                final_marks = marks
+
+                if (
+                        submission.is_late
+                        and assignment.late_submission_allowed
+                        and assignment.late_submission_penalty > 0
+                ):
+                    final_marks = apply_late_penalty(
+                        marks,
+                        assignment.late_submission_penalty
+                    )
+
+                submission.marks_obtained = final_marks
+                submission.feedback = item.get('feedback', '')
+                submission.status = 'graded'
+                submission.graded_by = request.user
+                submission.graded_at = timezone.now()
+                submission.save(update_fields=[
+                    'marks_obtained',
+                    'feedback',
+                    'status',
+                    'graded_by',
+                    'graded_at'
+                ])
+
+                results.append({
+                    'submission_id': str(submission.id),
+                    'status': 'success',
+                    'final_marks': float(final_marks),
+                })
+
+            except Exception as e:
+                results.append({
+                    'submission_id': item.get('submission_id'),
+                    'status': 'error',
+                    'message': str(e),
+                })
+
+        return api_response(
+            success=True,
+            message="Bulk grading completed.",
+            data={'results': results},
+            status_code=status.HTTP_200_OK
         )
 
 
@@ -984,3 +1481,265 @@ class CourseResourceViewSet(BaseAdminViewSet):
             None,
             status.HTTP_404_NOT_FOUND,
         )
+
+
+# ==============================================================
+# STUDENT CONTENT VIEWSETS (MINIMAL + SAFE)
+# ==============================================================
+
+from django.db.models import Prefetch
+from rest_framework.viewsets import GenericViewSet
+from rest_framework.permissions import IsAuthenticated
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+
+from api.permissions import IsStudent
+
+from api.models.models_order import Enrollment
+from api.models.models_course import CourseModule
+from api.models.models_module import (
+    Assignment,
+    Quiz,
+    LiveClass,
+    CourseResource,
+    LiveClassAttendance,
+)
+
+from api.serializers.serializers_module import (
+    AssignmentStudentSerializer,
+    QuizSerializer,
+    LiveClassSerializer,
+    CourseResourceSerializer,
+)
+
+
+# ==============================================================
+# BASE VIEW SET (STUDENT + ENROLLMENT)
+# ==============================================================
+
+class StudentBaseViewSet(GenericViewSet):
+    permission_classes = [IsAuthenticated, IsStudent]
+
+    def get_batch_ids(self):
+        return Enrollment.objects.filter(
+            user=self.request.user,
+            is_active=True
+        ).values_list("batch_id", flat=True)
+
+
+# ==============================================================
+# ASSIGNMENTS
+# ==============================================================
+
+class StudentAssignmentViewSet(StudentBaseViewSet):
+
+    @extend_schema(
+        summary="Student assignments",
+        description="Assignments grouped by module (batch-wise).",
+        responses={200: OpenApiResponse(description="Assignments grouped by module")},
+        tags=["Student DashBoard"]
+    )
+    def list(self, request):
+        batch_ids = self.get_batch_ids()
+        if not batch_ids.exists():
+            return api_response(True, "No enrollments found.", [])
+
+        qs = Assignment.objects.filter(
+            is_active=True,
+            batch_id__in=batch_ids
+        ).select_related("module")
+
+        modules = (
+            CourseModule.objects
+            .filter(module_assignments__in=qs, is_active=True)
+            .distinct()
+            .order_by("order")
+            .prefetch_related(
+                Prefetch("module_assignments", queryset=qs.order_by("order"))
+            )
+        )
+
+        data = [{
+            "module_id": m.id,
+            "module_title": m.title,
+            "module_slug": m.slug,
+            "assignments": AssignmentStudentSerializer(
+                m.module_assignments.all(),
+                many=True,
+                context={"request": request},
+            ).data,
+        } for m in modules]
+
+        return api_response(True, "Assignments retrieved.", data)
+
+
+# ==============================================================
+# QUIZZES
+# ==============================================================
+
+class StudentQuizViewSet(StudentBaseViewSet):
+
+    @extend_schema(
+        summary="Student quizzes",
+        description="Quizzes grouped by module (batch-wise).",
+        responses={200: OpenApiResponse(description="Quizzes grouped by module")},
+        tags=["Student DashBoard"]
+    )
+    def list(self, request):
+        batch_ids = self.get_batch_ids()
+        if not batch_ids.exists():
+            return api_response(True, "No enrollments found.", [])
+
+        qs = Quiz.objects.filter(
+            is_active=True,
+            batch_id__in=batch_ids,
+            questions__is_active=True,
+        ).distinct()
+
+        modules = (
+            CourseModule.objects
+            .filter(module_quizzes__in=qs)
+            .distinct()
+            .order_by("order")
+            .prefetch_related(
+                Prefetch("module_quizzes", queryset=qs)
+            )
+        )
+
+        data = [{
+            "module_id": m.id,
+            "module_title": m.title,
+            "module_slug": m.slug,
+            "quizzes": QuizSerializer(
+                m.module_quizzes.all(),
+                many=True,
+                context={"request": request},
+            ).data,
+        } for m in modules]
+
+        return api_response(True, "Quizzes retrieved.", data)
+
+
+# ==============================================================
+# LIVE CLASSES / RECORDINGS
+# ==============================================================
+
+class StudentLiveClassViewSet(StudentBaseViewSet):
+
+    @extend_schema(
+        summary="Student live classes",
+        description="Live classes and recordings grouped by module.",
+        responses={200: OpenApiResponse(description="Live classes grouped by module")},
+        tags=["Student DashBoard"]
+    )
+    def list(self, request):
+        batch_ids = self.get_batch_ids()
+        if not batch_ids.exists():
+            return api_response(True, "No enrollments found.", [])
+
+        qs = LiveClass.objects.filter(
+            is_active=True,
+            batch_id__in=batch_ids
+        )
+
+        modules = (
+            CourseModule.objects
+            .filter(live_classes__in=qs)
+            .distinct()
+            .order_by("order")
+            .prefetch_related(
+                Prefetch("live_classes", queryset=qs)
+            )
+        )
+
+        data = [{
+            "module_id": m.id,
+            "module_title": m.title,
+            "module_slug": m.slug,
+            "live_classes": LiveClassSerializer(
+                m.live_classes.all(),
+                many=True,
+                context={"request": request},
+            ).data,
+        } for m in modules]
+
+        return api_response(True, "Live classes retrieved.", data)
+
+
+# ==============================================================
+# RESOURCES
+# ==============================================================
+
+class StudentResourceViewSet(StudentBaseViewSet):
+
+    @extend_schema(
+        summary="Student resources",
+        description="Resources grouped by module (batch-wise).",
+        responses={200: OpenApiResponse(description="Resources grouped by module")},
+        tags=["Student DashBoard"]
+    )
+    def list(self, request):
+        batch_ids = self.get_batch_ids()
+        if not batch_ids.exists():
+            return api_response(True, "No enrollments found.", [])
+
+        qs = CourseResource.objects.filter(
+            is_active=True,
+            batch_id__in=batch_ids
+        )
+
+        modules = (
+            CourseModule.objects
+            .filter(resources__in=qs)
+            .distinct()
+            .order_by("order")
+            .prefetch_related(
+                Prefetch("resources", queryset=qs)
+            )
+        )
+
+        data = [{
+            "module_id": m.id,
+            "module_title": m.title,
+            "module_slug": m.slug,
+            "resources": CourseResourceSerializer(
+                m.resources.all(),
+                many=True,
+                context={"request": request},
+            ).data,
+        } for m in modules]
+
+        return api_response(True, "Resources retrieved.", data)
+
+
+# ==============================================================
+# ATTENDANCE
+# ==============================================================
+
+class StudentAttendanceViewSet(StudentBaseViewSet):
+
+    @extend_schema(
+        summary="Student attendance",
+        description="Attendance across live classes (batch-wise).",
+        responses={200: OpenApiResponse(description="Attendance list")},
+        tags=["Student DashBoard"]
+    )
+    def list(self, request):
+        batch_ids = self.get_batch_ids()
+        if not batch_ids.exists():
+            return api_response(True, "No enrollments found.", [])
+
+        attendance = LiveClassAttendance.objects.filter(
+            student=request.user,
+            live_class__batch_id__in=batch_ids
+        ).select_related("live_class", "live_class__module")
+
+        data = [{
+            "module_title": a.live_class.module.title,
+            "live_class_title": a.live_class.title,
+            "attended": a.attended,
+            "joined_at": a.joined_at,
+            "left_at": a.left_at,
+            "duration_minutes": a.duration_minutes,
+        } for a in attendance]
+
+        return api_response(True, "Attendance retrieved.", data)

@@ -128,3 +128,5 @@ class CourseModuleStudyPlanView(APIView):
             "Study plan loaded successfully",
             serializer.data,
         )
+
+
