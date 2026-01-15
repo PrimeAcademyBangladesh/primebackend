@@ -366,6 +366,16 @@ SSLCOMMERZ_IS_SANDBOX = os.getenv("SSLCOMMERZ_IS_SANDBOX", "True") == "True"
 # Payment token TTL (seconds) used for signed verify tokens
 PAYMENT_TOKEN_TTL = int(os.getenv("PAYMENT_TOKEN_TTL", 900))  # 15 minutes
 
+# ===============================
+# SSLCommerz Callback URLs
+# (MUST point to BACKEND)
+# ===============================
+
+SSLCOMMERZ_SUCCESS_URL = f"{BACKEND_URL}/api/payment/success/"
+SSLCOMMERZ_FAIL_URL = f"{BACKEND_URL}/api/payment/fail/"
+SSLCOMMERZ_CANCEL_URL = f"{BACKEND_URL}/api/payment/cancel/"
+SSLCOMMERZ_IPN_URL = f"{BACKEND_URL}/api/payment/webhook/"
+
 
 # Required to Update during production
 
