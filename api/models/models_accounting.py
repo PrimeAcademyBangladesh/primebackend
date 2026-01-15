@@ -4,7 +4,6 @@ from django.utils import timezone
 
 from api.utils.helper_models import TimeStampedModel
 
-
 # -------------------------------
 # Payment Method
 # -------------------------------
@@ -233,17 +232,6 @@ class IncomeUpdateRequest(TimeStampedModel):
 
 
 
-
-
-
-import uuid
-from decimal import Decimal
-from django.db import models, transaction
-from django.utils import timezone
-
-from api.utils.helper_models import TimeStampedModel
-
-
 # ============================================================
 # Expense Type (MASTER DATA)
 # ============================================================
@@ -380,7 +368,7 @@ class ExpenseUpdateRequest(TimeStampedModel):
     # APPROVE
     # --------------------------------------------------------
     def approve(self, admin_user):
-        from api.serializers.serializers_expense import ExpenseCreateSerializer
+        from api.serializers.serializers_accounting import ExpenseCreateSerializer
 
         with transaction.atomic():
             expense = Expense.objects.select_for_update().get(pk=self.expense.pk)
