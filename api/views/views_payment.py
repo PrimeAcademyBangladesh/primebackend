@@ -450,6 +450,7 @@ def verify_payment(request):
         # ---------------------------
         order = Order.objects.get(order_number=order_number)
 
+
         # Optional ownership check
         if request.user.is_authenticated:
             if not request.user.is_staff and order.user != request.user:

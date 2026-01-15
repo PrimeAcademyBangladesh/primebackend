@@ -48,7 +48,7 @@ class SSLCommerzPayment:
             dict: {GatewayPageURL, sessionkey, tran_id}
         """
 
-        tran_id = f"{order.order_number}-{int(timezone.now().timestamp())}"
+        tran_id = order.order_number
 
         post_data = {
             # Store credentials
