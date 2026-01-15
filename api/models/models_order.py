@@ -352,7 +352,10 @@ class OrderInstallment(TimeStampedModel):
             if self.order.is_fully_paid():
                 self.order.mark_as_completed()
             else:
-                self._update_next_installment_date()
+                if self.order.installments_paid > 0:
+                    self._update_next_installment_date()
+                else:
+                    Order.objects.filter(id=self.order.id).update(next_installment_date=None)
 
     def check_overdue(self):
         """Check if installment is overdue and update status."""
@@ -410,9 +413,14 @@ class OrderInstallment(TimeStampedModel):
             self.save(update_fields=["extra_data"])
 
     def _update_next_installment_date(self):
-        """Update next installment date efficiently."""
+        # 🔒 Safety: do not set if no installment has been paid yet
+        if self.order.installments_paid <= 0:
+            Order.objects.filter(id=self.order.id).update(next_installment_date=None)
+            return
+
         next_due = (
-            OrderInstallment.objects.filter(order=self.order, status="pending")
+            OrderInstallment.objects
+            .filter(order=self.order, status="pending")
             .order_by("installment_number")
             .values_list("due_date", flat=True)
             .first()
