@@ -13,6 +13,7 @@ class PaymentMethod(TimeStampedModel):
     is_active = models.BooleanField(default=True)
 
     class Meta:
+        verbose_name = "Income Payment Method"
         verbose_name_plural = "Income Payment Methods"
 
     def __str__(self):
