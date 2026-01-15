@@ -12,3 +12,4 @@ from .models_progress import (  # OLD models removed: ModuleAssignment, ModuleQu
     CourseProgress,
     StudentModuleProgress,
 )
+from .models_accounting import *
