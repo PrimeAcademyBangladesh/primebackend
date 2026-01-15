@@ -403,8 +403,8 @@ class InstallmentSummaryView(APIView):
 @extend_schema(
     summary="Verify payment status",
     description=(
-            "Used by frontend after payment redirect to verify payment status. "
-            "Supports both authenticated and unauthenticated access."
+        "Used by frontend after payment redirect to verify payment status. "
+        "Supports both authenticated and unauthenticated access."
     ),
     request=VerifyPaymentRequestSerializer,
     responses={
