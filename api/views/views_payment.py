@@ -231,7 +231,12 @@ def payment_webhook(request):
                 )
 
             # Mark paid
-            next_installment.mark_as_paid(payment_id=val_id, payment_method="ssl_commerce")
+
+            next_installment.mark_as_paid(
+                payment_id=val_id,
+                payment_method="ssl_commerce",
+                gateway_transaction_id=tran_id,
+            )
 
             order.refresh_from_db()
 
@@ -331,7 +336,13 @@ def payment_success_redirect(request):
                     )
 
                     if next_installment:
-                        next_installment.mark_as_paid(payment_id=val_id, payment_method="ssl_commerce")
+
+
+                        next_installment.mark_as_paid(
+                            payment_id=val_id,
+                            payment_method="ssl_commerce",
+                            gateway_transaction_id=tran_id,
+                        )
 
                         order.refresh_from_db()
 
