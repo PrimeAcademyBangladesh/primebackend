@@ -96,7 +96,6 @@ from api.views.views_module import CourseModuleStudyPlanView
 from api.views.views_order import EnrollmentViewSet, OrderItemViewSet, OrderViewSet
 from api.views.views_our_values import ValueTabContentViewSet, ValueTabSectionViewSet, ValueTabViewSet
 from api.views.views_payment import (
-    InstallmentPaymentInitiateView,
     InstallmentSummaryView,
     PaymentInitiateView,
     payment_cancel_redirect,
@@ -192,7 +191,6 @@ router.register("student/quizzes", StudentQuizViewSet, basename="student-quizzes
 router.register("student/live-classes", StudentLiveClassViewSet, basename="student-live-classes")
 router.register("student/resources", StudentResourceViewSet, basename="student-resources")
 router.register("student/attendance", StudentAttendanceViewSet, basename="student-attendance")
-# router.register("income/income-type", IncomeTypeViewSet, basename="income_type")
 
 
 urlpatterns = router.urls + [
@@ -387,11 +385,6 @@ urlpatterns = router.urls + [
     # Verification endpoint for frontend
     path("payment/verify/", verify_payment, name="payment-verify"),
     # COURSE INSTALLMENT RELATED API
-    path(
-        "installments/initiate/",
-        InstallmentPaymentInitiateView.as_view(),
-        name="installment-initiate",
-    ),
     path(
         "installments/summary/<uuid:order_id>/",
         InstallmentSummaryView.as_view(),

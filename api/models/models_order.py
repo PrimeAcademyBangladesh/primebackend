@@ -354,53 +354,6 @@ class OrderInstallment(TimeStampedModel):
             else:
                 self._update_next_installment_date()
 
-    # @transaction.atomic
-    # def mark_as_paid(self, payment_id='', payment_method=''):
-    #     """Mark this installment as paid and update order."""
-
-    #     # Validate payment_id is not empty if updating
-    #     if not payment_id:
-    #         raise ValueError("payment_id cannot be empty")
-
-    #     # Check for duplicate payment IDs (security: prevent double-charging)
-    #     if OrderInstallment.objects.filter(
-    #         payment_id=payment_id
-    #     ).exclude(id=self.id).exists():
-    #         raise ValueError(f"Duplicate payment_id: {payment_id}")
-
-    #     if self.status != 'paid':
-    #         self.status = 'paid'
-    #         self.paid_at = timezone.now()
-    #         self.payment_id = payment_id
-    #         self.payment_method = payment_method
-    #         self.save()
-
-    #         # Update order's installments_paid count
-    #         # self.order.installments_paid += 1 # Wrong way
-    #         self.order.installments_paid = F('installments_paid') + 1
-    #         self.order.save(update_fields=['installments_paid'])
-
-    #         # Refresh to get actual value for subsequent checks
-    #         self.order.refresh_from_db(fields=['installments_paid'])
-
-    #         # Check if this was the last installment
-    #         if self.order.is_fully_paid():
-    #             self.order.mark_as_completed()
-    #         else:
-    #             # Update next installment date
-    #             try:
-    #                 next_installment = OrderInstallment.objects.filter(
-    #                     order=self.order,
-    #                     status='pending'
-    #                 ).order_by('installment_number').first()
-
-    #                 if next_installment:
-    #                     self.order.next_installment_date = next_installment.due_date
-    #             except OrderInstallment.DoesNotExist:
-    #                 self.order.next_installment_date = None
-
-    #             self.order.save()
-
     def check_overdue(self):
         """Check if installment is overdue and update status."""
         if self.status == "pending" and timezone.now() > self.due_date:
@@ -476,7 +429,7 @@ class OrderInstallment(TimeStampedModel):
 
         try:
             payment = PaymentTransaction.objects.get(gateway_transaction_id=gateway_transaction_id)
-            return (payment, False)  # Already exists
+            return payment, False  # Already exists
 
         except PaymentTransaction.DoesNotExist:
             internal_id = f"PAY-{installment.order.order_number}-{installment.installment_number}-{uuid.uuid4().hex[:8]}"
@@ -493,11 +446,11 @@ class OrderInstallment(TimeStampedModel):
                     request_id=request_id,
                     status="pending",
                 )
-                return (payment, True)  # New payment created
+                return payment, True  # New payment created
 
             except IntegrityError:
                 payment = PaymentTransaction.objects.get(gateway_transaction_id=gateway_transaction_id)
-                return (payment, False)
+                return payment, False
 
     def __str__(self):
         return f"Installment {self.installment_number}/{self.order.installment_plan} - {self.order.order_number}"

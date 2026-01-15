@@ -6,8 +6,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import filters, status
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
+
 
 from api.models.models_order import Enrollment, Order, OrderItem
 from api.permissions import IsAdmin, IsStaff, IsStudent
@@ -97,7 +96,7 @@ class OrderViewSet(BaseAdminViewSet):
         Staff can also create orders.
         Only Admin can perform destructive mutations by default (update/delete).
         """
-        from api.permissions import IsStudent
+        # from api.permissions import IsStudent
 
         if self.action in ["list", "retrieve", "my_orders"]:
             # Students can view their own, staff/admin can view all

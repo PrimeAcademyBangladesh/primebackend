@@ -1,95 +1,133 @@
-"""Payment gateway views for SSLCommerz integration."""
+"""
+Payment gateway views for SSLCommerz integration.
 
+Single initiate endpoint supports:
+- Full payment
+- Installment payment (first + next installments)
 
-import traceback
+Webhook (IPN) is the single source of truth.
+"""
+
 from decimal import Decimal
+import logging
 
 from django.conf import settings
 from django.db import transaction
+from django.http import HttpResponseForbidden, HttpResponseRedirect
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 from drf_spectacular.utils import extend_schema
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from api.models.models_order import Enrollment, Order
-from api.serializers.serializers_order import OrderListSerializer
+from api.models.models_order import Enrollment, Order, OrderInstallment
 from api.utils.response_utils import api_response
 from api.utils.sslcommerz import SSLCommerzError, SSLCommerzPayment
 
+logger = logging.getLogger(__name__)
 
+
+# ======================================================
+# COMMON SERIALIZERS
+# ======================================================
+
+class BaseResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+
+
+class OrderIdSerializer(serializers.Serializer):
+    order_id = serializers.UUIDField()
+
+
+# ======================================================
+# PAYMENT INITIATE SERIALIZERS
+# ======================================================
+
+class PaymentInitiateResponseDataSerializer(serializers.Serializer):
+    payment_url = serializers.URLField()
+    session_key = serializers.CharField()
+    order_number = serializers.CharField()
+    amount = serializers.CharField()
+    currency = serializers.CharField()
+    payment_type = serializers.CharField()
+    installment_number = serializers.IntegerField(required=False)
+
+
+class PaymentInitiateResponseSerializer(BaseResponseSerializer):
+    data = PaymentInitiateResponseDataSerializer(required=False)
+
+
+# ======================================================
+# INSTALLMENT SUMMARY SERIALIZERS
+# ======================================================
+
+class InstallmentSummaryNextSerializer(serializers.Serializer):
+    installment_number = serializers.IntegerField()
+    amount = serializers.CharField()
+    due_date = serializers.DateTimeField()
+    is_overdue = serializers.BooleanField()
+    days_until_due = serializers.IntegerField()
+
+
+class InstallmentSummaryResponseDataSerializer(serializers.Serializer):
+    order_number = serializers.CharField()
+    installments_paid = serializers.IntegerField()
+    installment_plan = serializers.IntegerField()
+    next_installment = InstallmentSummaryNextSerializer(required=False, allow_null=True)
+    remaining_amount = serializers.CharField()
+    is_fully_paid = serializers.BooleanField()
+
+
+class InstallmentSummaryResponseSerializer(BaseResponseSerializer):
+    data = InstallmentSummaryResponseDataSerializer(required=False)
+
+
+class VerifyPaymentResponseDataSerializer(serializers.Serializer):
+    order_number = serializers.CharField()
+    status = serializers.CharField()
+    payment_verified = serializers.BooleanField()
+    enrolled_courses = serializers.ListField(
+        child=serializers.CharField()
+    )
+
+
+class VerifyPaymentResponseSerializer(BaseResponseSerializer):
+    data = VerifyPaymentResponseDataSerializer(required=False)
+
+
+class VerifyPaymentRequestSerializer(serializers.Serializer):
+    order_number = serializers.CharField()
+
+
+# ======================================================
+# PAYMENT INITIATE VIEW (FULL + INSTALLMENT)
+# ======================================================
+
+@extend_schema(
+    summary="Initiate payment",
+    request=OrderIdSerializer,
+    responses=PaymentInitiateResponseSerializer,
+    tags=["Payment"],
+)
 class PaymentInitiateView(APIView):
-    """
-    Initialize payment with SSLCommerz for an order.
-
-    POST /api/payment/initiate/
-    Body: {"order_id": 123}
-    """
-
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(
-        summary="Initiate payment for order",
-        description="Initialize SSLCommerz payment session for a pending order. Returns payment gateway URL.",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "order_id": {
-                        "type": "integer",
-                        "description": "Order ID to pay for",
-                    }
-                },
-                "required": ["order_id"],
-            }
-        },
-        responses={
-            200: {
-                "type": "object",
-                "properties": {
-                    "success": {"type": "boolean"},
-                    "message": {"type": "string"},
-                    "data": {
-                        "type": "object",
-                        "properties": {
-                            "payment_url": {
-                                "type": "string",
-                                "description": "SSLCommerz payment page URL",
-                            },
-                            "order_number": {"type": "string"},
-                            "amount": {"type": "string"},
-                            "currency": {"type": "string"},
-                        },
-                    },
-                },
-            }
-        },
-        tags=["Course - Payment"],
-    )
     def post(self, request):
-        """Initiate payment for an order."""
         order_id = request.data.get("order_id")
 
         if not order_id:
             return api_response(False, "Order ID is required", {}, status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Get order and verify ownership
             order = Order.objects.select_related("user").get(id=order_id)
 
-            # Students can only pay for their own orders, staff can pay for any
             if not request.user.is_staff and order.user != request.user:
-                return api_response(
-                    False,
-                    "You can only pay for your own orders",
-                    {},
-                    status.HTTP_403_FORBIDDEN,
-                )
+                return api_response(False, "You can only pay your own orders", {}, status.HTTP_403_FORBIDDEN)
 
-            # Check if order can be paid
             if order.status not in ["pending", "processing"]:
                 return api_response(
                     False,
@@ -98,689 +136,225 @@ class PaymentInitiateView(APIView):
                     status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Initialize payment with SSLCommerz
+            amount_to_pay = order.total_amount
+            payment_type = "full"
+            installment_number = None
+            custom_fields = {}
+            pending_installment = None
+
+            # -------- INSTALLMENT LOGIC --------
+            if order.is_installment:
+                pending_installment = (
+                    order.installment_payments
+                    .filter(status="pending")
+                    .order_by("installment_number")
+                    .first()
+                )
+
+                if not pending_installment:
+                    return api_response(False, "All installments already paid", {}, status.HTTP_400_BAD_REQUEST)
+
+                amount_to_pay = pending_installment.amount
+                payment_type = "installment"
+                installment_number = pending_installment.installment_number
+
+                custom_fields = {
+                    "value_a": str(pending_installment.id),
+                    "value_b": str(installment_number),
+                    "value_c": payment_type,
+                    "value_d": str(order.id),
+                }
+
+            # -------- INIT GATEWAY --------
             gateway = SSLCommerzPayment()
 
             try:
-                # Calculate payment amount (installment or full)
-                amount_to_pay = order.total_amount
-                if order.is_installment:
-                    installment = order.installment_payments.filter(status="pending").order_by("installment_number").first()
-                    if installment:
-                        amount_to_pay = installment.amount
+                session_data = gateway.init_payment(order=order, amount=amount_to_pay, **custom_fields)
+            except SSLCommerzError as e:
+                return api_response(False, f"Gateway error: {str(e)}", {}, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-                # Pass the correct amount to SSLCommerz
-                session_data = gateway.init_payment(order, amount=amount_to_pay)
-
-                # Update order status to processing
-                order.status = "processing"
+            # -------- SAVE METADATA ONLY --------
+            with transaction.atomic():
                 order.payment_method = "ssl_commerce"
+                order.save(update_fields=["payment_method", "updated_at"])
+
+                if pending_installment:
+                    pending_installment.update_extra_data({
+                        "session_key": session_data.get("sessionkey"),
+                        "gateway_page_url": session_data.get("GatewayPageURL"),
+                        "initiated_at": timezone.now().isoformat(),
+                    })
+
+            response_data = {
+                "payment_url": session_data.get("GatewayPageURL"),
+                "session_key": session_data.get("sessionkey"),
+                "order_number": order.order_number,
+                "amount": str(amount_to_pay),
+                "currency": order.currency,
+                "payment_type": payment_type,
+            }
+
+            if installment_number:
+                response_data["installment_number"] = installment_number
+
+            return api_response(True, "Payment session initialized", response_data)
+
+        except Order.DoesNotExist:
+            return api_response(False, "Order not found", {}, status.HTTP_404_NOT_FOUND)
+
+
+# ======================================================
+# PAYMENT WEBHOOK (IPN)
+# ======================================================
+
+@extend_schema(summary="SSLCommerz IPN", tags=["Payment"])
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def payment_webhook(request):
+    def get_param(key):
+        return request.data.get(key) or request.POST.get(key)
+
+    try:
+        tran_id = get_param("tran_id")
+        val_id = get_param("val_id")
+        amount = get_param("amount")
+        status_raw = get_param("status")
+        card_type = get_param("card_type")
+
+        installment_id = get_param("value_a")
+        payment_type = get_param("value_c")
+
+        if not tran_id or not val_id:
+            return api_response(False, "Missing required parameters", {}, status.HTTP_400_BAD_REQUEST)
+
+        order_number = "-".join(tran_id.split("-")[:3])
+
+        try:
+            order = Order.objects.select_for_update().get(order_number=order_number)
+        except Order.DoesNotExist:
+            return api_response(False, "Order not found", {}, status.HTTP_404_NOT_FOUND)
+
+        gateway = SSLCommerzPayment()
+        is_valid, _ = gateway.validate_payment(val_id, Decimal(amount))
+
+        if not is_valid or status_raw not in ["VALID", "VALIDATED"]:
+            with transaction.atomic():
+                order.status = "failed"
+                order.payment_status = "failed"
+                order.save()
+            return api_response(False, "Payment validation failed", {}, status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+
+            # -------- INSTALLMENT PAYMENT --------
+            if payment_type == "installment" and installment_id:
+                installment = OrderInstallment.objects.select_for_update().get(id=installment_id, order=order)
+
+                if installment.status == "paid":
+                    return api_response(True, "Installment already processed", {})
+
+                installment.mark_as_paid(
+                    payment_id=val_id,
+                    payment_method=card_type or "ssl_commerce",
+                    gateway_transaction_id=tran_id,
+                )
+
+                order.refresh_from_db()
+
+                if order.installments_paid == 1:
+                    for item in order.items.all():
+                        Enrollment.objects.get_or_create(
+                            user=order.user,
+                            batch=item.batch,
+                            defaults={"course": item.course, "order": order},
+                        )
+                    order.status = "processing"
+                    order.payment_status = "partial"
+
+                elif order.is_fully_paid():
+                    order.mark_as_completed()
+                    order.payment_status = "completed"
+
+                else:
+                    order.status = "processing"
+                    order.payment_status = "partial"
+
                 order.save()
 
                 return api_response(
                     True,
-                    "Payment session initialized successfully",
-                    {
-                        "payment_url": session_data.get("GatewayPageURL"),
-                        "session_key": session_data.get("sessionkey"),
-                        "order_number": order.order_number,
-                        "amount": str(amount_to_pay),
-                        "currency": order.currency,
-                    },
-                )
-
-            except SSLCommerzError as e:
-                return api_response(
-                    False,
-                    f"Payment gateway error: {str(e)}",
-                    {},
-                    status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-
-        except Order.DoesNotExist:
-            return api_response(False, "Order not found", {}, status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return api_response(
-                False,
-                f"Unexpected error: {str(e)}",
-                {},
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-
-@extend_schema(
-    summary="Payment webhook (IPN) from SSLCommerz",
-    description="Receives payment notifications from SSLCommerz. This endpoint is called by SSLCommerz automatically after payment.",
-    request={
-        "application/x-www-form-urlencoded": {
-            "type": "object",
-            "properties": {
-                "tran_id": {
-                    "type": "string",
-                    "description": "Transaction ID (order_number)",
-                },
-                "val_id": {"type": "string", "description": "Validation ID"},
-                "amount": {"type": "string", "description": "Payment amount"},
-                "status": {"type": "string", "description": "Payment status"},
-            },
-        }
-    },
-    responses={200: {"description": "Webhook processed"}},
-    tags=["Course - Payment"],
-)
-@csrf_exempt
-@api_view(["POST"])
-@permission_classes([AllowAny])
-@transaction.atomic
-def payment_webhook(request):
-    """
-    SSLCommerz IPN Handler — FIXED INSTALLMENT LOGIC
-    """
-
-    try:
-        tran_id = request.data.get("tran_id")
-        val_id = request.data.get("val_id")
-        amount = request.data.get("amount")
-        payment_status = request.data.get("status")
-
-        if not tran_id or not val_id:
-            return Response({"error": "Missing parameters"}, status=400)
-
-        try:
-            order = Order.objects.get(order_number=tran_id)
-        except Order.DoesNotExist:
-            return Response({"error": "Order not found"}, status=404)
-
-        gateway = SSLCommerzPayment()
-        payment_amount = Decimal(amount)
-        is_valid, _ = gateway.validate_payment(val_id, payment_amount)
-
-        if not is_valid or payment_status not in ["VALID", "VALIDATED"]:
-            # Payment failed
-            order.status = "failed"
-            order.save()
-            return api_response(
-                False,
-                "Payment validation failed",
-                {"order_number": order.order_number},
-                status.HTTP_400_BAD_REQUEST,
-            )
-
-        # ---------------------------------------------------------
-        # INSTALLMENT LOGIC — FIXED
-        # ---------------------------------------------------------
-        if order.is_installment:
-            # from api.models.models_order import OrderInstallment
-
-            next_installment = order.installment_payments.filter(status="pending").order_by("installment_number").first()
-
-            if not next_installment:
-                return Response({"error": "No pending installment"}, status=400)
-
-            if next_installment.status == "paid":
-                return api_response(
-                    True,
-                    "Installment already processed",
+                    "Installment paid",
                     {
                         "order_number": order.order_number,
                         "installments_paid": order.installments_paid,
                         "installment_plan": order.installment_plan,
-                        "payment_status": order.payment_status,
-                        "enrollments_created": order.enrollments.count(),
+                        "is_fully_paid": order.is_fully_paid(),
                     },
                 )
 
-            # Mark paid
-
-            next_installment.mark_as_paid(
-                payment_id=val_id,
-                payment_method="ssl_commerce",
-                gateway_transaction_id=tran_id,
-            )
-
-            order.refresh_from_db()
-
-            # ------------------------------------------------------
-            # ❌ OLD WRONG LOGIC (you had this)
-            # order.mark_as_completed()
-            # ------------------------------------------------------
-
-            # ------------------------------------------------------
-            # ✔ NEW CORRECT LOGIC
-            # If this is the FIRST installment → give access ONLY
-            # ------------------------------------------------------
-            if order.installments_paid == 1:
-                for item in order.items.all():
-                    Enrollment.objects.get_or_create(
-                        user=order.user,
-                        batch=item.batch,
-                        course=item.course,
-                        defaults={"order": order},
-                    )
-
-                order.status = "processing"
-                order.payment_status = "partial"
-                order.save()
-
-            # ------------------------------------------------------
-            # ✔ FINAL INSTALLMENT → COMPLETE ORDER
-            # ------------------------------------------------------
-            if order.is_fully_paid():
-                order.mark_as_completed()
-                order.payment_status = "completed"
-                order.save()
-
-            enrollment_count = order.enrollments.count()
+            # -------- FULL PAYMENT --------
+            order.payment_id = tran_id
+            order.payment_method = card_type or "ssl_commerce"
+            order.mark_as_completed()
 
             return api_response(
                 True,
-                f"Installment {order.installments_paid}/{order.installment_plan} paid",
+                "Payment completed",
                 {
                     "order_number": order.order_number,
-                    "installments_paid": order.installments_paid,
-                    "installment_plan": order.installment_plan,
-                    "payment_status": order.payment_status,
-                    "enrollments_created": enrollment_count,
+                    "status": order.status,
+                    "enrollments": order.enrollments.count(),
                 },
             )
-        # ---------------------------------------------------------
-        # FULL PAYMENT FLOW (unchanged)
-        # ---------------------------------------------------------
-        order.mark_as_completed()
-        return api_response(
-            True,
-            "Full payment completed",
-            {"order_number": order.order_number},
-            status.HTTP_200_OK,
-        )
 
     except Exception as e:
-        return Response({"error": str(e)}, status=500)
+        logger.exception("Webhook error")
+        return api_response(False, "Server error", {}, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+# ======================================================
+# REDIRECT HANDLERS
+# ======================================================
 
 @csrf_exempt
-@transaction.atomic
 def payment_success_redirect(request):
-    """
-    Success redirect from SSLCommerz — FIXED INSTALLMENT LOGIC
-    """
-    from django.http import HttpResponseForbidden, HttpResponseRedirect, JsonResponse
+    store_id = request.POST.get("store_id")
+    if request.method == "POST" and store_id != settings.SSLCOMMERZ_STORE_ID:
+        return HttpResponseForbidden("Invalid request")
 
-    try:
-        if request.method == "POST":
-            store_id = request.POST.get("store_id")
-            expected_store = settings.SSLCOMMERZ_STORE_ID
-
-            if store_id != expected_store:
-                return HttpResponseForbidden("Invalid request")
-
-            tran_id = request.POST.get("tran_id")
-            val_id = request.POST.get("val_id")
-            amount = request.POST.get("amount")
-
-            try:
-                order = Order.objects.get(order_number=tran_id)
-            except Order.DoesNotExist:
-                return HttpResponseRedirect(f"{settings.FRONTEND_URL}/payment/fail")
-
-            gateway = SSLCommerzPayment()
-            is_valid, _ = gateway.validate_payment(val_id, Decimal(amount))
-
-            if is_valid:
-                # ---------------------------------------------------
-                # INSTALLMENT LOGIC (same as webhook)
-                # ---------------------------------------------------
-                if order.is_installment:
-                    next_installment = (
-                        order.installment_payments.filter(status="pending").order_by("installment_number").first()
-                    )
-
-                    if next_installment:
-
-
-                        next_installment.mark_as_paid(
-                            payment_id=val_id,
-                            payment_method="ssl_commerce",
-                            gateway_transaction_id=tran_id,
-                        )
-
-                        order.refresh_from_db()
-
-                        # ❌ OLD WRONG LOGIC
-                        # order.mark_as_completed()
-
-                        # ✔ NEW CORRECT LOGIC
-                        if order.installments_paid == 1:
-                            for item in order.items.all():
-                                Enrollment.objects.get_or_create(
-                                    user=order.user,
-                                    batch=item.batch,
-                                    course=item.course,
-                                    defaults={"order": order},
-                                )
-
-                            order.status = "processing"
-                            order.payment_status = "partial"
-                            order.save()
-
-                        if order.is_fully_paid():
-                            order.mark_as_completed()
-                            order.payment_status = "completed"
-                            order.save()
-
-                else:
-                    order.mark_as_completed()
-
-            # Redirect user safely
-            return HttpResponseRedirect(f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}")
-
-        # GET request fallback
-        tran_id = request.GET.get("tran_id")
-        return HttpResponseRedirect(f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}")
-
-    except Exception as e:
-        return JsonResponse({"error": str(e), "trace": traceback.format_exc()}, status=500)
+    tran_id = request.POST.get("tran_id") or request.GET.get("tran_id", "")
+    return HttpResponseRedirect(f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}")
 
 
 @csrf_exempt
 def payment_fail_redirect(request):
-    """Plain Django view - Redirect failed payments to frontend."""
+    store_id = request.POST.get("store_id")
+    if request.method == "POST" and store_id != settings.SSLCOMMERZ_STORE_ID:
+        return HttpResponseForbidden("Invalid request")
 
-    from django.conf import settings
-    from django.http import HttpResponseForbidden, HttpResponseRedirect
-
-    # SECURITY: Verify request is from SSLCommerz (for POST requests)
-    if request.method == "POST":
-        store_id = request.POST.get("store_id", "")
-        expected_store_id = getattr(settings, "SSLCOMMERZ_STORE_ID", "")
-
-        if store_id != expected_store_id:
-            return HttpResponseForbidden("Invalid request")
-
-    tran_id = request.POST.get("tran_id", "") or request.GET.get("tran_id", "")
-    frontend_url = f"{settings.FRONTEND_URL}/payment/fail?tran_id={tran_id}"
-    return HttpResponseRedirect(frontend_url)
+    tran_id = request.POST.get("tran_id") or request.GET.get("tran_id", "")
+    return HttpResponseRedirect(f"{settings.FRONTEND_URL}/payment/fail?tran_id={tran_id}")
 
 
 @csrf_exempt
 def payment_cancel_redirect(request):
-    """Plain Django view - Redirect cancelled payments to frontend."""
+    store_id = request.POST.get("store_id")
+    if request.method == "POST" and store_id != settings.SSLCOMMERZ_STORE_ID:
+        return HttpResponseForbidden("Invalid request")
 
-    from django.conf import settings
-    from django.http import HttpResponseForbidden, HttpResponseRedirect
+    tran_id = request.POST.get("tran_id") or request.GET.get("tran_id", "")
+    return HttpResponseRedirect(f"{settings.FRONTEND_URL}/payment/cancel?tran_id={tran_id}")
 
-    # SECURITY: Verify request is from SSLCommerz (for POST requests)
-    if request.method == "POST":
-        store_id = request.POST.get("store_id", "")
-        expected_store_id = getattr(settings, "SSLCOMMERZ_STORE_ID", "")
 
-        if store_id != expected_store_id:
-            return HttpResponseForbidden("Invalid request")
-
-    tran_id = request.POST.get("tran_id", "") or request.GET.get("tran_id", "")
-    frontend_url = f"{settings.FRONTEND_URL}/payment/cancel?tran_id={tran_id}"
-    return HttpResponseRedirect(frontend_url)
-
+# ======================================================
+# INSTALLMENT SUMMARY
+# ======================================================
 
 @extend_schema(
-    summary="Verify payment status",
-    description="Manually verify payment status for an order. Used by frontend after payment redirect. Accepts both GET and POST. No authentication required for basic status check.",
-    parameters=[
-        {
-            "name": "order_number",
-            "in": "query",
-            "description": "Order number to verify (for GET requests)",
-            "required": False,
-            "schema": {"type": "string"},
-        }
-    ],
-    request={
-        "application/json": {
-            "type": "object",
-            "properties": {
-                "order_number": {
-                    "type": "string",
-                    "description": "Order number to verify (for POST requests)",
-                }
-            },
-            "required": ["order_number"],
-        }
-    },
-    responses={
-        200: {
-            "type": "object",
-            "properties": {
-                "success": {"type": "boolean"},
-                "message": {"type": "string"},
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "order_number": {"type": "string"},
-                        "status": {"type": "string"},
-                        "payment_verified": {"type": "boolean"},
-                        "enrolled_courses": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                        },
-                    },
-                },
-            },
-        }
-    },
-    tags=["Course - Payment"],
-)
-@api_view(["GET", "POST"])
-@permission_classes([AllowAny])  # Allow unauthenticated access for payment verification
-def verify_payment(request):
-    """
-    Verify payment status for an order.
-
-    This endpoint is called by the frontend after payment redirect
-    to check if the payment was successful and order was completed.
-    Accepts both GET (query params) and POST (body) requests.
-
-    NOTE: Allows unauthenticated access to support post-payment verification
-    when user's session might have expired during payment gateway redirect.
-    """
-    # Support both GET and POST
-    if request.method == "GET":
-        order_number = request.GET.get("order_number")
-    else:
-        order_number = request.data.get("order_number")
-
-    if not order_number:
-        return api_response(False, "Order number is required", {}, status.HTTP_400_BAD_REQUEST)
-
-    try:
-        order = Order.objects.get(order_number=order_number)
-
-        # Optional: Verify ownership if user is authenticated
-        # If not authenticated (payment redirect scenario), allow access
-        if request.user and request.user.is_authenticated:
-            if not request.user.is_staff and order.user != request.user:
-                return api_response(
-                    False,
-                    "You can only verify your own orders",
-                    {},
-                    status.HTTP_403_FORBIDDEN,
-                )
-
-        # Get enrolled courses
-        enrolled_courses = list(order.enrollments.filter(is_active=True).values_list("course__title", flat=True))
-
-        return api_response(
-            True,
-            f"Order status: {order.get_status_display()}",
-            {
-                "order_number": order.order_number,
-                "status": order.status,
-                "payment_method": order.payment_method,
-                "payment_id": order.payment_id,
-                "payment_verified": order.status == "completed",
-                "amount": str(order.total_amount),
-                "currency": order.currency,
-                "completed_at": order.completed_at,
-                "enrolled_courses": enrolled_courses,
-                "enrollment_count": len(enrolled_courses),
-            },
-        )
-
-    except Order.DoesNotExist:
-        return api_response(False, "Order not found", {}, status.HTTP_404_NOT_FOUND)
-
-
-# class InstallmentPaymentInitiateView(APIView):
-#     """
-#     Initiate payment for the next pending installment.
-#     """
-#     permission_classes = [IsAuthenticated]
-
-#     def post(self, request):
-#         order_id = request.data.get("order_id")
-
-#         if not order_id:
-#             return api_response(False, "Order ID is required", {}, status.HTTP_400_BAD_REQUEST)
-
-#         try:
-#             order = Order.objects.get(id=order_id)
-
-#             # Ownership check
-#             if not request.user.is_staff and request.user != order.user:
-#                 return api_response(False, "You can only pay your own installments", {}, status.HTTP_403_FORBIDDEN)
-
-#             # Must be installment order
-#             if not order.is_installment:
-#                 return api_response(False, "This order does not use installment payments", {}, status.HTTP_400_BAD_REQUEST)
-
-#             # Find next pending installment
-#             next_installment = (
-#                 order.installment_payments.filter(status="pending")
-#                 .order_by("installment_number")
-#                 .first()
-#             )
-
-#             if not next_installment:
-#                 return api_response(False, "No pending installment available", {}, status.HTTP_400_BAD_REQUEST)
-
-#             amount_to_pay = next_installment.amount
-
-#             # Initiate payment with SSLCommerz
-#             gateway = SSLCommerzPayment()
-#             session_data = gateway.init_payment(order, amount=amount_to_pay)
-
-#             # Set order status to processing
-#             order.status = "processing"
-#             order.payment_method = "ssl_commerce"
-#             order.save()
-
-#             return api_response(
-#                 True,
-#                 "Installment payment session initialized",
-#                 {
-#                     "payment_url": session_data.get("GatewayPageURL"),
-#                     "session_key": session_data.get("sessionkey"),
-#                     "order_number": order.order_number,
-#                     "installment_number": next_installment.installment_number,
-#                     "amount": str(amount_to_pay),
-#                     "due_date": next_installment.due_date,
-#                     "currency": order.currency,
-#                 }
-#             )
-
-#         except Order.DoesNotExist:
-#             return api_response(False, "Order not found", {}, status.HTTP_404_NOT_FOUND)
-
-#         except Exception as e:
-#             return api_response(False, str(e), {}, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@extend_schema(
-    summary="Initiate installment payment",
-    description="Starts SSLCommerz payment session for the next pending installment of an installment-based order.",
+    summary="Installment summary",
+    responses=InstallmentSummaryResponseSerializer,
     tags=["Installment"],
-    request={
-        "application/json": {
-            "type": "object",
-            "required": ["order_id"],
-            "properties": {
-                "order_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "description": "Order ID for which the next installment payment should be initiated.",
-                }
-            },
-        }
-    },
-    responses={
-        200: {
-            "type": "object",
-            "properties": {
-                "success": {"type": "boolean"},
-                "message": {"type": "string"},
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "payment_url": {"type": "string"},
-                        "session_key": {"type": "string"},
-                        "order_number": {"type": "string"},
-                        "installment_number": {"type": "integer"},
-                        "amount": {"type": "string"},
-                        "due_date": {"type": "string", "format": "date-time"},
-                        "currency": {"type": "string"},
-                    },
-                },
-            },
-            "example": {
-                "success": True,
-                "message": "Installment payment session initialized",
-                "data": {
-                    "payment_url": "https://sandbox.sslcommerz.com/gwprocess/v4/gw.php?sessionkey=ABC123",
-                    "session_key": "ABC123XYZ",
-                    "order_number": "ORD-20240215-XY11",
-                    "installment_number": 2,
-                    "amount": "2500.00",
-                    "due_date": "2025-03-01T00:00:00Z",
-                    "currency": "BDT",
-                },
-            },
-        },
-        400: {
-            "type": "object",
-            "example": {
-                "success": False,
-                "message": "No pending installment available",
-                "data": {},
-            },
-        },
-        403: {
-            "type": "object",
-            "example": {
-                "success": False,
-                "message": "You can only pay your own installments",
-                "data": {},
-            },
-        },
-        404: {
-            "type": "object",
-            "example": {"success": False, "message": "Order not found", "data": {}},
-        },
-        500: {
-            "type": "object",
-            "example": {
-                "success": False,
-                "message": "Internal server error",
-                "data": {},
-            },
-        },
-    },
-)
-class InstallmentPaymentInitiateView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        order_id = request.data.get("order_id")
-
-        if not order_id:
-            return api_response(False, "Order ID is required", {}, status.HTTP_400_BAD_REQUEST)
-
-        try:
-            order = Order.objects.get(id=order_id)
-
-            # Ownership check
-            if not request.user.is_staff and request.user != order.user:
-                return api_response(
-                    False,
-                    "You can only pay your own installments",
-                    {},
-                    status.HTTP_403_FORBIDDEN,
-                )
-
-            # Must be installment order
-            if not order.is_installment:
-                return api_response(
-                    False,
-                    "This order does not use installment payments",
-                    {},
-                    status.HTTP_400_BAD_REQUEST,
-                )
-
-            # Find next pending installment
-            next_installment = order.installment_payments.filter(status="pending").order_by("installment_number").first()
-
-            if not next_installment:
-                return api_response(
-                    False,
-                    "No pending installment available",
-                    {},
-                    status.HTTP_400_BAD_REQUEST,
-                )
-
-            amount_to_pay = next_installment.amount
-
-            # Initiate payment with SSLCommerz
-            gateway = SSLCommerzPayment()
-            session_data = gateway.init_payment(order, amount=amount_to_pay)
-
-            # Set order status to processing
-            order.status = "processing"
-            order.payment_method = "ssl_commerce"
-            order.save()
-
-            return api_response(
-                True,
-                "Installment payment session initialized",
-                {
-                    "payment_url": session_data.get("GatewayPageURL"),
-                    "session_key": session_data.get("sessionkey"),
-                    "order_number": order.order_number,
-                    "installment_number": next_installment.installment_number,
-                    "amount": str(amount_to_pay),
-                    "due_date": next_installment.due_date,
-                    "currency": order.currency,
-                },
-            )
-
-        except Order.DoesNotExist:
-            return api_response(False, "Order not found", {}, status.HTTP_404_NOT_FOUND)
-
-        except Exception as e:
-            return api_response(False, str(e), {}, status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@extend_schema(
-    summary="Installment summary for an order",
-    description="Returns paid installments, next pending installment, remaining amount, and full payment status.",
-    tags=["Installment"],
-    responses={
-        200: {
-            "type": "object",
-            "properties": {
-                "success": {"type": "boolean"},
-                "message": {"type": "string"},
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "order_number": {"type": "string"},
-                        "installments_paid": {"type": "integer"},
-                        "installment_plan": {"type": "integer"},
-                        "next_installment": {
-                            "type": "object",
-                            "nullable": True,
-                            "properties": {
-                                "installment_number": {"type": "integer"},
-                                "amount": {"type": "string"},
-                                "due_date": {"type": "string", "format": "date-time"},
-                                "is_overdue": {"type": "boolean"},
-                                "days_until_due": {"type": "integer"},
-                            },
-                        },
-                        "remaining_amount": {"type": "string"},
-                        "is_fully_paid": {"type": "boolean"},
-                    },
-                },
-            },
-        }
-    },
 )
 class InstallmentSummaryView(APIView):
     permission_classes = [IsAuthenticated]
@@ -790,9 +364,14 @@ class InstallmentSummaryView(APIView):
             order = Order.objects.get(id=order_id, user=request.user)
 
             if not order.is_installment:
-                return api_response(False, "Order is not installment based", {}, 400)
+                return api_response(False, "Order is not installment based", {}, status.HTTP_400_BAD_REQUEST)
 
-            next_installment = order.installment_payments.filter(status="pending").order_by("installment_number").first()
+            next_installment = (
+                order.installment_payments
+                .filter(status="pending")
+                .order_by("installment_number")
+                .first()
+            )
 
             next_data = None
             if next_installment:
@@ -806,7 +385,7 @@ class InstallmentSummaryView(APIView):
 
             return api_response(
                 True,
-                "Installment summary loaded",
+                "Installment summary",
                 {
                     "order_number": order.order_number,
                     "installments_paid": order.installments_paid,
@@ -818,4 +397,94 @@ class InstallmentSummaryView(APIView):
             )
 
         except Order.DoesNotExist:
-            return api_response(False, "Order not found", {}, 404)
+            return api_response(False, "Order not found", {}, status.HTTP_404_NOT_FOUND)
+
+
+@extend_schema(
+    summary="Verify payment status",
+    description=(
+            "Used by frontend after payment redirect to verify payment status. "
+            "Supports both authenticated and unauthenticated access."
+    ),
+    request=VerifyPaymentRequestSerializer,
+    responses={
+        200: VerifyPaymentResponseSerializer,
+        400: VerifyPaymentResponseSerializer,
+        403: VerifyPaymentResponseSerializer,
+        404: VerifyPaymentResponseSerializer,
+    },
+    tags=["Course - Payment"],
+)
+@api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+def verify_payment(request):
+    """
+    Verify payment status for an order.
+
+    Called by frontend after payment redirect.
+
+    Accepts:
+    - GET  ?order_number=XXX
+    - POST {"order_number": "XXX"}
+    """
+
+    # ---------------------------
+    # 1. READ INPUT
+    # ---------------------------
+    if request.method == "GET":
+        order_number = request.GET.get("order_number")
+    else:
+        order_number = request.data.get("order_number")
+
+    if not order_number:
+        return api_response(
+            False,
+            "Order number is required",
+            {},
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        # ---------------------------
+        # 2. FETCH ORDER
+        # ---------------------------
+        order = Order.objects.get(order_number=order_number)
+
+        # Optional ownership check
+        if request.user.is_authenticated:
+            if not request.user.is_staff and order.user != request.user:
+                return api_response(
+                    False,
+                    "You can only verify your own orders",
+                    {},
+                    status.HTTP_403_FORBIDDEN,
+                )
+
+        # ---------------------------
+        # 3. PREPARE RESPONSE DATA
+        # ---------------------------
+        enrolled_courses = list(
+            order.enrollments
+            .filter(is_active=True)
+            .values_list("course__title", flat=True)
+        )
+
+        return api_response(
+            True,
+            f"Order status: {order.get_status_display()}",
+            {
+                "order_number": order.order_number,
+                "status": order.status,
+                "payment_verified": order.status == "completed",
+                "enrolled_courses": enrolled_courses,
+            },
+            status.HTTP_200_OK,
+        )
+
+    except Order.DoesNotExist:
+        return api_response(
+            False,
+            "Order not found",
+            {},
+            status.HTTP_404_NOT_FOUND,
+        )

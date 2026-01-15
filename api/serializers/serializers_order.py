@@ -182,6 +182,9 @@ class OrderListSerializer(serializers.ModelSerializer):
     payment_method_display = serializers.CharField(source="get_payment_method_display", read_only=True)
     items_count = serializers.SerializerMethodField()
 
+    course = serializers.SerializerMethodField()
+    batch = serializers.SerializerMethodField()
+
     class Meta:
         model = Order
         fields = [
@@ -196,6 +199,8 @@ class OrderListSerializer(serializers.ModelSerializer):
             "payment_method",
             "payment_method_display",
             "items_count",
+            "course",
+            "batch",
             "created_at",
             "completed_at",
         ]
@@ -214,6 +219,27 @@ class OrderListSerializer(serializers.ModelSerializer):
     def get_items_count(self, obj):
         """Get total number of items."""
         return obj.get_total_items()
+
+    def get_course(self, obj):
+        item = obj.items.first()
+        if not item or not item.course:
+            return None
+
+        return {
+            "id": item.course.id,
+            "title": item.course.title,
+        }
+
+    def get_batch(self, obj):
+        item = obj.items.first()
+        if not item or not item.batch:
+            return None
+
+        return {
+            "id": item.batch.id,
+            "name": getattr(item.batch, "name", None),
+            "start_date": getattr(item.batch, "start_date", None),
+        }
 
 
 class OrderDetailSerializer(serializers.ModelSerializer):
