@@ -1,13 +1,16 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.viewsets import ModelViewSet
+from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
+from rest_framework.response import Response
+from rest_framework.viewsets import ModelViewSet, GenericViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db.models import Prefetch, Exists, OuterRef
 from decimal import Decimal
 
-from api.models.models_accounting import Income, IncomeUpdateRequest, Expense, ExpenseUpdateRequest
+from api.models.models_accounting import Income, IncomeUpdateRequest, Expense, ExpenseUpdateRequest, IncomeType, \
+    PaymentMethod
 from api.permissions import IsAdmin, IsAdminOrAccountant, IsAccountant
 from api.serializers.serializers_accounting import (
     IncomeReadSerializer,
@@ -17,9 +20,11 @@ from api.serializers.serializers_accounting import (
     IncomeUpdateRequestReadSerializer,
     IncomeApprovalActionSerializer, ExpenseListSerializer, ExpenseReadSerializer, ExpenseCreateSerializer,
     ExpenseUpdateRequestReadSerializer, ExpenseUpdateRequestSerializer, ExpenseApprovalActionSerializer,
+    IncomeTypeSerializer, PaymentMethodSerializer,
 )
 from api.utils.pagination import StandardResultsSetPagination
 from api.utils.response_utils import api_response
+from api.views.views_base import BaseAdminViewSet
 
 
 # ============================================================
@@ -39,6 +44,87 @@ def serialize_validated_data(validated_data):
         else:
             serialized[key] = value
     return serialized
+
+
+# ============================================================
+# Income Type ViewSet
+# ============================================================
+
+@extend_schema(tags=["ACCOUNTING"])
+class IncomeTypeViewSet(
+    ListModelMixin,
+    RetrieveModelMixin,
+    GenericViewSet,
+):
+    """
+    Read-only Income Types (Master Data)
+
+    - Used in dropdowns (Income Create / Update forms)
+    - Only active income types are returned
+    - No create / update / delete via API
+    """
+
+    queryset = IncomeType.objects.filter(is_active=True)
+    serializer_class = IncomeTypeSerializer
+    permission_classes = [IsAdminOrAccountant]
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return api_response(
+            success=True,
+            message="Payment methods retrieved successfully",
+            data=serializer.data,
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+
+        return api_response(
+            success=True,
+            message="Payment methods retrieved successfully",
+            data=serializer.data,
+        )
+
+# ============================================================
+# Payment Mthod ViewSet
+# ============================================================
+
+@extend_schema(tags=["ACCOUNTING"])
+class PaymentMethodViewSet(
+    ListModelMixin,
+    RetrieveModelMixin,
+    GenericViewSet,
+):
+    """
+    Read-only Payment Methods (Master Data)
+    """
+
+    queryset = PaymentMethod.objects.filter(is_active=True)
+    serializer_class = PaymentMethodSerializer
+    permission_classes = [IsAdminOrAccountant]
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+
+        return api_response(
+            success=True,
+            message="Payment methods retrieved successfully",
+            data=serializer.data,
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+
+        return api_response(
+            success=True,
+            message="Payment method retrieved successfully",
+            data=serializer.data,
+        )
+
 
 
 # ============================================================

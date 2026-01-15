@@ -10,6 +10,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from api.models.models_auth import CustomUser
+from api.views.views_accounting import get
 
 
 class TeacherLoginTests(TestCase):
@@ -43,12 +44,12 @@ class TeacherLoginTests(TestCase):
         # Accept both envelope and flat responses
         if "tokens" in resp.data:
             return resp.data["tokens"]
-        return resp.data.get("data", {}).get("tokens")
+        return resp.data.get("tokens")
 
     def _extract_user(self, resp):
         if "user" in resp.data:
             return resp.data["user"]
-        return resp.data.get("data", {}).get("user")
+        return resp.data.get("user")
 
     def test_active_teacher_can_login(self):
         data = {"email": "teacher@example.com", "password": "securepass123"}
@@ -67,7 +68,7 @@ class TeacherLoginTests(TestCase):
         # Should be 400 or 401 depending on API's error mapping
         self.assertIn(response.status_code, (400, 401))
         # detail may be at top-level or under data
-        detail = response.data.get("detail") or response.data.get("data", {}).get("detail")
+        detail = response.data.get("detail") or response.data.get("detail")
         # DRF may return validation detail as a string or a list; normalize to text
         if isinstance(detail, list):
             detail_text = " ".join(str(d) for d in detail)
@@ -102,7 +103,7 @@ class TeacherProfileAndPasswordTests(TestCase):
             login_url, {"email": "profile_teacher@example.com", "password": "initialPass123"}, format="json"
         )
         self.assertEqual(resp.status_code, 200)
-        tokens = resp.data.get("tokens") or resp.data.get("data", {}).get("tokens")
+        tokens = resp.data.get("tokens") or resp.data.get("tokens")
         self.access = tokens["access"]
 
         # Set Authorization header for subsequent requests
@@ -119,10 +120,10 @@ class TeacherProfileAndPasswordTests(TestCase):
         if "email" in response.data:
             email_val = response.data["email"]
         else:
-            email_val = response.data.get("data", {}).get("user", {}).get("email")
+            email_val = response.data.get("email")
         # If still not present in the payload, fall back to DB value.
         if not email_val:
-            user = CustomUser.objects.get(pk=self.teacher.pk)
+            user = get(pk=self.teacher.pk)
             email_val = user.email
         self.assertEqual(email_val, "profile_teacher@example.com")
 
@@ -166,7 +167,7 @@ class TeacherProfileAndPasswordTests(TestCase):
         # API returns an envelope with message on incorrect old password
         self.assertEqual(response.status_code, 400)
         # message explains old password incorrect
-        msg = response.data.get("message") or response.data.get("data", {}).get("message")
+        msg = response.data.get("message") or response.data.get("message")
         self.assertIsNotNone(msg)
         self.assertIn("old", msg.lower())
 
@@ -199,7 +200,7 @@ class StudentAuthTests(TestCase):
         self.assertIn("message", resp.data)
 
         # User should be created but inactive
-        user = CustomUser.objects.get(email="student1@example.com")
+        user = get(email="student1@example.com")
         self.assertFalse(user.is_active)
 
         # Resend verification for inactive user should succeed
@@ -233,7 +234,7 @@ class StudentAuthTests(TestCase):
         # Login
         resp = self.client.post(self.login_url, {"email": "student2@example.com", "password": "Password123!"}, format="json")
         self.assertEqual(resp.status_code, 200)
-        tokens = resp.data.get("tokens") or resp.data.get("data", {}).get("tokens")
+        tokens = resp.data.get("tokens") or resp.data.get("tokens")
         self.assertIsNotNone(tokens)
         access = tokens["access"]
         refresh = tokens["refresh"]
@@ -247,7 +248,7 @@ class StudentAuthTests(TestCase):
             email_val = prof.data["email"]
         else:
             # tokens and user often live under data; UserProfileSerializer places email at data.email
-            email_val = prof.data.get("data", {}).get("email")
+            email_val = prof.data.get("email")
         self.assertEqual(email_val, "student2@example.com")
 
         # Update profile
@@ -312,7 +313,7 @@ class StudentAuthTests(TestCase):
         )
         login = self.client.post(self.login_url, {"email": "student4@example.com", "password": "OldPass1"}, format="json")
         self.assertEqual(login.status_code, 200)
-        access = login.data.get("tokens") or login.data.get("data", {}).get("tokens")
+        access = login.data.get("tokens") or login.data.get("tokens")
         access = access["access"]
 
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")

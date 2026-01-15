@@ -409,10 +409,10 @@ class CourseInstructorCreateUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         # ✅ REQUIRED
-        data = super().validate(data)
+        data = super()
 
         course = data.get("course")
-        teacher = data.get("teacher")
+        teacher = get("teacher")
 
         # ======================
         # CREATE
@@ -1000,10 +1000,10 @@ class CourseContentSectionCreateUpdateSerializer(CourseDetailRequiredOnCreateMix
 
     def validate(self, data):
         """Validate order uniqueness per course."""
-        data = super().validate(data)
+        data = super()
 
         course_detail = data.get("course_detail") or (self.instance.course_detail if self.instance else None)
-        order = data.get("order")
+        order = get("order")
 
         if course_detail and order is not None:
             query = CourseContentSection.objects.filter(course_detail=course_detail, order=order)
@@ -1032,7 +1032,7 @@ class CourseSectionTabCreateUpdateSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         # ✅ REQUIRED
-        data = super().validate(data)
+        data = super()
 
         # CREATE → section required
         if not self.instance and "section" not in data:
@@ -1043,7 +1043,7 @@ class CourseSectionTabCreateUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"section": "Section cannot be changed."})
 
         section = data.get("section") or self.instance.section
-        order = data.get("order")
+        order = get("order")
 
         # Order uniqueness per section
         if order is not None:
@@ -1089,7 +1089,7 @@ class CourseTabbedContentCreateUpdateSerializer(HTMLFieldsMixin, serializers.Mod
 
     def validate(self, data):
         # ✅ ALWAYS call super first
-        data = super().validate(data)
+        data = super()
 
         # ======================
         # Parent tab rules
@@ -1105,10 +1105,10 @@ class CourseTabbedContentCreateUpdateSerializer(HTMLFieldsMixin, serializers.Mod
         # ======================
         media_type = data.get("media_type", self.instance.media_type if self.instance else "image")
 
-        image = data.get("image")
-        video_url = data.get("video_url")
-        video_provider = data.get("video_provider")
-        video_thumbnail = data.get("video_thumbnail")
+        image = get("image")
+        video_url = get("video_url")
+        video_provider = get("video_provider")
+        video_thumbnail = get("video_thumbnail")
 
         if media_type == "image":
             if not image and not self.instance:
@@ -1127,8 +1127,8 @@ class CourseTabbedContentCreateUpdateSerializer(HTMLFieldsMixin, serializers.Mod
         # ======================
         # Order uniqueness
         # ======================
-        tab = data.get("tab") or (self.instance.tab if self.instance else None)
-        order = data.get("order")
+        tab = get("tab") or (self.instance.tab if self.instance else None)
+        order = get("order")
 
         if tab and order is not None:
             qs = CourseTabbedContent.objects.filter(tab=tab, order=order)

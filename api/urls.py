@@ -11,7 +11,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from api.views.views_academy_overview import AcademyOverviewViewSet
 from api.views.views_accounting import IncomeViewSet, IncomeUpdateRequestViewSet, ExpenseViewSet, \
-    ExpenseUpdateRequestViewSet
+    ExpenseUpdateRequestViewSet, PaymentMethodViewSet
 from api.views.views_auth import (
     AdminLoginView,
     AdminStudentViewSet,
@@ -90,7 +90,7 @@ from api.views.views_live_class_assignment_quiz import (
     QuizAttemptViewSet,
     QuizQuestionViewSet,
     QuizViewSet, StudentAssignmentViewSet, StudentQuizViewSet, StudentLiveClassViewSet, StudentResourceViewSet,
-    StudentAttendanceViewSet,
+    StudentAttendanceViewSet
 )
 from api.views.views_module import CourseModuleStudyPlanView
 from api.views.views_order import EnrollmentViewSet, OrderItemViewSet, OrderViewSet
@@ -108,7 +108,7 @@ from api.views.views_payment import (
 from api.views.views_policy import PolicyPageViewSet
 from api.views.views_seo import PageSEOViewSet
 from api.views.views_service import ContentSectionViewSet, PageServiceViewSet
-
+from api.views.views_accounting import IncomeTypeViewSet
 router = DefaultRouter()
 
 router.register(r"seo", PageSEOViewSet, basename="seo")
@@ -167,8 +167,6 @@ router.register(
     basename="assignment-submission",
 )
 
-
-
 # Quizzes (student + teacher)
 router.register(r"quizzes", QuizViewSet, basename="quiz")
 
@@ -181,6 +179,8 @@ router.register(r"quiz-attempts", QuizAttemptViewSet, basename="quiz-attempt")
 # Backwards-compatible alias for frontend: `/api/resources/` -> CourseResourceViewSet
 router.register(r"resources", CourseResourceViewSet, basename="resources")
 
+router.register(r"income-types", IncomeTypeViewSet, basename="income-type")
+router.register(r"income-payment-method", PaymentMethodViewSet, basename="income-payment-method")
 router.register(r'incomes', IncomeViewSet, basename='income')
 router.register(r'income-update-requests', IncomeUpdateRequestViewSet, basename='income-update-request')
 
@@ -192,6 +192,7 @@ router.register("student/quizzes", StudentQuizViewSet, basename="student-quizzes
 router.register("student/live-classes", StudentLiveClassViewSet, basename="student-live-classes")
 router.register("student/resources", StudentResourceViewSet, basename="student-resources")
 router.register("student/attendance", StudentAttendanceViewSet, basename="student-attendance")
+# router.register("income/income-type", IncomeTypeViewSet, basename="income_type")
 
 
 urlpatterns = router.urls + [
@@ -350,72 +351,6 @@ urlpatterns = router.urls + [
         CourseViewSet.as_view({"get": "retrieve"}),
         name="course-retrieve-slug",
     ),
-    # # =============================================
-    # # COURSE SYSTEM - ALL ENDPOINTS (Priority Order)
-    # # =============================================
-    # # Course Main - Custom Actions (must come BEFORE slug-based retrieve)
-    # path(
-    #     "courses/featured/",
-    #     CourseViewSet.as_view({"get": "featured"}),
-    #     name="course-featured",
-    # ),
-    # path(
-    #     "courses/home-categories/",
-    #     CourseViewSet.as_view({"get": "home_categories"}),
-    #     name="course-home-categories",
-    # ),
-    # path(
-    #     "courses/megamenu-nav/",
-    #     CourseViewSet.as_view({"get": "megamenu_nav"}),
-    #     name="course-megamenu-nav",
-    # ),
-    # path(
-    #     "courses/category/<slug:category_slug>/",
-    #     CourseViewSet.as_view({"get": "by_category"}),
-    #     name="course-by-category",
-    # ),
-    # # Course Main - List/Create
-    # path(
-    #     "courses/",
-    #     CourseViewSet.as_view({"get": "list", "post": "create"}),
-    #     name="course-list",
-    # ),
-    # # Course Main - Public slug-based routes (moved before UUID admin route)
-    # # These are placed before the UUID admin route so anonymous GETs to
-    # # /api/courses/{slug}/ match the public retrieve view instead of the
-    # # UUID-based admin route.
-    # path(
-    #     "courses/<slug:slug>/study-plan/<slug:module_slug>/",
-    #     CourseModuleStudyPlanView.as_view(),
-    #     name="course-module-study-plan",
-    # ),
-    # path(
-    #     "courses/<slug:slug>/modules/",
-    #     CourseViewSet.as_view({"get": "modules"}),
-    #     name="course-modules-by-slug",
-    # ),
-    # path(
-    #     "courses/<slug:slug>/",
-    #     CourseViewSet.as_view({"get": "retrieve"}),
-    #     name="course-retrieve-slug",
-    # ),
-    # Original slug-based routes (commented for history)
-    # path(
-    #     "courses/<slug:slug>/study-plan/<slug:module_slug>/",
-    #     CourseModuleStudyPlanView.as_view(),
-    #     name="course-module-study-plan",
-    # ),
-    # path(
-    #     "courses/<slug:slug>/modules/",
-    #     CourseViewSet.as_view({"get": "modules"}),
-    #     name="course-modules-by-slug",
-    # ),
-    # path(
-    #     "courses/<slug:slug>/",
-    #     CourseViewSet.as_view({"get": "retrieve"}),
-    #     name="course-retrieve-slug",
-    # ),
-    # Course Main - UUID operations (Update/Delete) (kept after public routes)
     path(
         "courses/<uuid:pk>/",
         CourseViewSet.as_view({"put": "update", "patch": "partial_update", "delete": "destroy"}),
@@ -563,4 +498,6 @@ urlpatterns = router.urls + [
     ),
     path("enroll-free/", enroll_free_course, name="enroll_free_course"),
     path("orders/verify/<str:order_number>", verify_invoice, name="verify_invoice"),
+
+
 ]

@@ -80,7 +80,7 @@ class AuthIntegrationTests(TestCase):
         # Login to get access token
         resp = self.client.post(self.login_url, {"email": user.email, "password": "StartPass1!"}, format="json")
         self.assertEqual(resp.status_code, 200)
-        tokens = resp.data.get("tokens") or resp.data.get("data", {}).get("tokens")
+        tokens = resp.data.get("tokens") or resp.data.get("tokens")
         access = tokens["access"]
 
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
