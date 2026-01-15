@@ -12,6 +12,9 @@ class PaymentMethod(TimeStampedModel):
     name = models.CharField(max_length=100, unique=True)
     is_active = models.BooleanField(default=True)
 
+    class Meta:
+        verbose_name_plural = "Income Payment Methods"
+
     def __str__(self):
         return self.name
 
