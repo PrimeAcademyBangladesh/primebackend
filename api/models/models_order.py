@@ -175,16 +175,37 @@ class Order(TimeStampedModel):
         return self.status in ["pending", "processing"]
 
     def mark_as_completed(self):
-        """Mark order as completed and create enrollments."""
-        if self.status != "completed":
-            self.status = "completed"
-            self.completed_at = timezone.now()
-            self.save()
+        if self.status == "completed":
+            return
 
-        # Create enrollments for all courses in this order.
+        self.status = "completed"
+        self.completed_at = timezone.now()
+        self.payment_status = "completed"
+        self.save(update_fields=["status", "completed_at", "payment_status"])
+
         for item in self.items.all():
-            Enrollment.objects.get_or_create(user=self.user, course=item.course, batch=item.batch,
-                                             defaults={"order": self})
+            Enrollment.objects.get_or_create(
+                user=self.user,
+                course=item.course,
+                batch=item.batch,
+                defaults={"order": self},
+            )
+
+    # def mark_as_completed(self):
+    #     """Mark order as completed and create enrollments."""
+    #     if self.status != "completed":
+    #         self.status = "completed"
+    #         self.completed_at = timezone.now()
+    #         self.save()
+    #
+    #     # Create enrollments for all courses in this order.
+    #     for item in self.items.all():
+    #         Enrollment.objects.get_or_create(
+    #             user=self.user,
+    #             course=item.course,
+    #             batch=item.batch,
+    #             defaults={"order": self}
+    #     )
 
     def get_installment_amount(self):
         """Calculate amount per installment."""
@@ -476,7 +497,7 @@ class OrderInstallment(TimeStampedModel):
 
         try:
             payment = PaymentTransaction.objects.get(gateway_transaction_id=gateway_transaction_id)
-            return (payment, False)  # Already exists
+            return payment, False  # Already exists
 
         except PaymentTransaction.DoesNotExist:
             internal_id = f"PAY-{installment.order.order_number}-{installment.installment_number}-{uuid.uuid4().hex[:8]}"
@@ -493,11 +514,11 @@ class OrderInstallment(TimeStampedModel):
                     request_id=request_id,
                     status="pending",
                 )
-                return (payment, True)  # New payment created
+                return payment, True  # New payment created
 
             except IntegrityError:
                 payment = PaymentTransaction.objects.get(gateway_transaction_id=gateway_transaction_id)
-                return (payment, False)
+                return payment, False
 
     def __str__(self):
         return f"Installment {self.installment_number}/{self.order.installment_plan} - {self.order.order_number}"

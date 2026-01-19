@@ -355,6 +355,7 @@ if os.getenv("ENVIRONMENT", "development") == "development":
 else:
     FRONTEND_URL = os.getenv("FRONTEND_URL", "")
 
+
 # Backend URL for webhooks
 BACKEND_URL = os.getenv("BACKEND_URL", SITE_BASE_URL)
 

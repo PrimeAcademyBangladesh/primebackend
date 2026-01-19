@@ -221,19 +221,29 @@ class OrderViewSet(BaseAdminViewSet):
     )
     @action(detail=True, methods=["post"], permission_classes=[IsStaff])
     def complete_order(self, request, pk=None):
-        """Complete an order and create enrollments (staff only)."""
         order = self.get_object()
 
         if order.status == "completed":
             return api_response(False, "Order is already completed", {}, status.HTTP_400_BAD_REQUEST)
 
-        # Mark as completed (this also creates enrollments)
+        # 🚨 CRITICAL GUARD FOR INSTALLMENTS
+        if order.is_installment and not order.is_fully_paid():
+            return api_response(
+                False,
+                "Installment order cannot be completed until all installments are paid.",
+                {
+                    "installments_paid": order.installments_paid,
+                    "installment_plan": order.installment_plan,
+                },
+                status.HTTP_400_BAD_REQUEST,
+            )
+
         order.mark_as_completed()
 
         serializer = OrderDetailSerializer(order)
         return api_response(
             True,
-            f"Order {order.order_number} completed successfully. Enrollments created.",
+            f"Order {order.order_number} completed successfully.",
             serializer.data,
         )
 
