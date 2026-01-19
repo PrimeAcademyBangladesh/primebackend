@@ -481,23 +481,17 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         if order.is_installment and order.installment_plan and order.installment_plan > 1:
             from datetime import timedelta
 
-            # Use Decimal for financial calculations
             total = order.total_amount
             plan = int(order.installment_plan)
 
-            # Base installment amount (rounded to 2 decimals)
             base_amount = (total / plan).quantize(Decimal("0.01"))
-
-            # Build amounts list ensuring sum matches total (adjust last installment)
             amounts = [base_amount for _ in range(plan)]
-            sum_amounts = sum(amounts)
-            if sum_amounts != total:
-                # Adjust last installment to absorb rounding difference
+            if sum(amounts) != total:
                 amounts[-1] = (total - sum(amounts[:-1])).quantize(Decimal("0.01"))
 
-            # Create installments spaced ~30 days apart starting from now
             now = timezone.now()
             first_due = now + timedelta(days=30)
+
             for idx in range(plan):
                 due_date = first_due + timedelta(days=30 * idx)
                 OrderInstallment.objects.create(
@@ -507,16 +501,10 @@ class OrderCreateSerializer(serializers.ModelSerializer):
                     due_date=due_date,
                 )
 
-            # Set next_installment_date to first pending installment
-            try:
-                next_installment = order.installment_payments.filter(status="pending").order_by("installment_number").first()
-                if next_installment:
-                    order.next_installment_date = next_installment.due_date
-            except Exception:
-                order.next_installment_date = None
-
+            # ✅ FIX: DO NOT set next_installment_date yet
             order.installments_paid = 0
-            order.save()
+            order.next_installment_date = None
+            order.save(update_fields=["installments_paid", "next_installment_date"])
 
         # Increment coupon usage if applicable
         if coupon:
