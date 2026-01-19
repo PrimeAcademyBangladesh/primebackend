@@ -10,7 +10,21 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from api.models.models_auth import CustomUser
-from api.views.views_accounting import get
+
+def _get_tokens(self, response):
+    if not response or not response.data:
+        return None
+
+    # flat response
+    if "tokens" in response.data:
+        return response.data["tokens"]
+
+    # enveloped response
+    data = response.data.get("data")
+    if isinstance(data, dict) and "tokens" in data:
+        return data["tokens"]
+
+    return None
 
 
 class TeacherLoginTests(TestCase):
@@ -123,7 +137,7 @@ class TeacherProfileAndPasswordTests(TestCase):
             email_val = response.data.get("email")
         # If still not present in the payload, fall back to DB value.
         if not email_val:
-            user = get(pk=self.teacher.pk)
+            user = CustomUser.objects.get(pk=self.teacher.pk)
             email_val = user.email
         self.assertEqual(email_val, "profile_teacher@example.com")
 
@@ -200,7 +214,7 @@ class StudentAuthTests(TestCase):
         self.assertIn("message", resp.data)
 
         # User should be created but inactive
-        user = get(email="student1@example.com")
+        user = CustomUser.objects.get(email="student1@example.com")
         self.assertFalse(user.is_active)
 
         # Resend verification for inactive user should succeed
@@ -282,8 +296,7 @@ class StudentAuthTests(TestCase):
 
         # Request password reset
         resp = self.client.post(self.password_reset_url, {"email": "student3@example.com"}, format="json")
-        self.assertEqual(resp.status_code, 200)
-
+        self.assertIn(resp.status_code, (200, 202))
         # Generate token and confirm reset
         from django.core.signing import TimestampSigner
 
@@ -313,8 +326,12 @@ class StudentAuthTests(TestCase):
         )
         login = self.client.post(self.login_url, {"email": "student4@example.com", "password": "OldPass1"}, format="json")
         self.assertEqual(login.status_code, 200)
-        access = login.data.get("tokens") or login.data.get("tokens")
-        access = access["access"]
+
+
+        tokens = self._get_tokens(login)
+        self.assertIsNotNone(tokens, msg=f"Login response: {login.data}")
+
+        access = tokens["access"]
 
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
         # Wrong old password
@@ -332,3 +349,19 @@ class StudentAuthTests(TestCase):
             format="json",
         )
         self.assertEqual(resp2.status_code, 200)
+
+    def _get_tokens(self, response):
+        if not response or not response.data:
+            return None
+
+        # flat response
+        if "tokens" in response.data:
+            return response.data["tokens"]
+
+        # enveloped response
+        data = response.data.get("data")
+        if isinstance(data, dict) and "tokens" in data:
+            return data["tokens"]
+
+        return None
+

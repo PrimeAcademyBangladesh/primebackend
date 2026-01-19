@@ -601,7 +601,7 @@ class PasswordResetView(APIView):
         email = serializer.validated_data["email"]
 
         try:
-            user = get(email=email)
+            user = CustomUser.objects.get(email=email)
         except CustomUser.DoesNotExist:
             # To avoid user enumeration, return success even if email not found
             return api_response(True, "Password reset email sent to your registered email.", {})
@@ -660,7 +660,9 @@ class PasswordResetConfirmView(APIView):
         try:
             # Unsigned value gives the user PK if token is valid and not expired
             user_pk = signer.unsign(token, max_age=60 * 60 * 24)  # 1 day expiry
-            user = get(pk=user_pk)
+            user = CustomUser.objects.filter(pk=user_pk).first()
+            if not user:
+                return api_response(False, "Invalid or expired token", {}, 400)
             # Attempt to extract token creation timestamp. TimestampSigner embeds
             # a base36 timestamp as part of the signature. We try to parse it
             # by splitting from the right and converting base36 -> int.

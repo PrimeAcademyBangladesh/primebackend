@@ -25,6 +25,13 @@ class Order(TimeStampedModel):
         ("cancelled", "Cancelled"),
     ]
 
+    PAYMENT_STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("partial", "Partial"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    ]
+
     PAYMENT_METHOD_CHOICES = [
         ("bkash", "bKash"),
         ("nagad", "Nagad"),
@@ -90,8 +97,13 @@ class Order(TimeStampedModel):
         max_length=50, choices=PAYMENT_METHOD_CHOICES, blank=True, help_text="Payment method used"
     )
     payment_id = models.CharField(max_length=255, blank=True, help_text="External payment gateway transaction ID")
-    payment_status = models.CharField(max_length=20, blank=True, help_text="Payment gateway status response")
-
+    payment_status = models.CharField(
+        max_length=20,
+        choices=PAYMENT_STATUS_CHOICES,
+        default="pending",
+        db_index=True,
+        help_text="Normalized payment status"
+    )
     completed_at = models.DateTimeField(null=True, blank=True, help_text="When the order was completed")
     cancelled_at = models.DateTimeField(null=True, blank=True, help_text="When the order was cancelled")
 
@@ -138,11 +150,6 @@ class Order(TimeStampedModel):
         if not self.order_number:
             self.order_number = self._generate_order_number()
 
-        # Auto-set completed_at when status changes to completed
-        if self.status == "completed" and not self.completed_at:
-            self.completed_at = timezone.now()
-
-        # Auto-set cancelled_at when status changes to cancelled
         if self.status == "cancelled" and not self.cancelled_at:
             self.cancelled_at = timezone.now()
 
@@ -175,37 +182,25 @@ class Order(TimeStampedModel):
         return self.status in ["pending", "processing"]
 
     def mark_as_completed(self):
-        if self.status == "completed":
-            return
-
-        self.status = "completed"
-        self.completed_at = timezone.now()
-        self.payment_status = "completed"
-        self.save(update_fields=["status", "completed_at", "payment_status"])
+        if self.status != "completed":
+            self.status = "completed"
+            self.completed_at = timezone.now()
+            self.payment_status = "completed"
+            self.save(update_fields=["status", "completed_at", "payment_status"])
 
         for item in self.items.all():
-            Enrollment.objects.get_or_create(
+            enrollment, created = Enrollment.objects.get_or_create(
                 user=self.user,
-                course=item.course,
                 batch=item.batch,
-                defaults={"order": self},
+                defaults={
+                    "course": item.course,
+                    "order": self,
+                },
             )
 
-    # def mark_as_completed(self):
-    #     """Mark order as completed and create enrollments."""
-    #     if self.status != "completed":
-    #         self.status = "completed"
-    #         self.completed_at = timezone.now()
-    #         self.save()
-    #
-    #     # Create enrollments for all courses in this order.
-    #     for item in self.items.all():
-    #         Enrollment.objects.get_or_create(
-    #             user=self.user,
-    #             course=item.course,
-    #             batch=item.batch,
-    #             defaults={"order": self}
-    #     )
+            if enrollment.order_id != self.id:
+                enrollment.order = self
+                enrollment.save(update_fields=["order"])
 
     def get_installment_amount(self):
         """Calculate amount per installment."""
@@ -370,57 +365,15 @@ class OrderInstallment(TimeStampedModel):
             # Refresh and check if fully paid
             self.order.refresh_from_db(fields=["installments_paid"])
 
+            if not self.order.is_fully_paid():
+                Order.objects.filter(id=self.order.id).update(
+                    payment_status="partial"
+                )
+
             if self.order.is_fully_paid():
                 self.order.mark_as_completed()
             else:
                 self._update_next_installment_date()
-
-    # @transaction.atomic
-    # def mark_as_paid(self, payment_id='', payment_method=''):
-    #     """Mark this installment as paid and update order."""
-
-    #     # Validate payment_id is not empty if updating
-    #     if not payment_id:
-    #         raise ValueError("payment_id cannot be empty")
-
-    #     # Check for duplicate payment IDs (security: prevent double-charging)
-    #     if OrderInstallment.objects.filter(
-    #         payment_id=payment_id
-    #     ).exclude(id=self.id).exists():
-    #         raise ValueError(f"Duplicate payment_id: {payment_id}")
-
-    #     if self.status != 'paid':
-    #         self.status = 'paid'
-    #         self.paid_at = timezone.now()
-    #         self.payment_id = payment_id
-    #         self.payment_method = payment_method
-    #         self.save()
-
-    #         # Update order's installments_paid count
-    #         # self.order.installments_paid += 1 # Wrong way
-    #         self.order.installments_paid = F('installments_paid') + 1
-    #         self.order.save(update_fields=['installments_paid'])
-
-    #         # Refresh to get actual value for subsequent checks
-    #         self.order.refresh_from_db(fields=['installments_paid'])
-
-    #         # Check if this was the last installment
-    #         if self.order.is_fully_paid():
-    #             self.order.mark_as_completed()
-    #         else:
-    #             # Update next installment date
-    #             try:
-    #                 next_installment = OrderInstallment.objects.filter(
-    #                     order=self.order,
-    #                     status='pending'
-    #                 ).order_by('installment_number').first()
-
-    #                 if next_installment:
-    #                     self.order.next_installment_date = next_installment.due_date
-    #             except OrderInstallment.DoesNotExist:
-    #                 self.order.next_installment_date = None
-
-    #             self.order.save()
 
     def check_overdue(self):
         """Check if installment is overdue and update status."""

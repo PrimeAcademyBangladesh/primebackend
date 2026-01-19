@@ -43,17 +43,27 @@ class SSLCommerzPayment:
 
         payment_amount = amount if amount is not None else order.total_amount
 
+        # 🔥 INSTALLMENT DETECTION (READ-ONLY)
+        installment = None
+        if order.is_installment:
+            installment = (
+                order.installment_payments
+                .filter(status="pending")
+                .order_by("installment_number")
+                .first()
+            )
+
         post_data = {
             # Store credentials
             "store_id": self.store_id,
             "store_passwd": self.store_password,
 
-            # Transaction
+            # 🔥 TRANSACTION (MUST MATCH WEBHOOK LOOKUP)
+            "tran_id": order.order_number,
             "total_amount": str(payment_amount),
             "currency": order.currency,
-            "tran_id": order.order_number,
 
-            # Backend URLs (VERY IMPORTANT)
+            # Backend URLs
             "success_url": f"{settings.BACKEND_URL}/api/payment/success/",
             "fail_url": f"{settings.BACKEND_URL}/api/payment/fail/",
             "cancel_url": f"{settings.BACKEND_URL}/api/payment/cancel/",
@@ -73,15 +83,17 @@ class SSLCommerzPayment:
             "product_category": "Education",
             "product_profile": "digital",
 
-            # REQUIRED FIELDS
+            # Required fields
             "shipping_method": "NO",
-            "num_of_item": order.get_total_items(),
+            "num_of_item": str(order.get_total_items()),
 
-            # ⭐ CRITICAL: Custom fields (USED BY WEBHOOK)
-            "value_a": str(order.id),          # order_id
-            "value_b": str(order.user.id),     # user_id
-            "value_c": "full",                 # payment type
-            "value_d": order.order_number,     # order number
+            # 🔥 CUSTOM META (VERY IMPORTANT)
+            "value_a": str(order.id),                               # order_id
+            "value_b": str(order.user.id),                          # user_id
+            "value_c": "installment" if order.is_installment else "full",
+            "value_d": order.order_number,                          # order_number
+            "value_e": str(installment.installment_number) if installment else "",
+            "value_f": str(payment_amount),
         }
 
         try:
@@ -105,7 +117,7 @@ class SSLCommerzPayment:
             )
 
         except requests.Timeout:
-            raise SSLCommerzError("SSLCommerz timeout")
+            raise SSLCommerzError("SSLCommerz session timeout")
         except requests.RequestException as e:
             raise SSLCommerzError(f"Network error: {str(e)}")
 
@@ -152,16 +164,29 @@ class SSLCommerzPayment:
             return False, {"error": str(e)}
 
     # ======================================================
-    # VERIFY WEBHOOK SIGNATURE (OPTIONAL)
+    # VERIFY WEBHOOK SIGNATURE (OPTIONAL BUT RECOMMENDED)
     # ======================================================
     def verify_webhook_signature(self, post_data: Dict) -> bool:
+        """
+        Verify IPN signature from SSLCommerz.
+        """
+
         verify_sign = post_data.get("verify_sign")
         verify_key = post_data.get("verify_key")
 
         if not verify_sign or not verify_key:
             return False
 
-        raw = f"{self.store_password}{verify_key}"
+        keys = verify_key.split(",")
+        data = {}
+
+        for key in keys:
+            if key in post_data:
+                data[key] = post_data[key]
+
+        data["store_passwd"] = self.store_password
+
+        raw = "&".join(f"{k}={data[k]}" for k in sorted(data))
         expected = hashlib.md5(raw.encode()).hexdigest()
 
         return verify_sign == expected
