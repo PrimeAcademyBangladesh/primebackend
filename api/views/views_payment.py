@@ -162,33 +162,21 @@ def payment_webhook(request):
     )
 
 
-
 @csrf_exempt
 def payment_success_redirect(request):
-    import logging
-    logger = logging.getLogger("payment")
-
-    logger.warning("=== PAYMENT SUCCESS HIT ===")
-
-    from django.http import HttpResponseRedirect, HttpResponseForbidden
+    from django.http import HttpResponseRedirect
     from django.conf import settings
 
-    if request.method == "POST":
-        logger.warning("POST DATA: %s", dict(request.POST))
+    tran_id = (
+        request.POST.get("tran_id")
+        if request.method == "POST"
+        else request.GET.get("tran_id")
+    )
 
-        if request.POST.get("store_id") != settings.SSLCOMMERZ_STORE_ID:
-            logger.error("INVALID STORE ID")
-            return HttpResponseForbidden("Invalid request")
+    return HttpResponseRedirect(
+        f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}"
+    )
 
-        tran_id = request.POST.get("tran_id")
-        logger.warning("REDIRECTING TO FRONTEND: %s", tran_id)
-
-        return HttpResponseRedirect(
-            f"{settings.FRONTEND_URL}/payment/success?tran_id={tran_id}"
-        )
-
-    logger.warning("GET SUCCESS REDIRECT")
-    return HttpResponseRedirect(settings.FRONTEND_URL)
 
 
 # @csrf_exempt
