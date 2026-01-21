@@ -181,6 +181,7 @@ class OrderListSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     payment_method_display = serializers.CharField(source="get_payment_method_display", read_only=True)
     items_count = serializers.SerializerMethodField()
+    display_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -193,6 +194,7 @@ class OrderListSerializer(serializers.ModelSerializer):
             "status_display",
             "total_amount",
             "currency",
+            'display_amount',
             "payment_method",
             "payment_method_display",
             "items_count",
@@ -215,6 +217,9 @@ class OrderListSerializer(serializers.ModelSerializer):
         """Get total number of items."""
         return obj.get_total_items()
 
+    def get_display_amount(self, obj):
+        return f"{obj.currency or 'BDT'} {obj.total_amount:.2f}"
+
 
 class OrderDetailSerializer(serializers.ModelSerializer):
     """Detailed serializer for orders with all items."""
@@ -226,6 +231,8 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     coupon_code_display = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
+    display_amount = serializers.SerializerMethodField()
+    installment_summary = serializers.SerializerMethodField()
 
     # Installment fields
     installment_amount = serializers.SerializerMethodField()
@@ -249,6 +256,8 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "tax_amount",
             "total_amount",
             "currency",
+            "display_amount",
+            "installment_summary",
             "coupon",
             "coupon_code",
             "coupon_code_display",
@@ -323,9 +332,26 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         """Get remaining amount to be paid."""
         return obj.get_remaining_amount()
 
+    def get_display_amount(self, obj):
+        currency = obj.currency or "BDT"
+        return f"{currency} {obj.total_amount:.2f}"
+
     def get_is_fully_paid(self, obj):
         """Check if order is fully paid."""
         return obj.is_fully_paid()
+
+    def get_installment_summary(self, obj):
+        if not obj.is_installment:
+            return None
+
+        total = obj.installment_plan or 0
+        paid = obj.installments_paid or 0
+
+        return {
+            "paid": paid,
+            "total": total,
+            "remaining": max(total - paid, 0),
+        }
 
 
 class OrderCreateSerializer(serializers.ModelSerializer):
@@ -462,22 +488,22 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        """Create order with items."""
         items_data = validated_data.pop("items")
         coupon = validated_data.get("coupon")
 
-        # Capture coupon code
         if coupon:
             validated_data["coupon_code"] = coupon.code
 
-        # Create order
         order = Order.objects.create(**validated_data)
 
-        # Create order items
+        # FIX #1
+        order.status = "processing"
+        order.payment_status = "pending"
+        order.save(update_fields=["status", "payment_status"])
+
         for item_data in items_data:
             OrderItem.objects.create(order=order, **item_data)
 
-        # If installment plan selected, create OrderInstallment records
         if order.is_installment and order.installment_plan and order.installment_plan > 1:
             from datetime import timedelta
 
@@ -501,12 +527,10 @@ class OrderCreateSerializer(serializers.ModelSerializer):
                     due_date=due_date,
                 )
 
-            # ✅ FIX: DO NOT set next_installment_date yet
             order.installments_paid = 0
             order.next_installment_date = None
             order.save(update_fields=["installments_paid", "next_installment_date"])
 
-        # Increment coupon usage if applicable
         if coupon:
             coupon.increment_usage()
 

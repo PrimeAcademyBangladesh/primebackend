@@ -181,26 +181,41 @@ class Order(TimeStampedModel):
         """Check if order can be cancelled."""
         return self.status in ["pending", "processing"]
 
-    def mark_as_completed(self):
-        if self.status != "completed":
-            self.status = "completed"
-            self.completed_at = timezone.now()
-            self.payment_status = "completed"
-            self.save(update_fields=["status", "completed_at", "payment_status"])
-
-        for item in self.items.all():
-            enrollment, created = Enrollment.objects.get_or_create(
+    def _create_enrollments(self):
+        for item in self.items.select_related("course", "batch"):
+            enrollment, _ = Enrollment.objects.get_or_create(
                 user=self.user,
                 batch=item.batch,
                 defaults={
                     "course": item.course,
                     "order": self,
+                    "is_active": True,
                 },
             )
 
             if enrollment.order_id != self.id:
                 enrollment.order = self
                 enrollment.save(update_fields=["order"])
+
+    @transaction.atomic
+    def mark_as_completed(self):
+        """
+        Finalize order and create enrollments.
+        This is the ONLY place that should complete an order.
+        """
+
+        # 🔒 Idempotent guard
+        if self.status == "completed":
+            return
+
+        # ✅ Force completion state
+        self.status = "completed"
+        self.payment_status = "completed"
+        self.completed_at = timezone.now()
+        self.save(update_fields=["status", "payment_status", "completed_at"])
+
+        # ✅ Create enrollments (idempotent)
+        self._create_enrollments()
 
     def get_installment_amount(self):
         """Calculate amount per installment."""
@@ -231,6 +246,11 @@ class Order(TimeStampedModel):
         if self.is_installment:
             return self.installments_paid >= self.installment_plan
         return self.status == "completed"
+
+    def ensure_enrollments_created(self):
+        if Enrollment.objects.filter(order=self).exists():
+            return
+        self._create_enrollments()
 
     def __str__(self):
         return f"Order {self.order_number} - {self.user.get_full_name or self.user.email}"
@@ -334,46 +354,30 @@ class OrderInstallment(TimeStampedModel):
 
     @transaction.atomic
     def mark_as_paid(self, payment_id="", payment_method="", gateway_transaction_id=""):
-        """Mark installment as paid with duplicate control."""
+        print("🔥 mark_as_paid CALLED", self.id)
+        if self.status == "paid":
+            return self.order.installments_paid
 
-        # Validate inputs
-        if not payment_id or not isinstance(payment_id, str):
-            raise ValueError("payment_id must be non-empty string")
+        self.status = "paid"
+        self.paid_at = timezone.now()
+        self.payment_id = payment_id
+        self.payment_method = payment_method
+        self.save(update_fields=["status", "paid_at", "payment_id", "payment_method"])
 
-        payment_id = payment_id.strip()
-        if not payment_id or len(payment_id) > 255:
-            raise ValueError("Invalid payment_id")
+        Order.objects.filter(id=self.order_id).update(
+            installments_paid=F("installments_paid") + 1
+        )
 
-        if not gateway_transaction_id:
-            raise ValueError("gateway_transaction_id is required")
+        self.order.refresh_from_db(fields=["installments_paid"])
 
-        # Check duplicate
-        if OrderInstallment.objects.filter(payment_id=payment_id).exclude(id=self.id).exists():
-            raise ValueError(f"Duplicate payment_id: {payment_id}")
+        if self.order.installments_paid == 1:
+            self.order.ensure_enrollments_created()
 
-        # Update installment
-        if self.status != "paid":
-            self.status = "paid"
-            self.paid_at = timezone.now()
-            self.payment_id = payment_id
-            self.payment_method = payment_method
-            self.save(update_fields=["status", "paid_at", "payment_id", "payment_method"])
+        if not self.order.is_fully_paid():
+            Order.objects.filter(id=self.order_id).update(payment_status="partial")
+            self._update_next_installment_date()
 
-            # Atomic increment
-            Order.objects.filter(id=self.order.id).update(installments_paid=F("installments_paid") + 1)
-
-            # Refresh and check if fully paid
-            self.order.refresh_from_db(fields=["installments_paid"])
-
-            if not self.order.is_fully_paid():
-                Order.objects.filter(id=self.order.id).update(
-                    payment_status="partial"
-                )
-
-            if self.order.is_fully_paid():
-                self.order.mark_as_completed()
-            else:
-                self._update_next_installment_date()
+        return self.order.installments_paid
 
     def check_overdue(self):
         """Check if installment is overdue and update status."""
@@ -724,156 +728,4 @@ class Enrollment(TimeStampedModel):
             return f"{self.user.get_full_name or self.user.email} enrolled in {self.batch.get_display_name()}"
         return f"{self.user.get_full_name or self.user.email} enrolled in {self.course.title}"
 
-# class Enrollment(TimeStampedModel):
-#     """Track user's purchased courses and progress.
-#
-#     IMPORTANT: Students enroll in CourseBatch (not Course directly).
-#     The 'course' field is maintained for backward compatibility and quick lookups,
-#     but 'batch' is the primary enrollment reference.
-#     """
-#
-#     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-#     user = models.ForeignKey(
-#         "api.CustomUser",  # Use string reference
-#         on_delete=models.CASCADE,
-#         related_name="enrollments",
-#         help_text="Student enrolled in the course",
-#     )
-#
-#     # NEW: Primary enrollment reference (batch-based enrollment)
-#     batch = models.ForeignKey(
-#         "api.CourseBatch",
-#         on_delete=models.CASCADE,
-#         related_name="enrollments",
-#         null=True,
-#         blank=True,
-#         help_text="Course batch the student is enrolled in (primary reference)",
-#     )
-#
-#     # LEGACY: Kept for backward compatibility and quick lookups
-#     course = models.ForeignKey(
-#         "api.Course",  # Use string reference
-#         on_delete=models.CASCADE,
-#         related_name="enrollments",
-#         help_text="Course the student is enrolled in (auto-set from batch)",
-#     )
-#
-#     # ✨ NEW: Course-specific student ID
-#     course_student_id = models.CharField(
-#         max_length=50,
-#         unique=True,
-#         editable=False,
-#         db_index=True,
-#         help_text="Course-specific ID: [COURSE_PREFIX]-YYYY-XXX (e.g., CSE-2026-001)"
-#     )
-#
-#     order = models.ForeignKey(
-#         Order,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True,
-#         related_name="enrollments",
-#         help_text="Order that created this enrollment (if applicable)",
-#     )
-#
-#     # enrolled_at inherited from created_at in TimeStampedModel
-#     is_active = models.BooleanField(default=True, db_index=True, help_text="Whether enrollment is currently active")
-#     completed_at = models.DateTimeField(null=True, blank=True, help_text="When the student completed the course")
-#     certificate_issued = models.BooleanField(default=False, help_text="Whether certificate has been issued")
-#     last_accessed = models.DateTimeField(null=True, blank=True, help_text="Last time student accessed this course")
-#
-#     # Progress tracking
-#     progress_percentage = models.DecimalField(
-#         max_digits=5,
-#         decimal_places=2,
-#         default=Decimal("0.00"),
-#         validators=[MinValueValidator(0), MaxValueValidator(100)],
-#     )
-#
-#     class Meta(TimeStampedModel.Meta):
-#         verbose_name = "Enrollment"
-#         verbose_name_plural = "Enrollments"
-#         unique_together = [("user", "batch")]
-#         ordering = ["-created_at"]
-#         indexes = [
-#             models.Index(fields=["user", "is_active"]),
-#             models.Index(fields=["course", "is_active"]),
-#             models.Index(fields=["batch", "is_active"]),
-#             models.Index(fields=["is_active", "created_at"]),
-#         ]
-#
-#     def save(self, *args, **kwargs):
-#         """Auto-set course from batch if batch is provided."""
-#         if self.batch and not self.course_id:
-#             self.course = self.batch.course
-#         super().save(*args, **kwargs)
-#
-#         # Update batch enrolled count after save (in a separate transaction)
-#         if self.batch_id:
-#             from api.models.models_course import CourseBatch
-#
-#             try:
-#                 batch = CourseBatch.objects.get(pk=self.batch_id)
-#                 batch.update_enrolled_count()
-#             except CourseBatch.DoesNotExist:
-#                 pass
-#
-#         # Generate course-specific ID on first save
-#         if not self.course_student_id:
-#             self.course_student_id = self._generate_course_student_id()
-#         super().save(*args, **kwargs)
-#
-#     def _generate_course_student_id(self):
-#         """Generate CSE-2026-001 style ID"""
-#         year = self.enrolled_at.year if self.enrolled_at else timezone.now().year
-#         course_prefix = self.course.course_prefix.upper().strip()
-#         base_prefix = f"{course_prefix}-{year}-"
-#
-#         with transaction.atomic():
-#             # Count existing enrollments for this course in this year
-#             existing_count = Enrollment.objects.filter(
-#                 course_student_id__startswith=base_prefix
-#             ).select_for_update().count()
-#
-#             new_sequence = existing_count + 1
-#             sequence_str = str(new_sequence).zfill(3)
-#             course_student_id = f"{base_prefix}{sequence_str}"
-#
-#             # Ensure uniqueness
-#             while Enrollment.objects.filter(course_student_id=course_student_id).exists():
-#                 new_sequence += 1
-#                 sequence_str = str(new_sequence).zfill(3)
-#                 course_student_id = f"{base_prefix}{sequence_str}"
-#
-#             return course_student_id
-#
-#     def update_last_accessed(self):
-#         """Update last accessed timestamp."""
-#         self.last_accessed = timezone.now()
-#         self.save(update_fields=["last_accessed"])
-#
-#     def mark_as_completed(self):
-#         """Mark enrollment as completed."""
-#         if not self.completed_at:
-#             self.completed_at = timezone.now()
-#             self.progress_percentage = Decimal("100.00")
-#             self.save(update_fields=["completed_at", "progress_percentage"])
-#
-#     def is_completed(self):
-#         """Check if course is completed."""
-#         return self.progress_percentage == Decimal("100.00") or self.completed_at is not None
-#
-#     @property
-#     def enrolled_at(self):
-#         """Alias for created_at for backward compatibility."""
-#         return self.created_at
-#
-#     @property
-#     def global_student_id(self):
-#         """Get global PA-YYYY-XXX ID"""
-#         return getattr(self.student, 'student_id', 'N/A')
-#
-#     def __str__(self):
-#         if self.batch:
-#             return f"{self.user.get_full_name or self.user.email} enrolled in {self.batch.get_display_name()}"
-#         return f"{self.user.get_full_name or self.user.email} enrolled in {self.course.title}"
+

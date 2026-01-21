@@ -286,6 +286,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://45.85.250.92",  # Production frontend
     "http://45.85.250.92:8080",  # Production API (if needed for same-origin requests)
     "https://prime-academy-bd.vercel.app",  # Production frontend (Vercel)
+    'https://magaret-membraneless-sherilyn.ngrok-free.dev'
 ]
 
 # Allow credentials for session-based cart (required for guest users)
@@ -307,6 +308,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://45.85.250.92:8080",  # Production API
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://*.ngrok-free.dev",
     "https://prime-academy-bd.vercel.app",  # Production frontend (Vercel)
 ]
 

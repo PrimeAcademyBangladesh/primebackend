@@ -11,10 +11,10 @@ from rest_framework.permissions import AllowAny
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
-from api.models.models_order import Order
+from api.models.models_order import Order, PaymentTransaction
 from api.utils.response_utils import api_response
 from api.utils.sslcommerz import SSLCommerzPayment
-
+from django.utils import timezone
 
 @extend_schema(
     summary="Initiate payment",
@@ -29,105 +29,64 @@ class PaymentInitiateView(APIView):
     def post(self, request):
         order_id = request.data.get("order_id")
         if not order_id:
-            return api_response(
-                False,
-                "Order ID is required",
-                {},
-                status.HTTP_400_BAD_REQUEST,
-            )
+            return api_response(False, "Order ID is required", {}, status.HTTP_400_BAD_REQUEST)
 
-        # 🔐 Ownership + existence check
         try:
             order = Order.objects.get(id=order_id, user=request.user)
         except Order.DoesNotExist:
-            return api_response(
-                False,
-                "Order not found",
-                {},
-                status.HTTP_404_NOT_FOUND,
-            )
+            return api_response(False, "Order not found", {}, status.HTTP_404_NOT_FOUND)
 
-        # 🔐 Status guard
-        if order.status not in ("pending", "processing"):
-            return api_response(
-                False,
-                f"Order cannot be paid (status: {order.status})",
-                {},
-                status.HTTP_400_BAD_REQUEST,
-            )
+        if order.status == "completed":
+            return api_response(False, "Order already completed", {}, status.HTTP_400_BAD_REQUEST)
 
-        # --------------------------------------------------
-        # 💰 Determine payable amount (FULL vs INSTALLMENT)
-        # --------------------------------------------------
-        amount = order.total_amount
-        next_installment = None
+        if order.status == "processing" and order.payment_id:
+            return api_response(False, "Payment already in progress", {}, status.HTTP_400_BAD_REQUEST)
 
+        # ==================================================
+        # ✅ FIX: INSTALLMENT vs FULL AMOUNT
+        # ==================================================
         if order.is_installment:
-            next_installment = (
+            installment = (
                 order.installment_payments
                 .filter(status="pending")
                 .order_by("installment_number")
                 .first()
             )
+            if not installment:
+                return api_response(False, "No pending installment", {}, status.HTTP_400_BAD_REQUEST)
 
-            # 🔒 GUARD: installment already completed
-            if not next_installment:
-                return api_response(
-                    False,
-                    "All installments are already paid",
-                    {
-                        "order_number": order.order_number,
-                        "installments_paid": order.installments_paid,
-                        "installment_plan": order.installment_plan,
-                    },
-                    status.HTTP_400_BAD_REQUEST,
-                )
+            amount = installment.amount
+        else:
+            amount = order.total_amount
 
-            amount = next_installment.amount
-
-        # --------------------------------------------------
-        # 🚀 Initiate SSLCommerz session
-        # --------------------------------------------------
+        # ==================================================
+        # 🚀 INITIATE SSLCommerz SESSION
+        # ==================================================
         gateway = SSLCommerzPayment()
-
         try:
             session = gateway.init_payment(order, amount=amount)
         except Exception as e:
-            return api_response(
-                False,
-                str(e),
-                {},
-                status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            return api_response(False, str(e), {}, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # --------------------------------------------------
-        # 🧾 Mark order as processing (NO completion here)
-        # --------------------------------------------------
+        # ==================================================
+        # 🧾 UPDATE ORDER STATE
+        # ==================================================
         order.status = "processing"
         order.payment_method = "ssl_commerce"
 
-        # Optional: store session key for debugging / support
         if session.get("sessionkey"):
-            order.payment_id = session.get("sessionkey")
+            order.notes = f"SSLCommerz session: {session.get('sessionkey')}"
 
-        order.save(update_fields=["status", "payment_method", "payment_id"])
+        order.save(update_fields=["status", "payment_method", "notes"])
 
-        # --------------------------------------------------
-        # ✅ Response to frontend
-        # --------------------------------------------------
         return api_response(
             True,
             "Payment session initialized",
             {
                 "payment_url": session.get("GatewayPageURL"),
-                "session_key": session.get("sessionkey"),
                 "order_number": order.order_number,
                 "amount": str(amount),
                 "currency": order.currency,
-                "is_installment": order.is_installment,
-                "installment_number": (
-                    next_installment.installment_number if next_installment else None
-                ),
             },
             status.HTTP_200_OK,
         )
@@ -143,16 +102,6 @@ class PaymentInitiateView(APIView):
 @permission_classes([AllowAny])
 @transaction.atomic
 def payment_webhook(request):
-    """
-    IDEMPOTENT SSLCommerz IPN HANDLER
-
-    Guarantees:
-    - Safe for duplicate calls
-    - No double installment payment
-    - No duplicate enrollment
-    - Fast 200 OK on retries
-    """
-
     tran_id = request.data.get("tran_id")
     val_id = request.data.get("val_id")
     amount = request.data.get("amount")
@@ -161,46 +110,17 @@ def payment_webhook(request):
     if not tran_id or not val_id or not amount:
         return api_response(False, "Missing parameters", {}, 400)
 
-    # 🔒 Lock order row (prevents race conditions)
     try:
-        order = (
-            Order.objects
-            .select_for_update()
-            .get(order_number=tran_id)
-        )
+        order = Order.objects.select_for_update().get(order_number=tran_id)
     except Order.DoesNotExist:
-        # IMPORTANT: return 200 to stop gateway retries
         return api_response(True, "Order not found (ignored)", {}, 200)
-
-    # ✅ IDEMPOTENCY GUARD #1
-    if order.payment_id == val_id:
-        return api_response(
-            True,
-            "Payment already processed",
-            {"order_number": order.order_number},
-            200,
-        )
 
     gateway = SSLCommerzPayment()
 
-    is_valid, validation_data = gateway.validate_payment(
-        val_id,
-        Decimal(amount),
-    )
-
-    if not is_valid or status_raw not in ("VALID", "VALIDATED"):
-        # Mark failure only once
-        if order.status != "failed":
-            order.status = "failed"
-            order.payment_status = "failed"
-            order.save(update_fields=["status", "payment_status"])
-        return api_response(True, "Invalid payment (ignored)", {}, 200)
-
-    # --------------------------------------------------
-    # 🔥 INSTALLMENT PAYMENT FLOW (IDEMPOTENT)
-    # --------------------------------------------------
+    # ==================================================
+    # 🔥 INSTALLMENT PAYMENT FLOW
+    # ==================================================
     if order.is_installment:
-
         installment = (
             order.installment_payments
             .filter(status="pending")
@@ -208,71 +128,76 @@ def payment_webhook(request):
             .first()
         )
 
-        # ✅ IDEMPOTENCY GUARD #2
         if not installment:
-            return api_response(
-                True,
-                "All installments already processed",
-                {
-                    "order_number": order.order_number,
-                    "installments_paid": order.installments_paid,
-                },
-                200,
-            )
+            return api_response(True, "All installments already processed", {}, 200)
 
-        # ✅ IDEMPOTENCY GUARD #3
+        # 🔒 Idempotency guard
         if installment.payment_id == val_id:
-            return api_response(
-                True,
-                "Installment already marked paid",
-                {
-                    "order_number": order.order_number,
-                    "installment_number": installment.installment_number,
-                },
-                200,
-            )
+            return api_response(True, "Installment already paid", {}, 200)
 
-        # 🔐 SAFE: mark installment paid (atomic inside model)
+        expected_amount = installment.amount
+
+        if Decimal(amount) != expected_amount:
+            return api_response(True, "Amount mismatch", {}, 200)
+
+        is_valid, _ = gateway.validate_payment(val_id, expected_amount)
+        if not is_valid or status_raw not in ("VALID", "VALIDATED"):
+            return api_response(True, "Invalid installment payment", {}, 200)
+
+        # ✅ CORE ACTION
         installment.mark_as_paid(
             payment_id=val_id,
             payment_method="ssl_commerce",
             gateway_transaction_id=tran_id,
         )
 
-        order.refresh_from_db()
+        # 🔥 CRITICAL: refresh fields updated via F()
+        order.refresh_from_db(fields=["installments_paid", "payment_status", "status"])
 
-        # First installment → access only
+        # 🧑‍🎓 ENROLL AFTER FIRST INSTALLMENT
         if order.installments_paid == 1:
+            order.ensure_enrollments_created()
+
+        # 🏁 FINAL INSTALLMENT
+        if order.is_fully_paid():
+            order.payment_method = "ssl_commerce"
+            order.payment_id = val_id
+            order.completed_at = timezone.now()
+            order.save(update_fields=["payment_method", "payment_id", "completed_at"])
+            order.mark_as_completed()
+        else:
             order.status = "processing"
             order.payment_status = "partial"
-            order.payment_id = val_id
-            order.save(update_fields=["status", "payment_status", "payment_id"])
+            order.save(update_fields=["status", "payment_status"])
 
-        # Final installment → COMPLETE ORDER
-        if order.is_fully_paid():
-            order.mark_as_completed()
-            order.payment_status = "completed"
-            order.payment_id = val_id
-            order.save(update_fields=["payment_status", "payment_id"])
+        return api_response(True, "Installment processed", {}, 200)
 
-        return api_response(
-            True,
-            "Installment payment processed",
-            {
-                "order_number": order.order_number,
-                "installments_paid": order.installments_paid,
-                "installment_plan": order.installment_plan,
-                "payment_status": order.payment_status,
-            },
-            200,
-        )
+    # ==================================================
+    # 🔥 FULL PAYMENT FLOW (NON-INSTALLMENT)
+    # ==================================================
+    if order.status == "completed":
+        return api_response(True, "Payment already processed", {}, 200)
 
-    # --------------------------------------------------
-    # 🔥 FULL PAYMENT FLOW (IDEMPOTENT)
-    # --------------------------------------------------
-    if order.status != "completed":
-        order.payment_id = val_id
-        order.mark_as_completed()
+    expected_amount = order.total_amount
+
+    if Decimal(amount) != expected_amount:
+        return api_response(True, "Amount mismatch", {}, 200)
+
+    is_valid, _ = gateway.validate_payment(val_id, expected_amount)
+    if not is_valid or status_raw not in ("VALID", "VALIDATED"):
+        if order.status not in ("completed", "failed"):
+            order.status = "failed"
+            order.payment_status = "failed"
+            order.save(update_fields=["status", "payment_status"])
+        return api_response(True, "Invalid payment", {}, 200)
+
+    # ✅ SUCCESS
+    order.payment_method = "ssl_commerce"
+    order.payment_id = val_id
+    order.completed_at = timezone.now()
+    order.save(update_fields=["payment_method", "payment_id", "completed_at"])
+
+    order.mark_as_completed()
 
     return api_response(
         True,
@@ -280,6 +205,8 @@ def payment_webhook(request):
         {"order_number": order.order_number},
         200,
     )
+
+
 
 
 @csrf_exempt
@@ -363,8 +290,19 @@ def verify_payment(request):
     except Order.DoesNotExist:
         return api_response(False, "Order not found", {}, 404)
 
-    # 🔥 Determine payment state
-    if order.payment_status == "completed":
+    # 🔥 DERIVE payment success from transactions
+    payment_success = PaymentTransaction.objects.filter(
+        installment__order=order,
+        status__in=["verified", "settled"],
+    ).exists()
+
+    # 🔥 FINALIZE full-payment orders
+    if not order.is_installment and payment_success and order.status != "completed":
+        order.payment_status = "completed"
+        order.mark_as_completed()
+
+    # Determine payment state
+    if payment_success:
         payment_state = "completed"
     elif order.payment_status == "partial":
         payment_state = "partial"
