@@ -1,8 +1,8 @@
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
-from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, GenericViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
@@ -10,7 +10,7 @@ from django.db.models import Prefetch, Exists, OuterRef
 from decimal import Decimal
 
 from api.models.models_accounting import Income, IncomeUpdateRequest, Expense, ExpenseUpdateRequest, IncomeType, \
-    PaymentMethod
+    PaymentMethod, ExpenseType, ExpensePaymentMethod
 from api.permissions import IsAdmin, IsAdminOrAccountant, IsAccountant
 from api.serializers.serializers_accounting import (
     IncomeReadSerializer,
@@ -20,7 +20,7 @@ from api.serializers.serializers_accounting import (
     IncomeUpdateRequestReadSerializer,
     IncomeApprovalActionSerializer, ExpenseListSerializer, ExpenseReadSerializer, ExpenseCreateSerializer,
     ExpenseUpdateRequestReadSerializer, ExpenseUpdateRequestSerializer, ExpenseApprovalActionSerializer,
-    IncomeTypeSerializer, PaymentMethodSerializer,
+    IncomeTypeSerializer, PaymentMethodSerializer, ExpenseTypeSerializer, ExpensePaymentMethodSerializer
 )
 from api.utils.pagination import StandardResultsSetPagination
 from api.utils.response_utils import api_response
@@ -49,8 +49,10 @@ def serialize_validated_data(validated_data):
 # ============================================================
 # Income Type ViewSet
 # ============================================================
-
-@extend_schema(tags=["ACCOUNTING"])
+@extend_schema(
+    tags=["ACCOUNTING"],
+    summary="Read-only Income Types (Master Data). Used in dropdowns. Add by SuperAdmin only.",
+)
 class IncomeTypeViewSet(
     ListModelMixin,
     RetrieveModelMixin,
@@ -69,29 +71,31 @@ class IncomeTypeViewSet(
     permission_classes = [IsAdminOrAccountant]
 
     def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
+        serializer = self.get_serializer(self.get_queryset(), many=True)
         return api_response(
             success=True,
-            message="Payment methods retrieved successfully",
+            message="Income types retrieved successfully",
             data=serializer.data,
         )
 
     def retrieve(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
-
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
         return api_response(
             success=True,
-            message="Payment methods retrieved successfully",
+            message="Income type retrieved successfully",
             data=serializer.data,
         )
 
+
 # ============================================================
-# Payment Mthod ViewSet
+# Payment Method ViewSet
 # ============================================================
 
-@extend_schema(tags=["ACCOUNTING"])
+@extend_schema(
+    tags=["ACCOUNTING"],
+    summary='Read-only Payment Methods (Master Data) Used in dropdowns. Add by SuperAdmin only.',
+)
 class PaymentMethodViewSet(
     ListModelMixin,
     RetrieveModelMixin,
@@ -99,6 +103,9 @@ class PaymentMethodViewSet(
 ):
     """
     Read-only Payment Methods (Master Data)
+    - Used in dropdowns (Payment Method Create / Update forms)
+    - Only active Payment Method are returned
+    - No create / update / delete via API
     """
 
     queryset = PaymentMethod.objects.filter(is_active=True)
@@ -126,23 +133,34 @@ class PaymentMethodViewSet(
         )
 
 
-
-# ============================================================
-# Income ViewSet
-# ============================================================
-@extend_schema(tags=["ACCOUNTING"])
+@extend_schema(
+    tags=["ACCOUNTING"],
+    summary='Income management with approval workflow.',
+)
 class IncomeViewSet(ModelViewSet):
     """
     Income management with approval workflow.
 
-    - Accountant:
+    Accountant:
         • Create income
-        • Request updates (approval required)
-    - Admin / SuperAdmin:
-        • Full control
+        • Request updates (admin approval required)
+
+    Admin / SuperAdmin:
+        • Approve or reject update requests
+        • Update or delete income directly (if no pending request)
+
+    Filters:
+        • status, income_type, payment_method
+        • date__gte, date__lte
+        • amount__gte, amount__lte
+
+    Search:
+        • transaction_id, payer_name, payer_email, description
+
+    Ordering:
+        • date, amount, created_at
     """
 
-    permission_classes = [IsAdminOrAccountant]
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
 
@@ -163,6 +181,14 @@ class IncomeViewSet(ModelViewSet):
 
     ordering_fields = ["date", "amount", "created_at"]
     ordering = ["-date", "-created_at"]
+
+    # --------------------------------------------------------
+    # Permissions (CLEAN WAY)
+    # --------------------------------------------------------
+    def get_permissions(self):
+        if self.action in ["destroy", "pending_approval"]:
+            return [IsAdmin()]
+        return [IsAdminOrAccountant()]
 
     # --------------------------------------------------------
     # Queryset
@@ -208,9 +234,11 @@ class IncomeViewSet(ModelViewSet):
     # --------------------------------------------------------
     # CREATE
     # --------------------------------------------------------
+    @extend_schema(summary="Accountant: Create income")
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
         income = serializer.save(recorded_by=request.user)
 
         return api_response(
@@ -223,26 +251,34 @@ class IncomeViewSet(ModelViewSet):
     # --------------------------------------------------------
     # UPDATE (Approval Workflow)
     # --------------------------------------------------------
+    @extend_schema(summary="Accountant: Update request income only. Admin: direct update")
     def update(self, request, *args, **kwargs):
         income = self.get_object()
         partial = kwargs.pop("partial", False)
 
-        serializer = self.get_serializer(income, data=request.data, partial=partial)
+        serializer = self.get_serializer(
+            income, data=request.data, partial=partial
+        )
         serializer.is_valid(raise_exception=True)
 
+        # Block update if pending request exists (for everyone)
         if getattr(income, "has_pending_request", False):
             return api_response(
                 success=False,
-                message="An update request is already pending approval",
+                message="Resolve pending update request before making changes",
                 status_code=status.HTTP_409_CONFLICT,
             )
 
+        # ----------------------------------------------------
         # Accountant → create update request
+        # ----------------------------------------------------
         if request.user.role == "accountant":
             update_request = IncomeUpdateRequest.objects.create(
                 income=income,
                 requested_by=request.user,
-                requested_data=serialize_validated_data(serializer.validated_data),
+                requested_data=serialize_validated_data(
+                    serializer.validated_data
+                ),
             )
 
             return api_response(
@@ -252,8 +288,14 @@ class IncomeViewSet(ModelViewSet):
                 status_code=status.HTTP_202_ACCEPTED,
             )
 
-        # Admin → direct update
-        self.perform_update(serializer)
+        # ----------------------------------------------------
+        # Admin → direct update (auto-approved)
+        # ----------------------------------------------------
+        income = serializer.save(
+            approval_status="approved",
+            approved_by=request.user,
+            approved_at=timezone.now(),
+        )
 
         return api_response(
             success=True,
@@ -261,6 +303,7 @@ class IncomeViewSet(ModelViewSet):
             data=IncomeReadSerializer(income).data,
         )
 
+    @extend_schema(summary="Accountant: Partial update request income only. Admin: direct partial update.")
     def partial_update(self, request, *args, **kwargs):
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
@@ -268,10 +311,8 @@ class IncomeViewSet(ModelViewSet):
     # --------------------------------------------------------
     # DELETE (Admin Only)
     # --------------------------------------------------------
+    @extend_schema(summary="Admin: Delete income")
     def destroy(self, request, *args, **kwargs):
-        self.permission_classes = [IsAdmin]
-        self.check_permissions(request)
-
         income = self.get_object()
         transaction_id = income.transaction_id
         income.delete()
@@ -288,13 +329,12 @@ class IncomeViewSet(ModelViewSet):
     @extend_schema(summary="Admin: incomes with pending update requests")
     @action(detail=False, methods=["get"], url_path="pending-approval")
     def pending_approval(self, request):
-        self.permission_classes = [IsAdmin]
-        self.check_permissions(request)
-
         queryset = self.filter_queryset(
-            self.get_queryset()
-            .filter(update_requests__status="pending")
-            .distinct()
+            self.get_queryset().filter(
+                id__in=IncomeUpdateRequest.objects.filter(
+                    status="pending"
+                ).values("income_id")
+            )
         )
 
         page = self.paginate_queryset(queryset)
@@ -318,9 +358,25 @@ class IncomeViewSet(ModelViewSet):
 # Income Update Request ViewSet
 # ============================================================
 @extend_schema(tags=["ACCOUNTING"])
-class IncomeUpdateRequestViewSet(ModelViewSet):
+class IncomeUpdateRequestViewSet(
+    ListModelMixin,
+    RetrieveModelMixin,
+    GenericViewSet,
+):
     """
     Approval workflow for income updates.
+
+    Accountant:
+        • View own update requests
+
+    Admin / SuperAdmin:
+        • View pending update requests
+        • Approve or reject update requests
+
+    Endpoints:
+        • List and retrieve update requests
+        • Admin: list pending requests
+        • Accountant: list own requests
     """
 
     pagination_class = StandardResultsSetPagination
@@ -329,6 +385,19 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
     ordering_fields = ["created_at", "reviewed_at"]
     ordering = ["-created_at"]
 
+    # --------------------------------------------------------
+    # Permissions (CLEAN & CENTRALIZED)
+    # --------------------------------------------------------
+    def get_permissions(self):
+        if self.action in ["approve", "reject", "pending_requests"]:
+            return [IsAdmin()]
+        if self.action == "my_requests":
+            return [IsAccountant()]
+        return [IsAdminOrAccountant()]
+
+    # --------------------------------------------------------
+    # Queryset
+    # --------------------------------------------------------
     def get_queryset(self):
         return IncomeUpdateRequest.objects.select_related(
             "income",
@@ -336,6 +405,9 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
             "reviewed_by",
         )
 
+    # --------------------------------------------------------
+    # Serializers
+    # --------------------------------------------------------
     def get_serializer_class(self):
         if self.action == "retrieve":
             return IncomeUpdateRequestReadSerializer
@@ -347,9 +419,6 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
     @extend_schema(summary="Admin: pending update requests")
     @action(detail=False, methods=["get"], url_path="pending")
     def pending_requests(self, request):
-        self.permission_classes = [IsAdmin]
-        self.check_permissions(request)
-
         queryset = self.filter_queryset(
             self.get_queryset().filter(status="pending")
         )
@@ -376,9 +445,6 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
     @extend_schema(summary="Accountant: my update requests")
     @action(detail=False, methods=["get"], url_path="my-requests")
     def my_requests(self, request):
-        self.permission_classes = [IsAccountant]
-        self.check_permissions(request)
-
         queryset = self.filter_queryset(
             self.get_queryset().filter(requested_by=request.user)
         )
@@ -402,12 +468,9 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
     # --------------------------------------------------------
     # APPROVE
     # --------------------------------------------------------
-    @extend_schema(summary="Approve update request")
+    @extend_schema(summary="Admin: approve update request")
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        self.permission_classes = [IsAdmin]
-        self.check_permissions(request)
-
         update_request = self.get_object()
 
         if update_request.status != "pending":
@@ -432,14 +495,11 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
     # REJECT
     # --------------------------------------------------------
     @extend_schema(
-        summary="Reject update request",
+        summary="Admin: reject update request",
         request=IncomeApprovalActionSerializer,
     )
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
-        self.permission_classes = [IsAdmin]
-        self.check_permissions(request)
-
         update_request = self.get_object()
 
         if update_request.status != "pending":
@@ -466,14 +526,124 @@ class IncomeUpdateRequestViewSet(ModelViewSet):
 
 
 # ============================================================
+# Expense Type ViewSet
+# ============================================================
+@extend_schema(
+    tags=["ACCOUNTING"],
+    summary="Read-only Expense Types (Master Data). Used in dropdowns. Add by SuperAdmin only.",
+)
+class ExpenseTypeViewSet(
+    ListModelMixin,
+    RetrieveModelMixin,
+    GenericViewSet,
+):
+    """
+    Read-only Expense Types (Master Data)
+
+    - Used in dropdowns (Expense Create / Update forms)
+    - Only active income types are returned
+    - No create / update / delete via API
+    """
+
+    queryset = ExpenseType.objects.filter(is_active=True)
+    serializer_class = ExpenseTypeSerializer
+    permission_classes = [IsAdminOrAccountant]
+
+    def list(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_queryset(), many=True)
+        return api_response(
+            success=True,
+            message="Income types retrieved successfully",
+            data=serializer.data,
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return api_response(
+            success=True,
+            message="Income type retrieved successfully",
+            data=serializer.data,
+        )
+
+
+# ============================================================
+# Expense Payment Method ViewSet
+# ============================================================
+
+@extend_schema(
+    tags=["ACCOUNTING"],
+    summary='Read-only Expense Payment Methods (Master Data) Used in dropdowns. Add by SuperAdmin only.',
+)
+class ExpensePaymentMethodViewSet(
+    ListModelMixin,
+    RetrieveModelMixin,
+    GenericViewSet,
+):
+    """
+    Read-only Payment Methods (Master Data)
+    - Used in dropdowns (Expense Payment Method Create / Update forms)
+    - Only active Payment Method are returned
+    - No create / update / delete via API
+    """
+
+    queryset = ExpensePaymentMethod.objects.filter(is_active=True)
+    serializer_class = ExpensePaymentMethodSerializer
+    permission_classes = [IsAdminOrAccountant]
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+
+        return api_response(
+            success=True,
+            message="Payment methods retrieved successfully",
+            data=serializer.data,
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+
+        return api_response(
+            success=True,
+            message="Payment method retrieved successfully",
+            data=serializer.data,
+        )
+
+
+# ============================================================
 # Expense ViewSet
 # ============================================================
-@extend_schema(tags=["ACCOUNTING"])
+@extend_schema(
+    tags=["ACCOUNTING"],
+    summary="Expense management with accountant updates and admin approval"
+)
 class ExpenseViewSet(ModelViewSet):
     """
     Expense management with approval workflow.
-    - Accountant: create + request updates
-    - Admin: full control
+
+    Roles:
+    - Accountant:
+        • Create expense records
+        • Request updates (admin approval required)
+    - Admin / SuperAdmin:
+        • Approve or reject update requests
+        • Directly update expenses when no pending request exists
+        • Delete expenses
+
+    Filters:
+    - status
+    - expense_type
+    - payment_method
+    - date (gte, lte, exact)
+    - amount (gte, lte)
+
+    Search:
+    - reference_id
+    - vendor_name
+    - vendor_email
+    - description
     """
 
     pagination_class = StandardResultsSetPagination
@@ -660,19 +830,44 @@ class ExpenseViewSet(ModelViewSet):
 # ============================================================
 # Expense Update Request ViewSet (Admin Only)
 # ============================================================
-@extend_schema(tags=["ACCOUNTING"])
+@extend_schema(
+    tags=["ACCOUNTING"],
+    summary="Admin: review, approve, or reject expense update requests"
+)
 class ExpenseUpdateRequestViewSet(ModelViewSet):
     """
-    Admin-only approval of expense update requests.
+    Approval workflow for expense update requests.
+
+    Roles:
+    - Accountant:
+        • View own update requests
+    - Admin / SuperAdmin:
+        • View all update requests
+        • Approve or reject pending requests
+
+    Filters:
+    - status
+    - expense
+
+    Ordering:
+    - created_at
+    - reviewed_at
     """
 
-    permission_classes = [IsAdmin]
+
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, OrderingFilter]
 
     filterset_fields = ["status", "expense"]
     ordering_fields = ["created_at", "reviewed_at"]
     ordering = ["-created_at"]
+
+    def get_permissions(self):
+        if self.action in ["approve", "reject"]:
+            return [IsAdmin()]
+        if self.action == "my_requests":
+            return [IsAccountant()]
+        return [IsAdminOrAccountant()]
 
     def get_queryset(self):
         return ExpenseUpdateRequest.objects.select_related(
@@ -713,6 +908,7 @@ class ExpenseUpdateRequestViewSet(ModelViewSet):
     # --------------------------------------------------------
     # APPROVE
     # --------------------------------------------------------
+    @extend_schema(summary="Admin: approve expense update request")
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         req = self.get_object()
@@ -735,6 +931,10 @@ class ExpenseUpdateRequestViewSet(ModelViewSet):
     # --------------------------------------------------------
     # REJECT
     # --------------------------------------------------------
+    @extend_schema(
+        summary="Admin: reject expense update request",
+        request=ExpenseApprovalActionSerializer
+    )
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
         req = self.get_object()

@@ -84,10 +84,12 @@ class IncomeReadSerializer(serializers.ModelSerializer):
     payment_method_code = serializers.CharField(source="payment_method.code", read_only=True)
 
     recorded_by_name = serializers.CharField(source="recorded_by.get_full_name", read_only=True, default=None)
-    recorded_by_email = serializers.EmailField(source="recorded_by.email", read_only=True, default=None)
+    recorded_by_email = serializers.EmailField(source="recorded_by.email", read_only=True, default=None,
+                                               allow_null=True, required=False)
 
     approved_by_name = serializers.CharField(source="approved_by.get_full_name", read_only=True, default=None)
-    approved_by_email = serializers.EmailField(source="approved_by.email", read_only=True, default=None)
+    approved_by_email = serializers.EmailField(source="approved_by.email", read_only=True, default=None,
+                                               allow_null=True, required=False)
 
     # Computed fields
     has_pending_updates = serializers.SerializerMethodField()
@@ -137,32 +139,14 @@ class IncomeUpdateRequestSerializer(serializers.ModelSerializer):
         ]
 
     def validate_requested_data(self, value):
-        """
-        Ensure requested_data only contains allowed fields and validate the data.
-        """
         if not isinstance(value, dict):
             raise serializers.ValidationError("requested_data must be a dictionary.")
 
-        # Check that only allowed fields are present
         invalid_fields = set(value.keys()) - IncomeUpdateRequest.ALLOWED_UPDATE_FIELDS
         if invalid_fields:
             raise serializers.ValidationError(
                 f"The following fields cannot be updated: {', '.join(invalid_fields)}"
             )
-
-        # Validate the data using IncomeCreateSerializer
-        income = self.context.get('income')
-        if income:
-            serializer = IncomeCreateSerializer(
-                income,
-                data=value,
-                partial=True,
-                context={'is_update_request': True}
-            )
-            if not serializer.is_valid():
-                raise serializers.ValidationError({
-                    "requested_data": serializer.errors
-                })
 
         return value
 
@@ -185,7 +169,6 @@ class IncomeUpdateRequestReadSerializer(serializers.ModelSerializer):
 class IncomeApprovalActionSerializer(serializers.Serializer):
     """Serializer for approval/rejection actions"""
     reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
-
 
 
 # ============================================================
@@ -271,7 +254,7 @@ class ExpenseReadSerializer(serializers.ModelSerializer):
         source="recorded_by.get_full_name", read_only=True, default=None
     )
     recorded_by_email = serializers.EmailField(
-        source="recorded_by.email", read_only=True, default=None
+        source="recorded_by.email", read_only=True, default=None, allow_null=True, required=False
     )
 
     has_pending_updates = serializers.SerializerMethodField()
@@ -339,6 +322,11 @@ class ExpenseUpdateRequestSerializer(serializers.ModelSerializer):
         ]
 
     def validate_requested_data(self, value):
+        """
+        Validate requested update data.
+        Ensures only allowed fields are included.
+        Final validation occurs during approval.
+        """
         if not isinstance(value, dict):
             raise serializers.ValidationError("requested_data must be a dictionary.")
 

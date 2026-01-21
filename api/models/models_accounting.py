@@ -64,6 +64,7 @@ class Income(TimeStampedModel):
         ("rejected", "Rejected"),
     ]
 
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     transaction_id = models.CharField(max_length=50, unique=True, editable=False)
 
@@ -83,7 +84,7 @@ class Income(TimeStampedModel):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="completed")
 
     approval_status = models.CharField(
-        max_length=20, choices=APPROVAL_STATUS, default="approved"
+        max_length=20, choices=APPROVAL_STATUS, default="pending"
     )
     approved_by = models.ForeignKey(
         "CustomUser", null=True, blank=True,
@@ -106,7 +107,7 @@ class Income(TimeStampedModel):
         ordering = ['-date', '-created_at']
 
     def save(self, *args, **kwargs):
-        if not self.transaction_id:
+        if self._state.adding and not self.transaction_id:
             self.transaction_id = self.generate_transaction_id()
         super().save(*args, **kwargs)
 
@@ -181,55 +182,66 @@ class IncomeUpdateRequest(TimeStampedModel):
             models.Index(fields=['status', '-created_at'], name='income_req_status_idx'),
             models.Index(fields=['income', 'status'], name='income_req_income_idx'),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["income"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_income_update"
+            )
+        ]
         ordering = ['-created_at']
 
     def approve(self, admin_user):
-        """
-        Approve the update request and apply changes to the income record.
-        Only updates allowed fields with proper validation.
-        """
-        from api.serializers.serializers_accounting import IncomeCreateSerializer
+        if self.status != "pending":
+            raise ValueError("Only pending requests can be approved.")
 
         with transaction.atomic():
-            # Lock both records to prevent concurrent modifications
-            income = Income.objects.select_for_update().get(pk=self.income.pk)
-            update_request = IncomeUpdateRequest.objects.select_for_update().get(pk=self.pk)
+            income = Income.objects.select_for_update().get(pk=self.income_id)
 
-            # Validate the requested data using serializer
-            serializer = IncomeCreateSerializer(
-                income,
-                data=self.requested_data,
-                partial=True,
-                context={'is_approval': True}
-            )
-            serializer.is_valid(raise_exception=True)
-
-            # Only update allowed fields
-            for field, value in serializer.validated_data.items():
+            for field, value in self.requested_data.items():
                 if field in self.ALLOWED_UPDATE_FIELDS:
                     setattr(income, field, value)
 
-            # Update approval metadata
             income.approval_status = "approved"
             income.approved_by = admin_user
             income.approved_at = timezone.now()
-            income.save()
 
-            # Update request status
-            update_request.status = "approved"
-            update_request.reviewed_by = admin_user
-            update_request.reviewed_at = timezone.now()
-            update_request.save()
+            update_fields = [
+                field for field in self.requested_data.keys()
+                if field in self.ALLOWED_UPDATE_FIELDS
+            ]
+
+            income.save(update_fields=[
+                *update_fields,
+                "approval_status",
+                "approved_by",
+                "approved_at",
+            ])
+
+            self.status = "approved"
+            self.reviewed_by = admin_user
+            self.reviewed_at = timezone.now()
+            self.save(update_fields=[
+                "status",
+                "reviewed_by",
+                "reviewed_at",
+            ])
 
     def reject(self, admin_user, reason=""):
-        """Reject the update request with optional reason."""
+        if self.status != "pending":
+            raise ValueError("Only pending requests can be rejected.")
+
         with transaction.atomic():
-            update_request = IncomeUpdateRequest.objects.select_for_update().get(pk=self.pk)
-            update_request.status = "rejected"
-            update_request.reviewed_by = admin_user
-            update_request.reviewed_at = timezone.now()
-            update_request.rejection_reason = reason
-            update_request.save()
+            self.status = "rejected"
+            self.reviewed_by = admin_user
+            self.reviewed_at = timezone.now()
+            self.rejection_reason = reason
+            self.save(update_fields=[
+                "status",
+                "reviewed_by",
+                "reviewed_at",
+                "rejection_reason",
+            ])
 
     def __str__(self):
         return f"Update Request for {self.income.transaction_id} by {self.requested_by}"
@@ -302,15 +314,11 @@ class Expense(TimeStampedModel):
         ]
 
     def save(self, *args, **kwargs):
-        if not self.reference_id:
+        if self._state.adding and not self.reference_id:
             self.reference_id = self.generate_reference_id()
         super().save(*args, **kwargs)
 
     def generate_reference_id(self):
-        """
-        EXP-{YEAR}-{RANDOM}
-        Example: EXP-2026-A3F91C
-        """
         return f"EXP-{timezone.now().year}-{uuid.uuid4().hex[:6].upper()}"
 
     def __str__(self):
@@ -339,7 +347,9 @@ class ExpenseUpdateRequest(TimeStampedModel):
     }
 
     expense = models.ForeignKey(
-        Expense, on_delete=models.CASCADE, related_name="update_requests"
+        Expense,
+        on_delete=models.CASCADE,
+        related_name="update_requests",
     )
 
     requested_by = models.ForeignKey(
@@ -364,19 +374,28 @@ class ExpenseUpdateRequest(TimeStampedModel):
     class Meta:
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["status"]),
+            models.Index(fields=["status", "-created_at"]),
             models.Index(fields=["expense", "status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["expense"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_expense_update",
+            )
         ]
 
     # --------------------------------------------------------
     # APPROVE
     # --------------------------------------------------------
     def approve(self, admin_user):
+        if self.status != "pending":
+            raise ValueError("Only pending requests can be approved.")
+
         from api.serializers.serializers_accounting import ExpenseCreateSerializer
 
         with transaction.atomic():
-            expense = Expense.objects.select_for_update().get(pk=self.expense.pk)
-            req = ExpenseUpdateRequest.objects.select_for_update().get(pk=self.pk)
+            expense = Expense.objects.select_for_update().get(pk=self.expense_id)
 
             serializer = ExpenseCreateSerializer(
                 expense,
@@ -386,28 +405,40 @@ class ExpenseUpdateRequest(TimeStampedModel):
             )
             serializer.is_valid(raise_exception=True)
 
+            update_fields = []
+
             for field, value in serializer.validated_data.items():
                 if field in self.ALLOWED_UPDATE_FIELDS:
                     setattr(expense, field, value)
+                    update_fields.append(field)
 
-            expense.save()
+            expense.save(update_fields=update_fields)
 
-            req.status = "approved"
-            req.reviewed_by = admin_user
-            req.reviewed_at = timezone.now()
-            req.save()
+            self.status = "approved"
+            self.reviewed_by = admin_user
+            self.reviewed_at = timezone.now()
+            self.save(update_fields=["status", "reviewed_by", "reviewed_at"])
 
     # --------------------------------------------------------
     # REJECT
     # --------------------------------------------------------
     def reject(self, admin_user, reason=""):
+        if self.status != "pending":
+            raise ValueError("Only pending requests can be rejected.")
+
         with transaction.atomic():
-            req = ExpenseUpdateRequest.objects.select_for_update().get(pk=self.pk)
-            req.status = "rejected"
-            req.reviewed_by = admin_user
-            req.reviewed_at = timezone.now()
-            req.rejection_reason = reason
-            req.save()
+            self.status = "rejected"
+            self.reviewed_by = admin_user
+            self.reviewed_at = timezone.now()
+            self.rejection_reason = reason
+            self.save(
+                update_fields=[
+                    "status",
+                    "reviewed_by",
+                    "reviewed_at",
+                    "rejection_reason",
+                ]
+            )
 
     def __str__(self):
-        return f"Update Request for {self.expense.reference_id}"
+        return f"Expense Update Request → {self.expense.reference_id}"

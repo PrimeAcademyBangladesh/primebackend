@@ -4,14 +4,15 @@ Registers viewsets with a router and exposes auth, profile, admin and
 footer endpoints used by the frontend and by automated tests.
 """
 
-from django.urls import include, path
+from django.urls import path
 
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from api.views.views_academy_overview import AcademyOverviewViewSet
 from api.views.views_accounting import IncomeViewSet, IncomeUpdateRequestViewSet, ExpenseViewSet, \
-    ExpenseUpdateRequestViewSet, PaymentMethodViewSet
+    ExpenseUpdateRequestViewSet, PaymentMethodViewSet, IncomeTypeViewSet, ExpensePaymentMethod, \
+    ExpensePaymentMethodViewSet
 from api.views.views_auth import (
     AdminLoginView,
     AdminStudentViewSet,
@@ -108,7 +109,8 @@ from api.views.views_payment import (
 from api.views.views_policy import PolicyPageViewSet
 from api.views.views_seo import PageSEOViewSet
 from api.views.views_service import ContentSectionViewSet, PageServiceViewSet
-from api.views.views_accounting import IncomeTypeViewSet
+
+
 router = DefaultRouter()
 
 router.register(r"seo", PageSEOViewSet, basename="seo")
@@ -157,7 +159,6 @@ router.register(r"order-items", OrderItemViewSet, basename="orderitem")
 router.register(r"enrollments", EnrollmentViewSet, basename="enrollment")
 router.register(r"custom-payments", CustomPaymentViewSet, basename="custompayment")
 
-
 # Live Class, Assignment, Quiz System
 router.register(r"live-classes", LiveClassViewSet, basename="live-class")
 router.register(r"assignments", AssignmentViewSet, basename="assignment")
@@ -184,22 +185,23 @@ router.register(r"income-payment-method", PaymentMethodViewSet, basename="income
 router.register(r'incomes', IncomeViewSet, basename='income')
 router.register(r'income-update-requests', IncomeUpdateRequestViewSet, basename='income-update-request')
 
-router.register(r"expenses",ExpenseViewSet, basename="expense")
-router.register(r"expense-update-requests",ExpenseUpdateRequestViewSet, basename="expense-update-request")
+router.register(r"income-types", ExpenseViewSet, basename="expense-type")
+router.register(r"income-payment-method", ExpensePaymentMethodViewSet, basename="expense-payment-method")
+router.register(r"expenses", ExpenseViewSet, basename="expense")
+router.register(r"expense-update-requests", ExpenseUpdateRequestViewSet, basename="expense-update-request")
 
 router.register("student/assignments", StudentAssignmentViewSet, basename="student-assignments")
 router.register("student/quizzes", StudentQuizViewSet, basename="student-quizzes")
 router.register("student/live-classes", StudentLiveClassViewSet, basename="student-live-classes")
 router.register("student/resources", StudentResourceViewSet, basename="student-resources")
 router.register("student/attendance", StudentAttendanceViewSet, basename="student-attendance")
-# router.register("income/income-type", IncomeTypeViewSet, basename="income_type")
+
 
 
 urlpatterns = router.urls + [
     # =============================================
     # AUTHENTICATION & PROFILE ENDPOINTS
     # =============================================
-
 
     # Universal logout
     path("logout/", LogoutView.as_view(), name="logout"),
@@ -498,6 +500,5 @@ urlpatterns = router.urls + [
     ),
     path("enroll-free/", enroll_free_course, name="enroll_free_course"),
     path("orders/verify/<str:order_number>", verify_invoice, name="verify_invoice"),
-
 
 ]
