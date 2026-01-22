@@ -7,7 +7,6 @@ from rest_framework.viewsets import ModelViewSet, GenericViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db.models import Prefetch, Exists, OuterRef
-from decimal import Decimal
 
 from api.models.models_accounting import Income, IncomeUpdateRequest, Expense, ExpenseUpdateRequest, IncomeType, \
     PaymentMethod, ExpenseType, ExpensePaymentMethod
@@ -16,34 +15,16 @@ from api.serializers.serializers_accounting import (
     IncomeReadSerializer,
     IncomeListSerializer,
     IncomeCreateSerializer,
-    IncomeUpdateRequestSerializer,
+    IncomeUpdateRequestCreateSerializer,
     IncomeUpdateRequestReadSerializer,
     IncomeApprovalActionSerializer, ExpenseListSerializer, ExpenseReadSerializer, ExpenseCreateSerializer,
-    ExpenseUpdateRequestReadSerializer, ExpenseUpdateRequestSerializer, ExpenseApprovalActionSerializer,
+    ExpenseUpdateRequestReadSerializer, ExpenseUpdateRequestCreateSerializer, ExpenseApprovalActionSerializer,
     IncomeTypeSerializer, PaymentMethodSerializer, ExpenseTypeSerializer, ExpensePaymentMethodSerializer
 )
 from api.utils.pagination import StandardResultsSetPagination
 from api.utils.response_utils import api_response
-from api.views.views_base import BaseAdminViewSet
+from api.utils.approval_utils import handle_update_with_approval
 
-
-# ============================================================
-# Helper: serialize validated data for JSONField
-# ============================================================
-def serialize_validated_data(validated_data):
-    serialized = {}
-    for key, value in validated_data.items():
-        if value is None:
-            serialized[key] = None
-        elif isinstance(value, Decimal):
-            serialized[key] = str(value)
-        elif hasattr(value, "isoformat"):
-            serialized[key] = value.isoformat()
-        elif hasattr(value, "pk"):
-            serialized[key] = value.pk
-        else:
-            serialized[key] = value
-    return serialized
 
 
 # ============================================================
@@ -227,9 +208,17 @@ class IncomeViewSet(ModelViewSet):
     def get_serializer_class(self):
         if self.action == "list":
             return IncomeListSerializer
+
         if self.action == "retrieve":
             return IncomeReadSerializer
-        return IncomeCreateSerializer
+
+        if self.action in ["update", "partial_update"]:
+            return IncomeCreateSerializer
+
+        if self.action == "create":
+            return IncomeCreateSerializer
+
+        return IncomeReadSerializer
 
     # --------------------------------------------------------
     # CREATE
@@ -251,46 +240,35 @@ class IncomeViewSet(ModelViewSet):
     # --------------------------------------------------------
     # UPDATE (Approval Workflow)
     # --------------------------------------------------------
-    @extend_schema(summary="Accountant: Update request income only. Admin: direct update")
+    @extend_schema(
+        summary="Accountant: Update request income only. Admin: direct update"
+    )
     def update(self, request, *args, **kwargs):
         income = self.get_object()
         partial = kwargs.pop("partial", False)
 
-        serializer = self.get_serializer(
-            income, data=request.data, partial=partial
-        )
+        serializer = self.get_serializer(income, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
 
-        # Block update if pending request exists (for everyone)
-        if getattr(income, "has_pending_request", False):
+        # 🔒 No-op protection
+        if not serializer.validated_data:
             return api_response(
                 success=False,
-                message="Resolve pending update request before making changes",
-                status_code=status.HTTP_409_CONFLICT,
+                message="No changes detected",
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        # ----------------------------------------------------
-        # Accountant → create update request
-        # ----------------------------------------------------
-        if request.user.role == "accountant":
-            update_request = IncomeUpdateRequest.objects.create(
-                income=income,
-                requested_by=request.user,
-                requested_data=serialize_validated_data(
-                    serializer.validated_data
-                ),
+        # 👇 Accountant vs Admin handled here
+        if IsAccountant().has_permission(request, None):
+            return handle_update_with_approval(
+                request=request,
+                instance=income,
+                serializer=serializer,
+                update_request_model=IncomeUpdateRequest,
+                success_message="Income updated successfully",
             )
 
-            return api_response(
-                success=True,
-                message="Update request submitted for admin approval",
-                data={"request_id": str(update_request.id)},
-                status_code=status.HTTP_202_ACCEPTED,
-            )
-
-        # ----------------------------------------------------
-        # Admin → direct update (auto-approved)
-        # ----------------------------------------------------
+        # 🛡 Admin → direct update + auto approval
         income = serializer.save(
             approval_status="approved",
             approved_by=request.user,
@@ -411,7 +389,11 @@ class IncomeUpdateRequestViewSet(
     def get_serializer_class(self):
         if self.action == "retrieve":
             return IncomeUpdateRequestReadSerializer
-        return IncomeUpdateRequestSerializer
+
+        if self.action in ["pending_requests", "my_requests", "list"]:
+            return IncomeUpdateRequestReadSerializer
+
+        return IncomeUpdateRequestCreateSerializer
 
     # --------------------------------------------------------
     # ADMIN: List pending requests
@@ -480,6 +462,9 @@ class IncomeUpdateRequestViewSet(
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
+        serializer = IncomeApprovalActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
         update_request.approve(request.user)
 
         return api_response(
@@ -522,7 +507,6 @@ class IncomeUpdateRequestViewSet(
             message="Update request rejected successfully",
             data={"reason": serializer.validated_data.get("reason")},
         )
-
 
 
 # ============================================================
@@ -775,38 +759,30 @@ class ExpenseViewSet(ModelViewSet):
         serializer = self.get_serializer(expense, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
 
-        if getattr(expense, "has_pending_request", False):
+        if not serializer.validated_data:
             return api_response(
                 success=False,
-                message="An update request is already pending approval",
-                status_code=status.HTTP_409_CONFLICT,
+                message="No changes detected",
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Accountant → create update request
-        if request.user.is_accountant and not request.user.is_admin:
-            serialized_data = serialize_validated_data(serializer.validated_data)
+        response = handle_update_with_approval(
+            request=request,
+            instance=expense,
+            serializer=serializer,
+            update_request_model=ExpenseUpdateRequest,
+            success_message="Expense updated successfully",
+        )
 
-            req = ExpenseUpdateRequest.objects.create(
-                expense=expense,
-                requested_by=request.user,
-                requested_data=serialized_data,
-            )
-
+        # If admin path → return updated object
+        if response.status_code == status.HTTP_200_OK:
             return api_response(
                 success=True,
-                message="Update request submitted for admin approval",
-                data={"request_id": str(req.id)},
-                status_code=status.HTTP_202_ACCEPTED,
+                message="Expense updated successfully",
+                data=ExpenseReadSerializer(expense).data,
             )
 
-        # Admin → direct update
-        self.perform_update(serializer)
-
-        return api_response(
-            success=True,
-            message="Expense updated successfully",
-            data=ExpenseReadSerializer(expense).data,
-        )
+        return response
 
     def partial_update(self, request, *args, **kwargs):
         kwargs["partial"] = True
@@ -854,7 +830,6 @@ class ExpenseUpdateRequestViewSet(ModelViewSet):
     - reviewed_at
     """
 
-
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, OrderingFilter]
 
@@ -881,7 +856,7 @@ class ExpenseUpdateRequestViewSet(ModelViewSet):
     def get_serializer_class(self):
         if self.action == "retrieve":
             return ExpenseUpdateRequestReadSerializer
-        return ExpenseUpdateRequestSerializer
+        return ExpenseUpdateRequestCreateSerializer
 
     # --------------------------------------------------------
     # LIST

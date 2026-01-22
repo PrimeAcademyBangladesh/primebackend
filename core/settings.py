@@ -286,7 +286,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://45.85.250.92",  # Production frontend
     "http://45.85.250.92:8080",  # Production API (if needed for same-origin requests)
     "https://prime-academy-bd.vercel.app",  # Production frontend (Vercel)
-    'https://magaret-membraneless-sherilyn.ngrok-free.dev'
 ]
 
 # Allow credentials for session-based cart (required for guest users)
@@ -309,7 +308,6 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://*.ngrok-free.dev",
-    "https://prime-academy-bd.vercel.app",  # Production frontend (Vercel)
 ]
 
 # Email backend configuration (REQUIRED for mandatory verification)
@@ -648,3 +646,12 @@ CKEDITOR_5_FILE_UPLOAD_PERMISSION = "staff"
 # File size limits (optional)
 FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+SESSION_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SECURE = True
+
+CSRF_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SECURE = True
+
+

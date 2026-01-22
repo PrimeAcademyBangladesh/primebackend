@@ -79,7 +79,7 @@ class Income(TimeStampedModel):
     payer_email = models.EmailField(blank=True, null=True)
     payer_phone = models.CharField(max_length=20, blank=True)
 
-    payment_reference = models.CharField(max_length=100, blank=True)
+    payment_reference = models.CharField(max_length=100, blank=True, null=True)
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="completed")
 
