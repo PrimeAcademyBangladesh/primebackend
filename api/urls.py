@@ -12,7 +12,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from api.views.views_academy_overview import AcademyOverviewViewSet
 from api.views.views_accounting import IncomeViewSet, IncomeUpdateRequestViewSet, ExpenseViewSet, \
     ExpenseUpdateRequestViewSet, PaymentMethodViewSet, IncomeTypeViewSet, ExpensePaymentMethod, \
-    ExpensePaymentMethodViewSet
+    ExpensePaymentMethodViewSet, AccountingDashboardAPIView, TransactionsAPIView
 from api.views.views_auth import (
     AdminLoginView,
     AdminStudentViewSet,
@@ -110,7 +110,6 @@ from api.views.views_policy import PolicyPageViewSet
 from api.views.views_seo import PageSEOViewSet
 from api.views.views_service import ContentSectionViewSet, PageServiceViewSet
 
-
 router = DefaultRouter()
 
 router.register(r"seo", PageSEOViewSet, basename="seo")
@@ -180,6 +179,7 @@ router.register(r"quiz-attempts", QuizAttemptViewSet, basename="quiz-attempt")
 # Backwards-compatible alias for frontend: `/api/resources/` -> CourseResourceViewSet
 router.register(r"resources", CourseResourceViewSet, basename="resources")
 
+# Accounting endpoints
 router.register(r"income-types", IncomeTypeViewSet, basename="income-type")
 router.register(r"income-payment-method", PaymentMethodViewSet, basename="income-payment-method")
 router.register(r'incomes', IncomeViewSet, basename='income')
@@ -195,8 +195,6 @@ router.register("student/quizzes", StudentQuizViewSet, basename="student-quizzes
 router.register("student/live-classes", StudentLiveClassViewSet, basename="student-live-classes")
 router.register("student/resources", StudentResourceViewSet, basename="student-resources")
 router.register("student/attendance", StudentAttendanceViewSet, basename="student-attendance")
-
-
 
 urlpatterns = router.urls + [
     # =============================================
@@ -390,11 +388,6 @@ urlpatterns = router.urls + [
     path("payment/verify/", verify_payment, name="payment-verify"),
     # COURSE INSTALLMENT RELATED API
     path(
-        "installments/initiate/",
-        InstallmentPaymentInitiateView.as_view(),
-        name="installment-initiate",
-    ),
-    path(
         "installments/summary/<uuid:order_id>/",
         InstallmentSummaryView.as_view(),
         name="installment-summary",
@@ -471,6 +464,11 @@ urlpatterns = router.urls + [
         export_revenue_analytics_pdf,
         name="export-revenue-analytics-pdf",
     ),
+
+    # Accounting dashboard endpoint
+    path("accounting/dashboard/", AccountingDashboardAPIView.as_view(), name="accounting-dashboard"),
+    path("accounting/transactions/", TransactionsAPIView.as_view(), name="accounting-transactions"),
+
     # =============================================
     # POLICY PAGES ENDPOINTS
     # =============================================

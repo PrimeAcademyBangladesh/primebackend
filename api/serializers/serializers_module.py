@@ -992,7 +992,7 @@ class CourseModuleStudentStudyPlanSerializer(HTMLFieldsMixin, serializers.ModelS
                 context=self.context,
             ).data
 
-            # ✅ SIMPLE + SAFE LOGIC
+
             live_data["is_attended"] = bool(
                 attendance
                 and attendance.attended

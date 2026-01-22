@@ -1,16 +1,23 @@
+import calendar
+from decimal import Decimal
+
+from django.db.models import Prefetch, Exists, OuterRef
+from django.db.models import Q, Sum
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
-from rest_framework.viewsets import ModelViewSet, GenericViewSet
-from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from django.db.models import Prefetch, Exists, OuterRef
-
-from api.models.models_accounting import Income, IncomeUpdateRequest, Expense, ExpenseUpdateRequest, IncomeType, \
+from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
+from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet, GenericViewSet
+from django.utils.timesince import timesince
+from api.models import CustomUser
+from api.models.models_accounting import Income, Expense
+from api.models.models_accounting import IncomeUpdateRequest, ExpenseUpdateRequest, IncomeType, \
     PaymentMethod, ExpenseType, ExpensePaymentMethod
-from api.permissions import IsAdmin, IsAdminOrAccountant, IsAccountant
+from api.permissions import IsAdmin, IsAccountant, IsAdminOrAccountant
 from api.serializers.serializers_accounting import (
     IncomeReadSerializer,
     IncomeListSerializer,
@@ -21,10 +28,10 @@ from api.serializers.serializers_accounting import (
     ExpenseUpdateRequestReadSerializer, ExpenseUpdateRequestCreateSerializer, ExpenseApprovalActionSerializer,
     IncomeTypeSerializer, PaymentMethodSerializer, ExpenseTypeSerializer, ExpensePaymentMethodSerializer
 )
+from api.utils.accounting_tranx_helper import resolve_date_range, export_transactions_pdf, export_transactions_csv
+from api.utils.approval_utils import handle_update_with_approval
 from api.utils.pagination import StandardResultsSetPagination
 from api.utils.response_utils import api_response
-from api.utils.approval_utils import handle_update_with_approval
-
 
 
 # ============================================================
@@ -959,4 +966,438 @@ class ExpenseUpdateRequestViewSet(ModelViewSet):
             success=True,
             message="Your expense update requests fetched successfully",
             data=serializer.data,
+        )
+
+
+# ============================================================
+# Accounting Dashboard API View
+# ============================================================
+@extend_schema(
+    tags=["ACCOUNTING"],
+    summary="Accounting Dashboard Data",
+    parameters=[
+        OpenApiParameter(
+            name="year",
+            type=int,
+            description="Year for which to fetch the dashboard data. Defaults to current year.",
+            required=False,
+        ),
+    ],
+)
+class AccountingDashboardAPIView(APIView):
+    permission_classes = [IsAdminOrAccountant]
+
+    def get(self, request):
+        year = int(request.query_params.get("year", timezone.now().year))
+
+        return api_response(
+            success=True,
+            message="Accounting dashboard data fetched successfully",
+            data={
+                "summary": self.get_summary(year),
+                "chart": self.get_revenue_vs_expense_chart(year),
+                "recent_transactions": self.get_recent_transactions(),
+                "quick_stats": self.get_quick_stats(year),
+                "recent_activity": self.get_recent_activity(),
+            },
+        )
+
+    def get_summary(self, year):
+        revenue = (
+                Income.objects.filter(
+                    date__year=year,
+                    status="completed",
+                    approval_status="approved",
+                ).aggregate(total=Sum("amount"))["total"]
+                or Decimal("0.00")
+        )
+
+        expenses = (
+                Expense.objects.filter(
+                    date__year=year,
+                    status="paid",
+                ).aggregate(total=Sum("amount"))["total"]
+                or Decimal("0.00")
+        )
+
+        net_income = revenue - expenses
+
+        balance = (
+                          Income.objects.filter(
+                              status="completed",
+                              approval_status="approved",
+                          ).aggregate(total=Sum("amount"))["total"]
+                          or Decimal("0.00")
+                  ) - (
+                          Expense.objects.filter(status="paid")
+                          .aggregate(total=Sum("amount"))["total"]
+                          or Decimal("0.00")
+                  )
+
+        return {
+            "total_revenue": float(revenue),
+            "total_expenses": float(expenses),
+            "net_income": float(net_income),
+            "balance": float(balance),
+        }
+
+    def get_revenue_vs_expense_chart(self, year):
+        months = []
+
+        for month in range(1, 13):
+            revenue = (
+                    Income.objects.filter(
+                        date__year=year,
+                        date__month=month,
+                        status="completed",
+                        approval_status="approved",
+                    ).aggregate(total=Sum("amount"))["total"]
+                    or Decimal("0.00")
+            )
+
+            expense = (
+                    Expense.objects.filter(
+                        date__year=year,
+                        date__month=month,
+                        status="paid",
+                    ).aggregate(total=Sum("amount"))["total"]
+                    or Decimal("0.00")
+            )
+
+            months.append({
+                "month": calendar.month_abbr[month],
+                "revenue": float(revenue),
+                "expenses": float(expense),
+            })
+
+        return {
+            "year": year,
+            "data": months,
+        }
+
+    def get_recent_transactions(self):
+        incomes = Income.objects.filter(
+            status="completed",
+            approval_status="approved",
+        ).values(
+            "transaction_id",
+            "description",
+            "amount",
+            "date",
+        )
+
+        expenses = Expense.objects.filter(
+            status="paid"
+        ).values(
+            "reference_id",
+            "description",
+            "amount",
+            "date",
+        )
+
+        data = []
+
+        for i in incomes:
+            data.append({
+                "id": i["transaction_id"],
+                "type": "income",
+                "description": i["description"],
+                "amount": float(i["amount"]),
+                "date": i["date"],
+            })
+
+        for e in expenses:
+            data.append({
+                "id": e["reference_id"],
+                "type": "expense",
+                "description": e["description"],
+                "amount": float(e["amount"]),
+                "date": e["date"],
+            })
+
+        data.sort(key=lambda x: x["date"], reverse=True)
+
+        return data[:10]
+
+    def get_quick_stats(self, year):
+        active_students = CustomUser.objects.filter(
+            role="student",
+            is_active=True,
+        ).count()
+
+        active_teachers = CustomUser.objects.filter(
+            role="teacher",
+            is_active=True,
+        ).count()
+
+        avg_monthly_revenue = (
+                Income.objects.filter(
+                    date__year=year,
+                    status="completed",
+                    approval_status="approved",
+                ).aggregate(avg=Sum("amount") / 12)["avg"]
+                or Decimal("0.00")
+        )
+
+        pending_incomes = Income.objects.filter(
+            approval_status="pending"
+        ).count()
+
+        pending_expenses = Expense.objects.filter(
+            status="pending"
+        ).count()
+
+        return {
+            "active_students": active_students,
+            "active_teachers": active_teachers,
+            "avg_monthly_revenue": float(avg_monthly_revenue),
+            "pending_income_approvals": pending_incomes,
+            "pending_expenses": pending_expenses,
+        }
+
+    def get_recent_activity(self):
+        activities = []
+
+        # -------------------------
+        # Income created
+        # -------------------------
+        incomes = Income.objects.select_related(
+            "recorded_by"
+        ).order_by("-created_at")[:5]
+
+        for inc in incomes:
+            activities.append({
+                "type": "income_created",
+                "message": f"Income {inc.transaction_id} recorded",
+                "time": f"{timesince(inc.created_at)} ago",
+                "created_at": inc.created_at,
+            })
+
+        # -------------------------
+        # Income update requests
+        # -------------------------
+        income_requests = IncomeUpdateRequest.objects.select_related(
+            "income",
+            "requested_by",
+        ).order_by("-created_at")[:5]
+
+        for req in income_requests:
+            activities.append({
+                "type": "income_update_request",
+                "message": f"Update requested for {req.income.transaction_id}",
+                "time": f"{timesince(req.created_at)} ago",
+                "created_at": req.created_at,
+            })
+
+        # -------------------------
+        # Expense update requests
+        # -------------------------
+        expense_requests = ExpenseUpdateRequest.objects.select_related(
+            "expense",
+            "requested_by",
+        ).order_by("-created_at")[:5]
+
+        for req in expense_requests:
+            activities.append({
+                "type": "expense_update_request",
+                "message": f"Update requested for expense {req.expense.reference_id}",
+                "time": f"{timesince(req.created_at)} ago",
+                "created_at": req.created_at,
+            })
+
+        # -------------------------
+        # Expense created
+        # -------------------------
+        expenses = Expense.objects.select_related(
+            "recorded_by"
+        ).order_by("-created_at")[:5]
+
+        for exp in expenses:
+            activities.append({
+                "type": "expense_created",
+                "message": f"Expense {exp.reference_id} recorded",
+                "time": f"{timesince(exp.created_at)} ago",
+                "created_at": exp.created_at,
+            })
+
+        # -------------------------
+        # SORT & LIMIT
+        # -------------------------
+        activities.sort(key=lambda x: x["created_at"], reverse=True)
+
+        return activities[:8]
+
+
+# # ============================================================
+# Transactions API View
+# # ============================================================
+@extend_schema(
+    tags=["ACCOUNTING"],
+    summary="Fetch all transactions (incomes and expenses) with filters, pagination, and export options",
+    parameters=[
+        OpenApiParameter(
+            name="search",
+            type=str,
+            description="Search by transaction ID, description, payer/vendor name",
+            required=False,
+        ),
+        OpenApiParameter(
+            name="type",
+            type=str,
+            description="Filter by transaction type: income or expense",
+            required=False,
+            enum=["income", "expense"],
+        ),
+        OpenApiParameter(
+            name="status",
+            type=str,
+            description="Filter by transaction status",
+            required=False,
+        ),
+        OpenApiParameter(
+            name="range",
+            type=str,
+            description="Predefined date range filter (e.g., this_month, last_month)",
+            required=False,
+        ),
+        OpenApiParameter(
+            name="date_from",
+            type=str,
+            description="Start date for custom date range filter (YYYY-MM-DD)",
+            required=False,
+        ),
+        OpenApiParameter(
+            name="date_to",
+            type=str,
+            description="End date for custom date range filter (YYYY-MM-DD)",
+            required=False,
+        ),
+        OpenApiParameter(
+            name="export",
+            type=str,
+            description="Export format: csv or pdf",
+            required=False,
+            enum=["csv", "pdf"],
+        ),
+        OpenApiParameter(
+            name="page",
+            type=int,
+            description="Page number for pagination",
+            required=False,
+        ),
+        OpenApiParameter(
+            name="page_size",
+            type=int,
+            description="Number of records per page for pagination",
+            required=False,
+        ),
+    ],
+)
+class TransactionsAPIView(APIView):
+    permission_classes = [IsAdminOrAccountant]
+
+    def get(self, request):
+        search = request.query_params.get("search")
+        tx_type = request.query_params.get("type")
+        status = request.query_params.get("status")
+        range_key = request.query_params.get("range")
+        export = request.query_params.get("export")
+
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+
+        start, end = resolve_date_range(range_key)
+
+        incomes = Income.objects.select_related(
+            "income_type"
+        )
+
+        expenses = Expense.objects.select_related(
+            "expense_type"
+        )
+
+        # --------------------
+        # Filters
+        # --------------------
+        if status:
+            incomes = incomes.filter(status=status)
+            expenses = expenses.filter(status=status)
+
+        if start and end:
+            incomes = incomes.filter(date__range=(start, end))
+            expenses = expenses.filter(date__range=(start, end))
+
+        if date_from and date_to:
+            incomes = incomes.filter(date__range=(date_from, date_to))
+            expenses = expenses.filter(date__range=(date_from, date_to))
+
+        if search:
+            incomes = incomes.filter(
+                Q(transaction_id__icontains=search) |
+                Q(description__icontains=search) |
+                Q(payer_name__icontains=search)
+            )
+            expenses = expenses.filter(
+                Q(reference_id__icontains=search) |
+                Q(description__icontains=search) |
+                Q(vendor_name__icontains=search)
+            )
+
+        rows = []
+
+        if tx_type in (None, "income"):
+            for i in incomes:
+                rows.append({
+                    "id": i.transaction_id,
+                    "description": i.description,
+                    "category": i.income_type.name,
+                    "reference": i.payer_name,
+                    "date": i.date,
+                    "type": "Income",
+                    "status": i.status,
+                    "amount": float(i.amount),
+                })
+
+        if tx_type in (None, "expense"):
+            for e in expenses:
+                rows.append({
+                    "id": e.reference_id,
+                    "description": e.description,
+                    "category": e.expense_type.name,
+                    "reference": e.vendor_name,
+                    "date": e.date,
+                    "type": "Expense",
+                    "status": e.status,
+                    "amount": -float(e.amount),
+                })
+
+        rows.sort(key=lambda x: x["date"], reverse=True)
+
+        # --------------------
+        # EXPORTS
+        # --------------------
+        if export == "csv":
+            return export_transactions_csv(rows)
+
+        if export == "pdf":
+            return export_transactions_pdf(rows)
+
+        # --------------------
+        # PAGINATION
+        # --------------------
+        page = int(request.query_params.get("page", 1))
+        size = int(request.query_params.get("page_size", 20))
+
+        start_idx = (page - 1) * size
+        end_idx = start_idx + size
+
+        return api_response(
+            success=True,
+            message="Transactions fetched successfully",
+            data={
+                "count": len(rows),
+                "page": page,
+                "page_size": size,
+                "results": rows[start_idx:end_idx],
+            },
         )
