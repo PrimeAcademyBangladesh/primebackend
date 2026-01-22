@@ -968,17 +968,40 @@ class CourseModuleStudentStudyPlanSerializer(HTMLFieldsMixin, serializers.ModelS
     # =====================================================
 
     def get_live_classes(self, obj):
+        request = self.context.get("request")
+        user = request.user if request else None
+        now = timezone.now()
+
         qs = obj.live_classes.filter(is_active=True)
 
         batch_ids = self._enrolled_batch_ids()
         if batch_ids is not None:
             qs = qs.filter(batch_id__in=batch_ids)
 
-        return LiveClassSerializer(
-            qs.order_by("scheduled_date"),
-            many=True,
-            context=self.context,
-        ).data
+        data = []
+
+        for live_class in qs.order_by("scheduled_date"):
+            attendance = None
+            if user and user.is_authenticated:
+                attendance = live_class.attendances.filter(
+                    student=user
+                ).first()
+
+            live_data = LiveClassSerializer(
+                live_class,
+                context=self.context,
+            ).data
+
+            # ✅ SIMPLE + SAFE LOGIC
+            live_data["is_attended"] = bool(
+                attendance
+                and attendance.attended
+                and live_class.scheduled_date < now
+            )
+
+            data.append(live_data)
+
+        return data
 
     # =====================================================
     # 📝 QUIZZES

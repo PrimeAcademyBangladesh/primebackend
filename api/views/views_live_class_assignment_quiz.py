@@ -155,7 +155,7 @@ class LiveClassViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Attendance live class",
-        tags=["Live Classes"],  # Same tag as ViewSet
+        tags=["Live Classes"],
     )
     @action(detail=True, methods=["get"], url_path="my-attendance")
     def my_attendance(self, request, pk=None):
