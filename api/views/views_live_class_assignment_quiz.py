@@ -126,7 +126,6 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         summary="Join live class",
         tags=["Live Classes"],
     )
-    # Join class and AUto mark attendance
     @action(detail=True, methods=["post"])
     def join(self, request, pk=None):
         live_class = self.get_object()
@@ -135,12 +134,16 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         attendance, created = LiveClassAttendance.objects.get_or_create(
             live_class=live_class,
             student=user,
-            defaults={"joined_at": timezone.now()},
+            defaults={
+                "joined_at": timezone.now(),
+                "attended": True,
+            },
         )
 
-        if not created and not attendance.joined_at:
+        if not created:
             attendance.joined_at = timezone.now()
-            attendance.save(update_fields=["joined_at"])
+            attendance.attended = True
+            attendance.save(update_fields=["joined_at", "attended"])
 
         serializer = LiveClassAttendanceSerializer(attendance)
 
