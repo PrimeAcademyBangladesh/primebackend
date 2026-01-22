@@ -11,8 +11,17 @@ from django.http import HttpResponse
 from reportlab.platypus import Image
 from django.conf import settings
 import os
+from io import BytesIO
 
+from reportlab.platypus import Paragraph
+from reportlab.lib.styles import ParagraphStyle
 
+cell_style = ParagraphStyle(
+    name="Cell",
+    fontSize=9,
+    leading=11,
+    wordWrap="CJK",
+)
 
 def resolve_date_range(range_key):
     today = timezone.now().date()
@@ -137,9 +146,9 @@ def export_transactions_pdf(rows):
 
         table_data.append([
             r["id"],
-            r["description"],
-            r["category"],
-            r["reference"],
+            Paragraph(r["description"], cell_style),
+            Paragraph(r["category"], cell_style),
+            Paragraph(r["reference"], cell_style),
             r["date"].strftime("%Y-%m-%d"),
             r["type"],
             r["status"].capitalize(),
