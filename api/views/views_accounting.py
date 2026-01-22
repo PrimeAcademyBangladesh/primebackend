@@ -174,29 +174,28 @@ class IncomeViewSet(ModelViewSet):
     # --------------------------------------------------------
     # Queryset
     # --------------------------------------------------------
+
     def get_queryset(self):
         queryset = Income.objects.select_related(
             "income_type",
             "payment_method",
             "recorded_by",
             "approved_by",
+        ).annotate(
+            has_pending_updates=Exists(
+                IncomeUpdateRequest.objects.filter(
+                    income=OuterRef("pk"),
+                    status="pending",
+                )
+            )
         )
 
+        # keep your existing conditional prefetch logic
         if self.action in ["retrieve", "update", "partial_update"]:
             queryset = queryset.prefetch_related(
                 Prefetch(
                     "update_requests",
                     queryset=IncomeUpdateRequest.objects.filter(status="pending"),
-                )
-            )
-
-        if self.action in ["update", "partial_update"]:
-            queryset = queryset.annotate(
-                has_pending_request=Exists(
-                    IncomeUpdateRequest.objects.filter(
-                        income=OuterRef("pk"),
-                        status="pending",
-                    )
                 )
             )
 
@@ -259,7 +258,7 @@ class IncomeViewSet(ModelViewSet):
             )
 
         # 👇 Accountant vs Admin handled here
-        if IsAccountant().has_permission(request, None):
+        if request.user.role == "accountant":
             return handle_update_with_approval(
                 request=request,
                 instance=income,
@@ -292,6 +291,14 @@ class IncomeViewSet(ModelViewSet):
     @extend_schema(summary="Admin: Delete income")
     def destroy(self, request, *args, **kwargs):
         income = self.get_object()
+
+        if getattr(income, "has_pending_updates", False):
+            return api_response(
+                success=False,
+                message="Cannot delete record with pending update requests",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
         transaction_id = income.transaction_id
         income.delete()
 
@@ -308,11 +315,9 @@ class IncomeViewSet(ModelViewSet):
     @action(detail=False, methods=["get"], url_path="pending-approval")
     def pending_approval(self, request):
         queryset = self.filter_queryset(
-            self.get_queryset().filter(
-                id__in=IncomeUpdateRequest.objects.filter(
-                    status="pending"
-                ).values("income_id")
-            )
+            self.get_queryset()
+            .filter(update_requests__status="pending")
+            .distinct()
         )
 
         page = self.paginate_queryset(queryset)
@@ -659,25 +664,20 @@ class ExpenseViewSet(ModelViewSet):
             "expense_type",
             "payment_method",
             "recorded_by",
+        ).annotate(
+            has_pending_updates=Exists(
+                ExpenseUpdateRequest.objects.filter(
+                    expense=OuterRef("pk"),
+                    status="pending",
+                )
+            )
         )
 
         if self.action in ["retrieve", "update", "partial_update"]:
             queryset = queryset.prefetch_related(
                 Prefetch(
                     "update_requests",
-                    queryset=ExpenseUpdateRequest.objects.select_related(
-                        "requested_by", "reviewed_by"
-                    ).filter(status="pending"),
-                )
-            )
-
-        if self.action in ["update", "partial_update"]:
-            queryset = queryset.annotate(
-                has_pending_request=Exists(
-                    ExpenseUpdateRequest.objects.filter(
-                        expense=OuterRef("pk"),
-                        status="pending",
-                    )
+                    queryset=ExpenseUpdateRequest.objects.filter(status="pending"),
                 )
             )
 
@@ -766,23 +766,14 @@ class ExpenseViewSet(ModelViewSet):
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        response = handle_update_with_approval(
+        # ✅ SINGLE RETURN — SAME AS IncomeViewSet
+        return handle_update_with_approval(
             request=request,
             instance=expense,
             serializer=serializer,
             update_request_model=ExpenseUpdateRequest,
             success_message="Expense updated successfully",
         )
-
-        # If admin path → return updated object
-        if response.status_code == status.HTTP_200_OK:
-            return api_response(
-                success=True,
-                message="Expense updated successfully",
-                data=ExpenseReadSerializer(expense).data,
-            )
-
-        return response
 
     def partial_update(self, request, *args, **kwargs):
         kwargs["partial"] = True
@@ -793,6 +784,14 @@ class ExpenseViewSet(ModelViewSet):
     # --------------------------------------------------------
     def destroy(self, request, *args, **kwargs):
         expense = self.get_object()
+
+        if getattr(expense, "has_pending_updates", False):
+            return api_response(
+                success=False,
+                message="Cannot delete record with pending update requests",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
         ref = expense.reference_id
         self.perform_destroy(expense)
 
@@ -845,7 +844,7 @@ class ExpenseUpdateRequestViewSet(ModelViewSet):
         return [IsAdminOrAccountant()]
 
     def get_queryset(self):
-        return ExpenseUpdateRequest.objects.select_related(
+        qs = ExpenseUpdateRequest.objects.select_related(
             "expense",
             "expense__expense_type",
             "expense__payment_method",
@@ -853,8 +852,13 @@ class ExpenseUpdateRequestViewSet(ModelViewSet):
             "reviewed_by",
         )
 
+        if self.request.user.role == "accountant":
+            qs = qs.filter(requested_by=self.request.user)
+
+        return qs
+
     def get_serializer_class(self):
-        if self.action == "retrieve":
+        if self.action in ["list", "retrieve", "my_requests"]:
             return ExpenseUpdateRequestReadSerializer
         return ExpenseUpdateRequestCreateSerializer
 

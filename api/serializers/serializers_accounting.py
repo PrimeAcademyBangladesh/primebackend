@@ -15,6 +15,40 @@ from api.models.models_accounting import (
 # ============================================================
 # BASE UPDATE REQUEST SERIALIZER (REUSABLE CORE)
 # ============================================================
+# ============================================================
+# BASE UPDATE REQUEST AUDIT SERIALIZER (READ-ONLY)
+# ============================================================
+
+class BaseUpdateRequestAuditSerializer(serializers.ModelSerializer):
+    requested_by_name = serializers.CharField(
+        source="requested_by.get_full_name", read_only=True
+    )
+    requested_by_email = serializers.EmailField(
+        source="requested_by.email", read_only=True
+    )
+
+    reviewed_by_name = serializers.CharField(
+        source="reviewed_by.get_full_name", read_only=True, default=None
+    )
+    reviewed_by_email = serializers.EmailField(
+        source="reviewed_by.email", read_only=True, default=None
+    )
+
+    class Meta:
+        fields = [
+            "id",
+            "status",               # pending / approved / rejected
+            "requested_data",
+            "requested_by_name",
+            "requested_by_email",
+            "created_at",
+            "reviewed_by_name",
+            "reviewed_by_email",
+            "reviewed_at",
+            "rejection_reason",
+        ]
+        read_only_fields = fields
+
 
 class BaseUpdateRequestSerializer(serializers.ModelSerializer):
     """
@@ -46,6 +80,13 @@ class BaseUpdateRequestSerializer(serializers.ModelSerializer):
             status="pending",
             **validated_data,
         )
+
+
+class IncomeUpdateRequestAuditSerializer(
+    BaseUpdateRequestAuditSerializer
+):
+    class Meta(BaseUpdateRequestAuditSerializer.Meta):
+        model = IncomeUpdateRequest
 
 
 # ============================================================
@@ -101,20 +142,23 @@ class IncomeReadSerializer(serializers.ModelSerializer):
     payment_method_name = serializers.CharField(source="payment_method.name", read_only=True)
     payment_method_code = serializers.CharField(source="payment_method.code", read_only=True)
 
-    recorded_by_name = serializers.CharField(source="recorded_by.get_full_name", read_only=True, default=None)
-    recorded_by_email = serializers.EmailField(source="recorded_by.email", read_only=True, allow_null=True)
+    recorded_by_name = serializers.CharField(source="recorded_by.get_full_name", read_only=True)
+    recorded_by_email = serializers.EmailField(source="recorded_by.email", read_only=True)
 
     approved_by_name = serializers.CharField(source="approved_by.get_full_name", read_only=True, default=None)
-    approved_by_email = serializers.EmailField(source="approved_by.email", read_only=True, allow_null=True)
+    approved_by_email = serializers.EmailField(source="approved_by.email", read_only=True, default=None)
 
-    has_pending_updates = serializers.SerializerMethodField()
+    has_pending_updates = serializers.BooleanField(read_only=True)
+
+
+    update_requests = IncomeUpdateRequestAuditSerializer(
+        many=True, read_only=True
+    )
 
     class Meta:
         model = Income
         fields = "__all__"
 
-    def get_has_pending_updates(self, obj):
-        return obj.update_requests.filter(status="pending").exists()
 
 
 class IncomeListSerializer(serializers.ModelSerializer):
@@ -165,6 +209,8 @@ class IncomeApprovalActionSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
 
+
+
 # ============================================================
 # EXPENSE SERIALIZERS (IDENTICAL PATTERN, SAFE & CLEAN)
 # ============================================================
@@ -179,6 +225,13 @@ class ExpensePaymentMethodSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExpensePaymentMethod
         fields = "__all__"
+
+class ExpenseUpdateRequestAuditSerializer(
+    BaseUpdateRequestAuditSerializer
+):
+    class Meta(BaseUpdateRequestAuditSerializer.Meta):
+        model = ExpenseUpdateRequest
+
 
 
 class ExpenseCreateSerializer(serializers.ModelSerializer):
@@ -218,17 +271,19 @@ class ExpenseReadSerializer(serializers.ModelSerializer):
     payment_method_name = serializers.CharField(source="payment_method.name", read_only=True)
     payment_method_code = serializers.CharField(source="payment_method.code", read_only=True)
 
-    recorded_by_name = serializers.CharField(source="recorded_by.get_full_name", read_only=True, default=None)
-    recorded_by_email = serializers.EmailField(source="recorded_by.email", read_only=True, allow_null=True)
+    recorded_by_name = serializers.CharField(source="recorded_by.get_full_name", read_only=True)
+    recorded_by_email = serializers.EmailField(source="recorded_by.email", read_only=True)
 
-    has_pending_updates = serializers.SerializerMethodField()
+    has_pending_updates = serializers.BooleanField(read_only=True)
+
+    # 🔥 AUDIT HISTORY
+    update_requests = ExpenseUpdateRequestAuditSerializer(
+        many=True, read_only=True
+    )
 
     class Meta:
         model = Expense
         fields = "__all__"
-
-    def get_has_pending_updates(self, obj):
-        return obj.update_requests.filter(status="pending").exists()
 
 
 class ExpenseListSerializer(serializers.ModelSerializer):

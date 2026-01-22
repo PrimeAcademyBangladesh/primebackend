@@ -895,6 +895,13 @@ class CourseModuleStudentStudyPlanSerializer(HTMLFieldsMixin, serializers.ModelS
     quiz_count = serializers.SerializerMethodField()
     resource_count = serializers.SerializerMethodField()
 
+    # ---------- Progress ----------
+    live_class_progress = serializers.SerializerMethodField()
+    assignment_progress = serializers.SerializerMethodField()
+    quiz_progress = serializers.SerializerMethodField()
+    overall_progress = serializers.SerializerMethodField()
+
+
     class Meta:
         model = CourseModule
         fields = [
@@ -914,6 +921,12 @@ class CourseModuleStudentStudyPlanSerializer(HTMLFieldsMixin, serializers.ModelS
             "assignment_count",
             "quiz_count",
             "resource_count",
+
+            # progress ✅ ADD THESE
+            "live_class_progress",
+            "assignment_progress",
+            "quiz_progress",
+            "overall_progress",
         ]
         read_only_fields = ["id", "slug"]
 
@@ -1040,3 +1053,86 @@ class CourseModuleStudentStudyPlanSerializer(HTMLFieldsMixin, serializers.ModelS
         if batch_ids is not None:
             qs = qs.filter(batch_id__in=batch_ids)
         return qs.count()
+
+    def _student(self):
+        request = self.context.get("request")
+        return request.user if request else None
+
+    def get_live_class_progress(self, obj):
+        student = self._student()
+        if not student:
+            return {"completed": 0, "total": 0}
+
+        batch_ids = self._enrolled_batch_ids()
+
+        total = obj.live_classes.filter(
+            is_active=True,
+            batch_id__in=batch_ids
+        ).count()
+
+        completed = LiveClassAttendance.objects.filter(
+            student=student,
+            attended=True,
+            live_class__module=obj,
+            live_class__batch_id__in=batch_ids
+        ).count()
+
+        return {"completed": completed, "total": total}
+
+    def get_assignment_progress(self, obj):
+        student = self._student()
+        if not student:
+            return {"completed": 0, "total": 0}
+
+        batch_ids = self._enrolled_batch_ids()
+
+        total = obj.module_assignments.filter(
+            is_active=True,
+            batch_id__in=batch_ids
+        ).count()
+
+        completed = AssignmentSubmission.objects.filter(
+            student=student,
+            assignment__module=obj,
+            assignment__batch_id__in=batch_ids
+        ).count()
+
+        return {"completed": completed, "total": total}
+
+    def get_quiz_progress(self, obj):
+        student = self._student()
+        if not student:
+            return {"completed": 0, "total": 0}
+
+        batch_ids = self._enrolled_batch_ids()
+
+        total = obj.module_quizzes.filter(
+            is_active=True,
+            batch_id__in=batch_ids
+        ).count()
+
+        completed = QuizAttempt.objects.filter(
+            student=student,
+            quiz__module=obj,
+            quiz__batch_id__in=batch_ids,
+            status="submitted"
+        ).values("quiz").distinct().count()
+
+        return {"completed": completed, "total": total}
+
+    def get_overall_progress(self, obj):
+        lc = self.get_live_class_progress(obj)
+        a = self.get_assignment_progress(obj)
+        q = self.get_quiz_progress(obj)
+
+        total_items = lc["total"] + a["total"] + q["total"]
+        completed_items = lc["completed"] + a["completed"] + q["completed"]
+
+        if total_items == 0:
+            return 0
+
+        return round((completed_items / total_items) * 100)
+
+
+
+

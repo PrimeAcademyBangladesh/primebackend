@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from api.utils.helper_models import TimeStampedModel
 
+
 # -------------------------------
 # Payment Method
 # -------------------------------
@@ -64,7 +65,6 @@ class Income(TimeStampedModel):
         ("rejected", "Rejected"),
     ]
 
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     transaction_id = models.CharField(max_length=50, unique=True, editable=False)
 
@@ -107,8 +107,13 @@ class Income(TimeStampedModel):
         ordering = ['-date', '-created_at']
 
     def save(self, *args, **kwargs):
+        if self.pk and "transaction_id" in self.__dict__:
+
+            self.transaction_id = Income.objects.only("transaction_id").get(pk=self.pk).transaction_id
+
         if self._state.adding and not self.transaction_id:
             self.transaction_id = self.generate_transaction_id()
+
         super().save(*args, **kwargs)
 
     def generate_transaction_id(self):
@@ -191,61 +196,61 @@ class IncomeUpdateRequest(TimeStampedModel):
         ]
         ordering = ['-created_at']
 
+    # --------------------------------------------------------
+    # APPROVE
+    # --------------------------------------------------------
     def approve(self, admin_user):
         if self.status != "pending":
             raise ValueError("Only pending requests can be approved.")
 
+        from api.serializers.serializers_accounting import IncomeCreateSerializer
+
         with transaction.atomic():
             income = Income.objects.select_for_update().get(pk=self.income_id)
 
-            for field, value in self.requested_data.items():
-                if field in self.ALLOWED_UPDATE_FIELDS:
-                    setattr(income, field, value)
+            # ✅ Validate & apply requested changes
+            serializer = IncomeCreateSerializer(
+                income,
+                data=self.requested_data,
+                partial=True,
+            )
+            serializer.is_valid(raise_exception=True)
 
-            income.approval_status = "approved"
-            income.approved_by = admin_user
-            income.approved_at = timezone.now()
+            income = serializer.save(
+                approval_status="approved",
+                approved_by=admin_user,
+                approved_at=timezone.now(),
+            )
 
-            update_fields = [
-                field for field in self.requested_data.keys()
-                if field in self.ALLOWED_UPDATE_FIELDS
-            ]
-
-            income.save(update_fields=[
-                *update_fields,
-                "approval_status",
-                "approved_by",
-                "approved_at",
-            ])
-
+            # ✅ Mark request approved (audit trail)
             self.status = "approved"
             self.reviewed_by = admin_user
             self.reviewed_at = timezone.now()
-            self.save(update_fields=[
-                "status",
-                "reviewed_by",
-                "reviewed_at",
-            ])
+            self.save(update_fields=["status", "reviewed_by", "reviewed_at"])
 
     def reject(self, admin_user, reason=""):
         if self.status != "pending":
             raise ValueError("Only pending requests can be rejected.")
 
         with transaction.atomic():
+            self.income.approval_status = "approved"
+            self.income.save(update_fields=["approval_status"])
+
             self.status = "rejected"
             self.reviewed_by = admin_user
             self.reviewed_at = timezone.now()
             self.rejection_reason = reason
-            self.save(update_fields=[
-                "status",
-                "reviewed_by",
-                "reviewed_at",
-                "rejection_reason",
-            ])
+            self.save(
+                update_fields=[
+                    "status",
+                    "reviewed_by",
+                    "reviewed_at",
+                    "rejection_reason",
+                ]
+            )
 
     def __str__(self):
         return f"Update Request for {self.income.transaction_id} by {self.requested_by}"
-
 
 
 # ============================================================
@@ -319,7 +324,7 @@ class Expense(TimeStampedModel):
         super().save(*args, **kwargs)
 
     def generate_reference_id(self):
-        return f"EXP-{timezone.now().year}-{uuid.uuid4().hex[:6].upper()}"
+        return f"EXP-{timezone.now().year}-{uuid.uuid4().hex[:8].upper()}"
 
     def __str__(self):
         return self.reference_id
@@ -387,7 +392,7 @@ class ExpenseUpdateRequest(TimeStampedModel):
 
     # --------------------------------------------------------
     # APPROVE
-    # --------------------------------------------------------
+    # -------------------------------------------------------
     def approve(self, admin_user):
         if self.status != "pending":
             raise ValueError("Only pending requests can be approved.")
@@ -397,23 +402,16 @@ class ExpenseUpdateRequest(TimeStampedModel):
         with transaction.atomic():
             expense = Expense.objects.select_for_update().get(pk=self.expense_id)
 
+            # ✅ Validate & apply requested changes safely
             serializer = ExpenseCreateSerializer(
                 expense,
                 data=self.requested_data,
                 partial=True,
-                context={"is_approval": True},
             )
             serializer.is_valid(raise_exception=True)
+            serializer.save()
 
-            update_fields = []
-
-            for field, value in serializer.validated_data.items():
-                if field in self.ALLOWED_UPDATE_FIELDS:
-                    setattr(expense, field, value)
-                    update_fields.append(field)
-
-            expense.save(update_fields=update_fields)
-
+            # ✅ Update request is the audit source of truth
             self.status = "approved"
             self.reviewed_by = admin_user
             self.reviewed_at = timezone.now()
