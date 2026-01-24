@@ -666,29 +666,6 @@ class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
         return data
 
 
-class QuizAttemptSerializer(serializers.ModelSerializer):
-    student_name = serializers.CharField(source="student.get_full_name", read_only=True)
-    quiz_title = serializers.CharField(source="quiz.title", read_only=True)
-
-    class Meta:
-        model = QuizAttempt
-        fields = [
-            "id",
-            "quiz",
-            "quiz_title",
-            "student_name",
-            "attempt_number",
-            "started_at",
-            "submitted_at",
-            "status",
-            "marks_obtained",
-            "percentage",
-            "passed",
-            "updated_at",
-        ]
-        read_only_fields = ["id", "started_at", "updated_at"]
-
-
 class QuizAnswerSerializer(serializers.ModelSerializer):
     question_text = serializers.CharField(source="question.question_text", read_only=True)
     correct_answer = serializers.SerializerMethodField()
@@ -729,6 +706,55 @@ class QuizAnswerSerializer(serializers.ModelSerializer):
             data.pop("is_correct", None)
 
         return data
+
+
+
+class QuizAttemptSerializer(serializers.ModelSerializer):
+    student_name = serializers.CharField(source="student.get_full_name", read_only=True)
+    quiz_title = serializers.CharField(source="quiz.title", read_only=True)
+
+    answers = QuizAnswerSerializer(many=True, read_only=True)
+    summary = serializers.SerializerMethodField()
+
+    class Meta:
+        model = QuizAttempt
+        fields = [
+            "id",
+            "quiz",
+            "quiz_title",
+            "student_name",
+            "attempt_number",
+            "started_at",
+            "submitted_at",
+            'answers',
+            "status",
+            "marks_obtained",
+            "percentage",
+            "passed",
+            "summary",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "started_at", "updated_at"]
+
+        # ==================================================
+        # 📊 QUIZ SUMMARY (ADD METHOD HERE)
+        # ==================================================
+    def get_summary(self, obj):
+        answers = obj.answers.all()
+
+        total_questions = obj.quiz.questions.filter(is_active=True).count()
+        correct = answers.filter(is_correct=True).count()
+        wrong = total_questions - correct
+
+        return {
+            "total_questions": total_questions,
+            "correct": correct,
+            "wrong": wrong,
+            "marks_obtained": float(obj.marks_obtained),
+            "total_marks": obj.quiz.total_marks,
+            "percentage": float(obj.percentage),
+            "passed": obj.passed,
+        }
 
 
 # ========== Course Resource Serializers ==========
