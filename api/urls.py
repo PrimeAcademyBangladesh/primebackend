@@ -12,7 +12,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from api.views.views_academy_overview import AcademyOverviewViewSet
 from api.views.views_accounting import IncomeTypeViewSet, PaymentMethodViewSet, IncomeViewSet, \
     IncomeUpdateRequestViewSet, ExpenseTypeViewSet, ExpensePaymentMethodViewSet, ExpenseViewSet, \
-    ExpenseUpdateRequestViewSet, AccountingDashboardAPIView, TransactionsAPIView
+    ExpenseUpdateRequestViewSet, AccountingDashboardAPIView, TransactionsAPIView, accounting_available_years
 from api.views.views_auth import (
     AdminLoginView,
     AdminStudentViewSet,
@@ -97,7 +97,6 @@ from api.views.views_module import CourseModuleStudyPlanView
 from api.views.views_order import EnrollmentViewSet, OrderItemViewSet, OrderViewSet
 from api.views.views_our_values import ValueTabContentViewSet, ValueTabSectionViewSet, ValueTabViewSet
 from api.views.views_payment import (
-    InstallmentPaymentInitiateView,
     InstallmentSummaryView,
     PaymentInitiateView,
     payment_cancel_redirect,
@@ -189,6 +188,7 @@ router.register(r"expense-types", ExpenseTypeViewSet, basename="expense-type")
 router.register(r"expense-payment-method", ExpensePaymentMethodViewSet, basename="expense-payment-method")
 router.register(r"expenses", ExpenseViewSet, basename="expense")
 router.register(r"expense-update-requests", ExpenseUpdateRequestViewSet, basename="expense-update-request")
+
 
 router.register("student/assignments", StudentAssignmentViewSet, basename="student-assignments")
 router.register("student/quizzes", StudentQuizViewSet, basename="student-quizzes")
@@ -468,6 +468,7 @@ urlpatterns = router.urls + [
     # Accounting dashboard endpoint
     path("accounting/dashboard/", AccountingDashboardAPIView.as_view(), name="accounting-dashboard"),
     path("accounting/transactions/", TransactionsAPIView.as_view(), name="accounting-transactions"),
+    path("accounting/available-years/", accounting_available_years, name="accounting-available-years"),
 
     # =============================================
     # POLICY PAGES ENDPOINTS

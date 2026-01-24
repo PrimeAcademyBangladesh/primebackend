@@ -3,7 +3,6 @@ from decimal import Decimal
 
 from django.db.models import Prefetch, Exists, OuterRef
 from django.db.models import Q, Sum
-from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework import status
@@ -14,7 +13,6 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet, GenericViewSet
 from django.utils.timesince import timesince
 from api.models import CustomUser
-from api.models.models_accounting import Income, Expense
 from api.models.models_accounting import IncomeUpdateRequest, ExpenseUpdateRequest, IncomeType, \
     PaymentMethod, ExpenseType, ExpensePaymentMethod
 from api.permissions import IsAdmin, IsAccountant, IsAdminOrAccountant
@@ -32,6 +30,10 @@ from api.utils.accounting_tranx_helper import resolve_date_range, export_transac
 from api.utils.approval_utils import handle_update_with_approval
 from api.utils.pagination import StandardResultsSetPagination
 from api.utils.response_utils import api_response
+from django.utils import timezone
+from django.db.models import Min
+from rest_framework.decorators import api_view
+from api.models.models_accounting import Income, Expense
 
 
 # ============================================================
@@ -1401,3 +1403,34 @@ class TransactionsAPIView(APIView):
                 "results": rows[start_idx:end_idx],
             },
         )
+
+@extend_schema(
+    tags=["ACCOUNTING"],
+    summary="Get available accounting years",
+)
+@api_view(["GET"])
+def accounting_available_years(request):
+    current_year = timezone.now().year
+
+    income_year = Income.objects.aggregate(
+        min_year=Min("date__year")
+    )["min_year"]
+
+    expense_year = Expense.objects.aggregate(
+        min_year=Min("date__year")
+    )["min_year"]
+
+    start_year = min(
+        y for y in [income_year, expense_year] if y is not None
+    ) if income_year or expense_year else current_year
+
+    years = list(range(current_year, start_year - 1, -1))
+
+    return api_response(
+        success=True,
+        message="Available accounting years",
+        data={
+            "default_year": current_year,
+            "years": years,
+        },
+    )
