@@ -311,9 +311,6 @@ class QuizQuestion(TimeStampedModel):
     QUESTION_TYPE_CHOICES = [
         ("mcq", "Multiple Choice (Single Answer)"),
         ("multiple", "Multiple Choice (Multiple Answers)"),
-        ("true_false", "True/False"),
-        ("short_answer", "Short Answer"),
-        ("essay", "Essay"),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -323,8 +320,6 @@ class QuizQuestion(TimeStampedModel):
 
     marks = models.PositiveIntegerField(default=1, help_text="Points for this question")
     order = models.PositiveIntegerField(help_text="Display order of the question")
-
-    correct_answer_text = models.TextField(blank=True, help_text="Expected answer for short answer questions")
 
     explanation = CKEditor5Field(blank=True, null=True, help_text="Explanation shown after answering")
 
@@ -412,8 +407,6 @@ class QuizAnswer(TimeStampedModel):
     question = models.ForeignKey(QuizQuestion, on_delete=models.CASCADE)
 
     selected_options = models.ManyToManyField(QuizQuestionOption, blank=True, help_text="Selected answer options (for MCQ)")
-
-    answer_text = models.TextField(blank=True, help_text="Text answer (for short answer/essay questions)")
 
     is_correct = models.BooleanField(default=False, help_text="Whether the answer is correct (auto-graded for MCQ)")
     marks_awarded = models.DecimalField(

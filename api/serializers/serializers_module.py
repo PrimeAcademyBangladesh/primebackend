@@ -439,7 +439,6 @@ class QuizQuestionSerializer(serializers.ModelSerializer):
             "question_type",
             "marks",
             "order",
-            "correct_answer_text",
             "explanation",
             "options",
             "is_active",
@@ -450,7 +449,6 @@ class QuizQuestionSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             if getattr(request.user, "role", None) == "student":
-                data.pop("correct_answer_text", None)
                 data.pop("explanation", None)
 
         return data
@@ -598,7 +596,6 @@ class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
             "question_type",
             "marks",
             "order",
-            "correct_answer_text",
             "explanation",
             "is_active",
             "options",
@@ -651,17 +648,17 @@ class QuizQuestionCreateUpdateSerializer(serializers.ModelSerializer):
 
             correct_count = sum(1 for o in options if o.get("is_correct"))
 
-            if qtype in ["mcq", "true_false"]:
+            if qtype == "mcq":
                 if correct_count != 1:
-                    raise serializers.ValidationError("MCQ / True-False questions must have exactly one correct option.")
+                    raise serializers.ValidationError(
+                        "MCQ questions must have exactly one correct option."
+                    )
 
             elif qtype == "multiple":
                 if correct_count < 1:
-                    raise serializers.ValidationError("Multiple choice questions must have at least one correct option.")
-
-            if qtype == "true_false":
-                if len(options) != 2:
-                    raise serializers.ValidationError("True/False questions must have exactly two options.")
+                    raise serializers.ValidationError(
+                        "Multiple choice questions must have at least one correct option."
+                    )
 
         return data
 
@@ -677,7 +674,6 @@ class QuizAnswerSerializer(serializers.ModelSerializer):
             "question",
             "question_text",
             "selected_options",
-            "answer_text",
             "is_correct",
             "marks_awarded",
             "correct_answer",
@@ -689,14 +685,11 @@ class QuizAnswerSerializer(serializers.ModelSerializer):
         if not obj.attempt.quiz.show_correct_answers:
             return None
 
-        if obj.question.question_type in ["mcq", "multiple", "true_false"]:
-            return QuizQuestionOptionSerializer(
-                obj.question.options.filter(is_correct=True),
-                many=True,
-                context=self.context,
-            ).data
-
-        return obj.question.correct_answer_text
+        return QuizQuestionOptionSerializer(
+            obj.question.options.filter(is_correct=True),
+            many=True,
+            context=self.context,
+        ).data
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -744,7 +737,8 @@ class QuizAttemptSerializer(serializers.ModelSerializer):
 
         total_questions = obj.quiz.questions.filter(is_active=True).count()
         correct = answers.filter(is_correct=True).count()
-        wrong = total_questions - correct
+        answered = answers.count()
+        wrong = answered - correct
 
         return {
             "total_questions": total_questions,

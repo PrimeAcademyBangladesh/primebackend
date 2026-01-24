@@ -10,9 +10,9 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from api.views.views_academy_overview import AcademyOverviewViewSet
-from api.views.views_accounting import IncomeViewSet, IncomeUpdateRequestViewSet, ExpenseViewSet, \
-    ExpenseUpdateRequestViewSet, PaymentMethodViewSet, IncomeTypeViewSet, ExpensePaymentMethod, \
-    ExpensePaymentMethodViewSet, AccountingDashboardAPIView, TransactionsAPIView
+from api.views.views_accounting import IncomeTypeViewSet, PaymentMethodViewSet, IncomeViewSet, \
+    IncomeUpdateRequestViewSet, ExpenseTypeViewSet, ExpensePaymentMethodViewSet, ExpenseViewSet, \
+    ExpenseUpdateRequestViewSet, AccountingDashboardAPIView, TransactionsAPIView
 from api.views.views_auth import (
     AdminLoginView,
     AdminStudentViewSet,
@@ -185,8 +185,8 @@ router.register(r"income-payment-method", PaymentMethodViewSet, basename="income
 router.register(r'incomes', IncomeViewSet, basename='income')
 router.register(r'income-update-requests', IncomeUpdateRequestViewSet, basename='income-update-request')
 
-router.register(r"income-types", ExpenseViewSet, basename="expense-type")
-router.register(r"income-payment-method", ExpensePaymentMethodViewSet, basename="expense-payment-method")
+router.register(r"expense-types", ExpenseTypeViewSet, basename="expense-type")
+router.register(r"expense-payment-method", ExpensePaymentMethodViewSet, basename="expense-payment-method")
 router.register(r"expenses", ExpenseViewSet, basename="expense")
 router.register(r"expense-update-requests", ExpenseUpdateRequestViewSet, basename="expense-update-request")
 

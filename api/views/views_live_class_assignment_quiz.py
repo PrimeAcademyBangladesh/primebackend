@@ -48,6 +48,11 @@ from api.utils.enrollment_filters import filter_queryset_for_student
 from api.utils.grading_utils import apply_late_penalty
 from api.utils.response_utils import api_response
 from api.views.views_base import BaseAdminViewSet
+from api.models.models_order import Enrollment
+from api.serializers.serializers_module import (
+    LiveClassSerializer,
+    CourseResourceSerializer,
+)
 
 
 @extend_schema_view(
@@ -1167,7 +1172,7 @@ class QuizViewSet(BaseAdminViewSet):
                 "points": round(marks_per_question, 2),
             }
 
-            if q.question_type in ["mcq", "multiple", "true_false"]:
+            if q.question_type in ["mcq", "multiple"]:
                 data["options"] = [
                     {"id": str(o.id), "option_text": o.option_text}
                     for o in q.options.all().order_by("order")
@@ -1277,7 +1282,6 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
 
         answer, _ = QuizAnswer.objects.get_or_create(attempt=attempt, question=question)
 
-        answer.answer_text = request.data.get("answer_text", "")
         answer.selected_options.set(request.data.get("selected_options", []))
         answer.save()
 
@@ -1301,15 +1305,6 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
                 status.HTTP_403_FORBIDDEN,
             )
 
-        # DOUBLE SUBMIT PREVENTION (MAIN GUARD)
-        if attempt.submitted_at is not None:
-            return api_response(
-                False,
-                "Quiz already submitted",
-                None,
-                status.HTTP_400_BAD_REQUEST,
-            )
-
         if attempt.submitted_at:
             return api_response(False, "Quiz already submitted", None, status.HTTP_400_BAD_REQUEST)
 
@@ -1331,8 +1326,9 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
 
             quiz_answer, _ = QuizAnswer.objects.get_or_create(attempt=attempt, question=question)
 
-            if question.question_type in ["mcq", "multiple", "true_false"]:
-                selected_ids = item.get("answer", [])
+            if question.question_type in ["mcq", "multiple"]:
+                # selected_ids = item.get("answer", [])
+                selected_ids = item.get("selected_options", [])
                 if not isinstance(selected_ids, list):
                     selected_ids = [selected_ids]
 
@@ -1352,9 +1348,7 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
                 else:
                     quiz_answer.marks_awarded = 0
                     quiz_answer.is_correct = False
-            else:
-                quiz_answer.answer_text = item.get("answer", "")
-                quiz_answer.marks_awarded = 0
+
 
             quiz_answer.save()
 
