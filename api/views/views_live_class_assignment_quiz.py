@@ -214,7 +214,6 @@ class LiveClassViewSet(viewsets.ModelViewSet):
         return api_response(True, "Attendance marked", serializer.data)
 
 
-
 # ============================================================================
 # ASSIGNMENT VIEW SET
 # ============================================================================
@@ -1106,7 +1105,6 @@ class QuizViewSet(BaseAdminViewSet):
         student = request.user
         now = timezone.now()
 
-        # 🔒 Enrollment guard (same rule as Assignment / LiveClass)
         if not self.get_queryset().filter(id=quiz.id).exists():
             return api_response(
                 False,
@@ -1121,40 +1119,61 @@ class QuizViewSet(BaseAdminViewSet):
         if quiz.available_until and now > quiz.available_until:
             return api_response(False, "Quiz is no longer available", None, status.HTTP_400_BAD_REQUEST)
 
-        attempt_count = QuizAttempt.objects.filter(quiz=quiz, student=student).count()
+        attempt_count = QuizAttempt.objects.filter(
+            quiz=quiz,
+            student=student,
+            status="submitted",
+        ).count()
 
         if quiz.max_attempts and attempt_count >= quiz.max_attempts:
             return api_response(False, "Maximum attempts reached", None, status.HTTP_400_BAD_REQUEST)
+
+        existing_attempt = QuizAttempt.objects.filter(
+            quiz=quiz,
+            student=student,
+            status="in_progress",
+        ).first()
+
+        if existing_attempt:
+            return api_response(
+                True,
+                "Resume existing attempt",
+                {
+                    "attempt_id": str(existing_attempt.id),
+                    "started_at": existing_attempt.started_at,
+                    "time_limit_minutes": quiz.duration_minutes,
+                },
+            )
 
         attempt = QuizAttempt.objects.create(
             quiz=quiz,
             student=student,
             attempt_number=attempt_count + 1,
             started_at=now,
+            status="in_progress",
         )
 
         questions = quiz.questions.filter(is_active=True)
         questions = questions.order_by("?") if quiz.randomize_questions else questions.order_by("order")
 
-        total_questions = questions.count()
-        marks_per_question = quiz.total_marks / total_questions if total_questions else 0
+        marks_per_question = quiz.total_marks / questions.count() if questions.exists() else 0
 
         questions_data = []
         for q in questions:
-            q_data = {
+            data = {
                 "id": str(q.id),
                 "question_text": q.question_text,
                 "question_type": q.question_type,
                 "points": round(marks_per_question, 2),
-                "options": None,
             }
 
             if q.question_type in ["mcq", "multiple", "true_false"]:
-                q_data["options"] = [
-                    {"id": str(o.id), "option_text": o.option_text} for o in q.options.all().order_by("order")
+                data["options"] = [
+                    {"id": str(o.id), "option_text": o.option_text}
+                    for o in q.options.all().order_by("order")
                 ]
 
-            questions_data.append(q_data)
+            questions_data.append(data)
 
         return api_response(
             True,
@@ -1282,12 +1301,21 @@ class QuizAttemptViewSet(viewsets.ReadOnlyModelViewSet):
                 status.HTTP_403_FORBIDDEN,
             )
 
+        # DOUBLE SUBMIT PREVENTION (MAIN GUARD)
+        if attempt.submitted_at is not None:
+            return api_response(
+                False,
+                "Quiz already submitted",
+                None,
+                status.HTTP_400_BAD_REQUEST,
+            )
+
         if attempt.submitted_at:
             return api_response(False, "Quiz already submitted", None, status.HTTP_400_BAD_REQUEST)
 
         answers_data = request.data.get("answers", [])
-        if not answers_data:
-            return api_response(False, "No answers submitted", None, status.HTTP_400_BAD_REQUEST)
+        if answers_data is None:
+            answers_data = []
 
         total_questions = attempt.quiz.questions.filter(is_active=True).count()
         marks_per_question = attempt.quiz.total_marks / total_questions if total_questions else 0
