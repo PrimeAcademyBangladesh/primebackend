@@ -66,7 +66,7 @@ class Income(TimeStampedModel):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    transaction_id = models.CharField(max_length=50, unique=True, editable=False)
+    transaction_id = models.CharField(max_length=50, unique=True, editable=False, db_index=True)
 
     income_type = models.ForeignKey(IncomeType, on_delete=models.PROTECT)
     payment_method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT)
@@ -107,10 +107,7 @@ class Income(TimeStampedModel):
         ordering = ['-date', '-created_at']
 
     def save(self, *args, **kwargs):
-        if self.pk and "transaction_id" in self.__dict__:
-
-            self.transaction_id = Income.objects.only("transaction_id").get(pk=self.pk).transaction_id
-
+        # Generate transaction_id only once (on create)
         if self._state.adding and not self.transaction_id:
             self.transaction_id = self.generate_transaction_id()
 

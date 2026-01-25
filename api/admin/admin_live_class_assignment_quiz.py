@@ -28,68 +28,6 @@ from api.models.models_module import (
 )
 
 
-# ========== Quiz Nested Inlines ==========
-
-
-class QuizQuestionOptionInline(nested_admin.NestedTabularInline):
-    """Inline for quiz question options (for MCQ questions)."""
-
-    model = QuizQuestionOption
-    extra = 4
-    max_num = 10
-    fields = ["order", "option_text", "is_correct"]
-    ordering = ["order"]
-    verbose_name = "Answer Option"
-    verbose_name_plural = "Answer Options (Check one or more as correct)"
-# ToDo here
-    class Media:
-        css = {"all": ("admin/css/quiz_options.css",)}
-
-
-class QuizQuestionInline(nested_admin.NestedStackedInline):
-    """Inline for quiz questions."""
-
-    model = QuizQuestion
-    extra = 0
-    fields = [
-        "order",
-        "question_type",
-        "question_text",
-        "marks",
-        "correct_answer_text",
-        "explanation",
-        "is_active",
-    ]
-    ordering = ["order"]
-    inlines = [QuizQuestionOptionInline]
-    verbose_name = "Question"
-    verbose_name_plural = "Quiz Questions"
-
-    def get_fieldsets(self, request, obj=None):
-        """Dynamic fieldsets based on question type."""
-        return (
-            (
-                "Question Details",
-                {
-                    "fields": (
-                        "order",
-                        "question_type",
-                        "question_text",
-                        "marks",
-                        "is_active",
-                    )
-                },
-            ),
-            (
-                "Answer Configuration",
-                {
-                    "fields": ("correct_answer_text", "explanation"),
-                    "description": "For short answer/essay: Enter expected answer. For MCQ: Add options below and mark correct ones.",
-                },
-            ),
-        )
-
-
 # ========== Live Class Admin ==========
 
 
@@ -790,8 +728,14 @@ class AssignmentSubmissionAdmin(BaseModelAdmin):
 
 class QuizQuestionOptionInline(nested_admin.NestedTabularInline):
     model = QuizQuestionOption
-    extra = 2
-    ordering = ("order",)
+    extra = 4
+    max_num = 10
+    fields = ["order", "option_text", "is_correct"]
+    ordering = ["order"]
+
+    verbose_name = "Answer Option"
+    verbose_name_plural = "Answer Options (tick correct ones)"
+
 
 
 # ------------------------------------------------------------

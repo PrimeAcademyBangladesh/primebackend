@@ -15,9 +15,6 @@ from api.models.models_accounting import (
 # ============================================================
 # BASE UPDATE REQUEST SERIALIZER (REUSABLE CORE)
 # ============================================================
-# ============================================================
-# BASE UPDATE REQUEST AUDIT SERIALIZER (READ-ONLY)
-# ============================================================
 
 class BaseUpdateRequestAuditSerializer(serializers.ModelSerializer):
     requested_by_name = serializers.CharField(
@@ -37,7 +34,7 @@ class BaseUpdateRequestAuditSerializer(serializers.ModelSerializer):
     class Meta:
         fields = [
             "id",
-            "status",               # pending / approved / rejected
+            "status",
             "requested_data",
             "requested_by_name",
             "requested_by_email",
@@ -52,34 +49,50 @@ class BaseUpdateRequestAuditSerializer(serializers.ModelSerializer):
 
 class BaseUpdateRequestSerializer(serializers.ModelSerializer):
     """
-    Base serializer for update requests (Income / Expense).
-
-    Subclasses MUST define:
-    - Meta.model
-    - ALLOWED_FIELDS (set of allowed field names)
+    Base serializer for update-request approval workflow.
+    Ensures only allowed fields can be updated and prevents empty requests.
     """
 
-    ALLOWED_FIELDS = set()
+    requested_data = serializers.JSONField()
 
     def validate_requested_data(self, value):
         if not isinstance(value, dict):
-            raise serializers.ValidationError("requested_data must be a dictionary.")
+            raise serializers.ValidationError("requested_data must be an object.")
 
-        invalid_fields = set(value.keys()) - self.ALLOWED_FIELDS
-        if invalid_fields:
+        if not value:
+            raise serializers.ValidationError("No fields provided for update.")
+
+        model = self.Meta.model
+
+        # Ensure model defines allowed fields
+        allowed_fields = getattr(model, "ALLOWED_UPDATE_FIELDS", None)
+        if not allowed_fields:
             raise serializers.ValidationError(
-                f"Invalid fields for update: {', '.join(sorted(invalid_fields))}"
+                "Update validation is not configured for this model."
             )
+
+        invalid_fields = set(value.keys()) - set(allowed_fields)
+
+        if invalid_fields:
+            raise serializers.ValidationError({
+                "invalid_fields": (
+                    f"These fields cannot be updated: "
+                    f"{', '.join(sorted(invalid_fields))}"
+                )
+            })
 
         return value
 
     def create(self, validated_data):
-        request = self.context["request"]
+        request = self.context.get("request")
+        if not request:
+            raise serializers.ValidationError("Request context is required.")
+
         return self.Meta.model.objects.create(
             requested_by=request.user,
-            status="pending",
             **validated_data,
         )
+
 
 
 class IncomeUpdateRequestAuditSerializer(
@@ -104,14 +117,29 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
         model = PaymentMethod
         fields = "__all__"
 
-
 class IncomeCreateSerializer(serializers.ModelSerializer):
     transaction_id = serializers.ReadOnlyField()
 
     class Meta:
         model = Income
-        exclude = ["approved_by", "approved_at", "approval_status"]
+        fields = [
+            "id",
+            "transaction_id",
+            "income_type",
+            "payment_method",
+            "payer_name",
+            "payer_email",
+            "payer_phone",
+            "payment_reference",
+            "amount",
+            "date",
+            "description",
+        ]
+        read_only_fields = ["id", "transaction_id"]
 
+    # -------------------------
+    # FIELD VALIDATIONS
+    # -------------------------
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
@@ -122,18 +150,24 @@ class IncomeCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Income date cannot be in the future.")
         return value
 
+    # -------------------------
+    # OBJECT LEVEL VALIDATION
+    # -------------------------
     def validate(self, attrs):
         income_type = attrs.get("income_type")
         payment_method = attrs.get("payment_method")
 
         if income_type and not income_type.is_active:
-            raise serializers.ValidationError({"income_type": "Selected income type is not active."})
+            raise serializers.ValidationError({
+                "income_type": "Selected income type is not active."
+            })
 
         if payment_method and not payment_method.is_active:
-            raise serializers.ValidationError({"payment_method": "Selected payment method is not active."})
+            raise serializers.ValidationError({
+                "payment_method": "Selected payment method is not active."
+            })
 
         return attrs
-
 
 class IncomeReadSerializer(serializers.ModelSerializer):
     income_type_name = serializers.CharField(source="income_type.name", read_only=True)
@@ -184,11 +218,10 @@ class IncomeListSerializer(serializers.ModelSerializer):
 
 
 class IncomeUpdateRequestCreateSerializer(BaseUpdateRequestSerializer):
-    ALLOWED_FIELDS = IncomeUpdateRequest.ALLOWED_UPDATE_FIELDS
-
     class Meta:
         model = IncomeUpdateRequest
-        fields = ["income", "requested_data"]
+        fields = ["requested_data"]
+
 
 
 class IncomeUpdateRequestReadSerializer(serializers.ModelSerializer):
