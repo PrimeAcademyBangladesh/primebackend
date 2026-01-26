@@ -65,16 +65,16 @@ from api.views.views_custom_payment import CustomPaymentViewSet
 from api.views.views_dashboard import course_details, dashboard_overview, earnings_details, student_details
 from api.views.views_employee import DepartmentViewSet, EmployeeViewSet
 from api.views.views_export import (
-    export_course_completion_csv,
-    export_course_completion_pdf,
-    export_employees_csv,
-    export_employees_pdf,
-    export_my_order_invoice_by_number_pdf,
-    export_my_order_invoice_pdf,
-    export_order_invoice_pdf,
-    export_orders_csv,
-    export_revenue_analytics_csv,
-    export_revenue_analytics_pdf,
+    # export_course_completion_csv,
+    # export_course_completion_pdf,
+    # export_employees_csv,
+    # export_employees_pdf,
+    # export_my_order_invoice_by_number_pdf,
+    # export_my_order_invoice_pdf,
+    # export_order_invoice_pdf,
+    # export_orders_csv,
+    # export_revenue_analytics_csv,
+    # export_revenue_analytics_pdf,
     export_students_csv,
     export_students_pdf,
 )
@@ -422,48 +422,48 @@ urlpatterns = router.urls + [
     path("export/students/csv/", export_students_csv, name="export-students-csv"),
     path("export/students/pdf/", export_students_pdf, name="export-students-pdf"),
     # Employee exports
-    path("export/employees/csv/", export_employees_csv, name="export-employees-csv"),
-    path("export/employees/pdf/", export_employees_pdf, name="export-employees-pdf"),
-    # Order exports
-    path("export/orders/csv/", export_orders_csv, name="export-orders-csv"),
-    path(
-        "export/orders/<uuid:order_id>/invoice/",
-        export_order_invoice_pdf,
-        name="export-order-invoice",
-    ),
-    # Student's own invoice download
-    path(
-        "export/my-orders/<uuid:order_id>/invoice/",
-        export_my_order_invoice_pdf,
-        name="export-my-order-invoice",
-    ),
-    path(
-        "export/my-orders/<str:order_number>/invoice/",
-        export_my_order_invoice_by_number_pdf,
-        name="export-my-order-invoice-by-number",
-    ),
-    # Course completion reports
-    path(
-        "export/course-completion/csv/",
-        export_course_completion_csv,
-        name="export-course-completion-csv",
-    ),
-    path(
-        "export/course-completion/pdf/",
-        export_course_completion_pdf,
-        name="export-course-completion-pdf",
-    ),
-    # Revenue & sales analytics
-    path(
-        "export/revenue-analytics/csv/",
-        export_revenue_analytics_csv,
-        name="export-revenue-analytics-csv",
-    ),
-    path(
-        "export/revenue-analytics/pdf/",
-        export_revenue_analytics_pdf,
-        name="export-revenue-analytics-pdf",
-    ),
+    # path("export/employees/csv/", export_employees_csv, name="export-employees-csv"),
+    # path("export/employees/pdf/", export_employees_pdf, name="export-employees-pdf"),
+    # # Order exports
+    # path("export/orders/csv/", export_orders_csv, name="export-orders-csv"),
+    # path(
+    #     "export/orders/<uuid:order_id>/invoice/",
+    #     export_order_invoice_pdf,
+    #     name="export-order-invoice",
+    # ),
+    # # Student's own invoice download
+    # path(
+    #     "export/my-orders/<uuid:order_id>/invoice/",
+    #     export_my_order_invoice_pdf,
+    #     name="export-my-order-invoice",
+    # ),
+    # path(
+    #     "export/my-orders/<str:order_number>/invoice/",
+    #     export_my_order_invoice_by_number_pdf,
+    #     name="export-my-order-invoice-by-number",
+    # ),
+    # # Course completion reports
+    # path(
+    #     "export/course-completion/csv/",
+    #     export_course_completion_csv,
+    #     name="export-course-completion-csv",
+    # ),
+    # path(
+    #     "export/course-completion/pdf/",
+    #     export_course_completion_pdf,
+    #     name="export-course-completion-pdf",
+    # ),
+    # # Revenue & sales analytics
+    # path(
+    #     "export/revenue-analytics/csv/",
+    #     export_revenue_analytics_csv,
+    #     name="export-revenue-analytics-csv",
+    # ),
+    # path(
+    #     "export/revenue-analytics/pdf/",
+    #     export_revenue_analytics_pdf,
+    #     name="export-revenue-analytics-pdf",
+    # ),
 
     # Accounting dashboard endpoint
     path("accounting/dashboard/", AccountingDashboardAPIView.as_view(), name="accounting-dashboard"),
